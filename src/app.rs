@@ -1,13 +1,10 @@
 use std::{iter::Map, collections::HashMap};
-use futures::prelude::*;
-use irc::client::prelude::*;
-use failure;
 use tokio::sync::mpsc;
 
 use chrono::{Utc,DateTime};
-use eframe::{egui, epi};
+use eframe::{egui::{self, RichText, TextStyle, Label}, epi, epaint::{Color32, text::LayoutJob, FontFamily, FontId, Vec2}};
 
-#[path = "twitch.rs"] mod twitch;
+use crate::provider::twitch;
 
 pub struct ChatMessage {
   channel: String,
@@ -17,7 +14,7 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-  fn new(_channel : &String, _username : &str, _timestamp : DateTime<Utc>, _message : &String) -> Self {
+  pub fn new(_channel : &String, _username : &str, _timestamp : DateTime<Utc>, _message : &String) -> Self {
     Self {
       channel: _channel.to_owned(),
       username: _username.to_owned(),
@@ -29,38 +26,46 @@ impl ChatMessage {
 
 pub struct Channel {
   label: String,
+  provider: String,
   history: Vec<ChatMessage>,
   rx: mpsc::Receiver<ChatMessage>
 }
 
 impl Channel {
-    fn new(_name : &String, _rx : mpsc::Receiver<ChatMessage>) -> Self {
-        Self { label: _name.to_string(), history: Vec::new(), rx: _rx }
+  pub fn new(_name : &String, _provider : &String, _rx : mpsc::Receiver<ChatMessage>) -> Self {
+    Self { 
+      label: _name.to_owned(), 
+      provider: _provider.to_owned(),
+      history: Vec::new(), 
+      rx: _rx 
     }
+  }
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-  // Example stuff:
-  label: String,
-
-  // this how you opt-out of serialization of a member
   #[cfg_attr(feature = "persistence", serde(skip))]
-  value: f32,
-  selectedChannel: String,
+  runtime: tokio::runtime::Runtime,
   channels: HashMap<String, Channel>,
+  selectedChannel: Option<String>,
+  draftMessage: String,
+  add_channel_menu_show: bool,
+  add_channel_menu_channel_name: String,
+  add_channel_menu_provider: String
 }
 
 impl Default for TemplateApp {
   fn default() -> Self {
     Self {
-      // Example stuff:
-      label: "Hello World!".to_owned(),
-      value: 2.7,
-      selectedChannel: String::new(),
-      channels: HashMap::new()
+      runtime: tokio::runtime::Runtime::new().expect("new tokio Runtime"),
+      channels: HashMap::new(),
+      selectedChannel: None,
+      draftMessage: Default::default(),
+      add_channel_menu_show: false,
+      add_channel_menu_channel_name: Default::default(),
+      add_channel_menu_provider: "twitch".to_owned()
     }
   }
 }
@@ -96,108 +101,198 @@ impl epi::App for TemplateApp {
   /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
   fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
     let Self {
-      label,
-      value,
+      runtime,
+      channels,
       selectedChannel,
-      channels
+      draftMessage,
+      add_channel_menu_show,
+      add_channel_menu_channel_name,
+      add_channel_menu_provider
     } = self;
 
-    // Examples of how to create different panels and windows.
-    // Pick whichever suits you.
-    // Tip: a good default choice is to just keep the `CentralPanel`.
-    // For inspiration and more examples, go to https://emilk.github.io/egui
+    let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
+      let mut c = match provider_input.as_str() {
+        "twitch" => twitch::open_channel(&channel_name_input.to_owned(), &runtime),
+        _ => panic!("invalid provider")
+      };
+      c.history.insert(c.history.len(), ChatMessage { 
+        channel: channel_name_input.to_owned(), 
+        username: "server".to_owned(), 
+        timestamp: chrono::Utc::now(), 
+        message: format!("Added channel.") 
+      });
+      channels.insert(channel_name_input.to_owned(), c);
+      *selectedChannel = Some(channel_name_input.to_owned());
+      *channel_name_input = Default::default();
+      *show_toggle = false;
+    };
+
+    if add_channel_menu_show.to_owned() {
+      egui::Window::new("Add Channel").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+          ui.label("Provider:");
+          ui.selectable_value(add_channel_menu_provider, "twitch".to_owned(), "Twitch");
+          ui.selectable_value(add_channel_menu_provider, "youtube".to_owned(), "Youtube");
+          ui.selectable_value(add_channel_menu_provider, "dgg".to_owned(), "destiny.gg");
+          ui.selectable_value(add_channel_menu_provider, "null".to_owned(), "Null");
+        });
+        ui.horizontal(|ui| {
+          ui.label("Channel Name:");
+          let name_input = ui.text_edit_singleline(add_channel_menu_channel_name);
+          name_input.request_focus();
+          if name_input.has_focus() && ui.input().key_pressed(egui::Key::Enter) {
+            add_channel(add_channel_menu_show, add_channel_menu_channel_name, add_channel_menu_provider); 
+          }
+        });
+        if ui.button("Add channel").clicked() {
+          add_channel(add_channel_menu_show, add_channel_menu_channel_name, add_channel_menu_provider);
+        }
+      });
+    }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       // The top panel is often a good place for a menu bar:
       egui::menu::bar(ui, |ui| {
         ui.menu_button("File", |ui| {
-          if ui.button("Configure Tokens").clicked() {}
+          if ui.button("Configure Tokens").clicked() {
+
+          }
           if ui.button("Add channel").clicked() {
-            let c = twitch::open_channel(&"jormh".to_owned());
-            channels.insert("jormh".to_owned(), c);
-            *selectedChannel = "jormh".to_owned();
+            *add_channel_menu_show = true;
+            ui.close_menu();
           }
           if ui.button("Quit").clicked() {
             frame.quit();
           }
         });
       });
-    });
 
-    egui::CentralPanel::default().show(ctx, |ui| {
-      // The central panel the region left after adding TopPanel's and SidePanel's
+      ui.horizontal(|ui| {
+        for (channel, sco) in channels.iter_mut() {
+          let mut label = channel.to_owned();
+          loop {
+            match sco.rx.try_recv() {
+              Ok(x) => {
+                println!("{}", x.message);
+                sco.history.insert(sco.history.len(), x)
+              },
+              Err(_x) => break, //println!("Receive Error: {}", _x),
+              _ => break
+            };
+          }
 
-      let selectedChannelObject = channels.get_mut(&selectedChannel.to_owned());
-
-      if let Some(sco) = selectedChannelObject
-      {
-        while let Some(cmd) = sco.rx.blocking_recv() {
-          sco.history.insert(sco.history.len(), cmd);
+          label = format!("{} ({})", channel, sco.history.len());
+          ui.selectable_value(selectedChannel, Some(channel.to_owned()), label.to_owned());
         }
-
-        let history = &sco.history;
-
-        let text_style = egui::TextStyle::Body;
-        let row_height = ui.text_style_height(&text_style);
-        egui::ScrollArea::vertical().stick_to_bottom().show_rows(
-          ui,
-          row_height,
-          history.len(),
-          |ui, row_range| {
-            let rows = history.into_iter().skip(row_range.start).take(row_range.count());
-            for row in rows {
-              let text = format!("{}: {}: {}: {}", row.channel, row.timestamp, row.username, row.message);
-              ui.label(text);
-            }
-          },
-        );
-      }
+      });
 
       egui::warn_if_debug_build(ui);
     });
 
-    if false {
-      egui::Window::new("Window").show(ctx, |ui| {
-        ui.label("Windows can be moved by dragging them.");
-        ui.label("They are automatically sized based on contents.");
-        ui.label("You can turn on resizing and scrolling if you like.");
-        ui.label("You would normally chose either panels OR windows.");
+    let cframe = egui::Frame { 
+      margin: egui::style::Margin::same(5.0), 
+      fill: egui::Color32::from(egui::Color32::TRANSPARENT),
+      ..Default::default() 
+    };
+    egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
+      ui.vertical(|ui| {
+        if let Some(sc) = selectedChannel {
+          if let Some(sco) = channels.get(&sc.to_owned()) {
+            let history = &sco.history;
+
+            let row_height = 16.0;
+            egui::ScrollArea::vertical()
+              .max_height(ui.available_height() - 50.)  
+              .auto_shrink([false; 2])
+              .stick_to_bottom()
+              .show_rows( // needs a way to account for wrapped rows
+                ui,
+                row_height,
+                history.len(),
+                |ui, row_range| {
+                  let rows = history.into_iter().skip(row_range.start).take(row_range.count());
+                  for row in rows {
+                    let channel_color = match sco.provider.as_str() {
+                      "twitch" => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
+                      "youtube" => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
+                      _ => Color32::default()
+                    };
+                    
+                    let mut job = LayoutJob {
+                      wrap_width: ui.available_width() * 0.8,
+                      //first_row_min_height: row_height,
+                      ..Default::default()
+                    };
+
+                    job.append(&row.channel.to_owned(), 0., egui::TextFormat { 
+                      font_id: FontId::new(12.0, FontFamily::Proportional), 
+                      color: channel_color, 
+                      ..Default::default()
+                    });
+                    job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
+                      font_id: FontId::new(12.0, FontFamily::Proportional), 
+                      color: Color32::DARK_GRAY, 
+                      ..Default::default()
+                    });
+                    job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
+                      font_id: FontId::new(16.0, FontFamily::Proportional), 
+                      color: Color32::WHITE, 
+                      ..Default::default()
+                    });
+                    job.append(&row.message.to_owned(), 8.0, egui::TextFormat { 
+                      font_id: FontId::new(16.0, FontFamily::Proportional),
+                      ..Default::default()
+                    });
+
+                    let lbl = Label::new(job).wrap(true);
+                    ui.add(lbl);
+                  }
+                },
+              );
+              ui.separator();
+              ui.text_edit_singleline(draftMessage);
+              ui.label(chrono::Utc::now().to_string());
+          }
+        }
+        
       });
-    }
+    });
+
+    ctx.request_repaint();
   }
 
-fn save(&mut self, _storage: &mut dyn epi::Storage) {}
+  fn save(&mut self, _storage: &mut dyn epi::Storage) {}
 
-fn on_exit_event(&mut self) -> bool {
-        true
-    }
+  fn on_exit_event(&mut self) -> bool {
+    true
+  }
 
-fn on_exit(&mut self) {}
+  fn on_exit(&mut self) {}
 
-fn auto_save_interval(&self) -> std::time::Duration {
-        std::time::Duration::from_secs(30)
-    }
+  fn auto_save_interval(&self) -> std::time::Duration {
+      std::time::Duration::from_secs(30)
+  }
 
-fn max_size_points(&self) -> egui::Vec2 {
-        egui::Vec2::new(1024.0, 2048.0)
-    }
+  fn max_size_points(&self) -> egui::Vec2 {
+    egui::Vec2::new(1024.0, 2048.0)
+  }
 
-fn clear_color(&self) -> egui::Rgba {
-        // NOTE: a bright gray makes the shadows of the windows look weird.
-        // We use a bit of transparency so that if the user switches on the
-        // `transparent()` option they get immediate results.
-        egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).into()
-    }
+  fn clear_color(&self) -> egui::Rgba {
+    // NOTE: a bright gray makes the shadows of the windows look weird.
+    // We use a bit of transparency so that if the user switches on the
+    // `transparent()` option they get immediate results.
+    egui::Color32::from_rgba_unmultiplied(12, 12, 12, 200).into()
+  }
 
-fn persist_native_window(&self) -> bool {
-        true
-    }
+  fn persist_native_window(&self) -> bool {
+    true
+  }
 
-fn persist_egui_memory(&self) -> bool {
-        true
-    }
+  fn persist_egui_memory(&self) -> bool {
+    true
+  }
 
-fn warm_up_enabled(&self) -> bool {
-        false
-    }
+  fn warm_up_enabled(&self) -> bool {
+    false
+  }
 }

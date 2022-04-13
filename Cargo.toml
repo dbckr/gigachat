@@ -7,7 +7,8 @@ edition = "2021"
 
 [dependencies]
 futures = "0.3.0"
-tokio = { version = "1.12.0", features = ["full"] }
+tokio = { version = "1.17.0", features = ["full"] }
+egui = { version = "0.8.0", features = ["persistence"] }
 eframe = "0.17.0"
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = "1.0.0"
@@ -22,6 +23,13 @@ chrono = "0.4.7"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
+
+[patch.crates-io]
+# If you want to use the bleeding edge version of `egui`:
+# eframe = { git = "https://github.com/emilk/egui", branch = "master" }
+
+# If you fork https://github.com/emilk/egui you can test with:
+# eframe = { path = "../egui/eframe" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
