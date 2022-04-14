@@ -1,45 +1,54 @@
-use std::{iter::Map, collections::HashMap};
+use std::{collections::HashMap};
 use tokio::sync::mpsc;
 
 use chrono::{Utc,DateTime};
-use eframe::{egui::{self, RichText, TextStyle, Label}, epi, epaint::{Color32, text::LayoutJob, FontFamily, FontId, Vec2}};
+use eframe::{egui::{self, Label}, epi, epaint::{Color32, text::LayoutJob, FontFamily, FontId}};
 
-use crate::provider::twitch;
+use crate::provider::{twitch, convert_color};
 
-pub struct ChatMessage {
-  channel: String,
-  username: String,
-  timestamp: DateTime<Utc>,
-  message: String
+pub struct UserBadge {
+  pub image_data: Vec<u8>
 }
 
-impl ChatMessage {
-  pub fn new(_channel : &String, _username : &str, _timestamp : DateTime<Utc>, _message : &String) -> Self {
+pub struct UserProfile {
+  pub badges: Vec<UserBadge>,
+  pub display_name: String,
+  pub color: (u8, u8, u8)
+}
+
+impl Default for UserProfile {
+  fn default() -> Self {
     Self {
-      channel: _channel.to_owned(),
-      username: _username.to_owned(),
-      timestamp: _timestamp,
-      message: _message.to_owned()
+      color: (255, 255, 255),
+      display_name: Default::default(),
+      badges: Vec::new()
+    }
+  }
+}
+
+pub struct ChatMessage {
+  pub username: String,
+  pub timestamp: DateTime<Utc>,
+  pub message: String,
+  pub profile: UserProfile
+}
+
+impl Default for ChatMessage {
+  fn default() -> Self {
+    Self {
+      username: Default::default(),
+      timestamp: Utc::now(),
+      message: Default::default(),
+      profile: Default::default()
     }
   }
 }
 
 pub struct Channel {
-  label: String,
-  provider: String,
-  history: Vec<ChatMessage>,
-  rx: mpsc::Receiver<ChatMessage>
-}
-
-impl Channel {
-  pub fn new(_name : &String, _provider : &String, _rx : mpsc::Receiver<ChatMessage>) -> Self {
-    Self { 
-      label: _name.to_owned(), 
-      provider: _provider.to_owned(),
-      history: Vec::new(), 
-      rx: _rx 
-    }
-  }
+  pub label: String,
+  pub provider: String,
+  pub history: Vec<ChatMessage>,
+  pub rx: mpsc::Receiver<ChatMessage>
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -49,8 +58,8 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: tokio::runtime::Runtime,
   channels: HashMap<String, Channel>,
-  selectedChannel: Option<String>,
-  draftMessage: String,
+  selected_channel: Option<String>,
+  draft_message: String,
   add_channel_menu_show: bool,
   add_channel_menu_channel_name: String,
   add_channel_menu_provider: String
@@ -61,8 +70,8 @@ impl Default for TemplateApp {
     Self {
       runtime: tokio::runtime::Runtime::new().expect("new tokio Runtime"),
       channels: HashMap::new(),
-      selectedChannel: None,
-      draftMessage: Default::default(),
+      selected_channel: None,
+      draft_message: Default::default(),
       add_channel_menu_show: false,
       add_channel_menu_channel_name: Default::default(),
       add_channel_menu_provider: "twitch".to_owned()
@@ -103,8 +112,8 @@ impl epi::App for TemplateApp {
     let Self {
       runtime,
       channels,
-      selectedChannel,
-      draftMessage,
+      selected_channel,
+      draft_message,
       add_channel_menu_show,
       add_channel_menu_channel_name,
       add_channel_menu_provider
@@ -112,17 +121,17 @@ impl epi::App for TemplateApp {
 
     let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
       let mut c = match provider_input.as_str() {
-        "twitch" => twitch::open_channel(&channel_name_input.to_owned(), &runtime),
+        "twitch" => twitch::open_channel(channel_name_input.to_owned(), &runtime),
         _ => panic!("invalid provider")
       };
       c.history.insert(c.history.len(), ChatMessage { 
-        channel: channel_name_input.to_owned(), 
         username: "server".to_owned(), 
         timestamp: chrono::Utc::now(), 
-        message: format!("Added channel.") 
+        message: format!("Added channel."),
+        profile: UserProfile::default()
       });
       channels.insert(channel_name_input.to_owned(), c);
-      *selectedChannel = Some(channel_name_input.to_owned());
+      *selected_channel = Some(channel_name_input.to_owned());
       *channel_name_input = Default::default();
       *show_toggle = false;
     };
@@ -169,20 +178,18 @@ impl epi::App for TemplateApp {
 
       ui.horizontal(|ui| {
         for (channel, sco) in channels.iter_mut() {
-          let mut label = channel.to_owned();
           loop {
             match sco.rx.try_recv() {
               Ok(x) => {
                 println!("{}", x.message);
                 sco.history.insert(sco.history.len(), x)
               },
-              Err(_x) => break, //println!("Receive Error: {}", _x),
-              _ => break
+              Err(_) => break,
             };
           }
 
-          label = format!("{} ({})", channel, sco.history.len());
-          ui.selectable_value(selectedChannel, Some(channel.to_owned()), label.to_owned());
+          let label = format!("{} ({})", channel, sco.history.len());
+          ui.selectable_value(selected_channel, Some(channel.to_owned()), label.to_owned());
         }
       });
 
@@ -196,7 +203,7 @@ impl epi::App for TemplateApp {
     };
     egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
       ui.vertical(|ui| {
-        if let Some(sc) = selectedChannel {
+        if let Some(sc) = selected_channel {
           if let Some(sco) = channels.get(&sc.to_owned()) {
             let history = &sco.history;
 
@@ -224,7 +231,7 @@ impl epi::App for TemplateApp {
                       ..Default::default()
                     };
 
-                    job.append(&row.channel.to_owned(), 0., egui::TextFormat { 
+                    job.append(&sco.label, 0., egui::TextFormat { 
                       font_id: FontId::new(12.0, FontFamily::Proportional), 
                       color: channel_color, 
                       ..Default::default()
@@ -236,7 +243,7 @@ impl epi::App for TemplateApp {
                     });
                     job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
                       font_id: FontId::new(16.0, FontFamily::Proportional), 
-                      color: Color32::WHITE, 
+                      color: convert_color(&row.profile.color),
                       ..Default::default()
                     });
                     job.append(&row.message.to_owned(), 8.0, egui::TextFormat { 
@@ -250,7 +257,7 @@ impl epi::App for TemplateApp {
                 },
               );
               ui.separator();
-              ui.text_edit_singleline(draftMessage);
+              ui.text_edit_singleline(draft_message);
               ui.label(chrono::Utc::now().to_string());
           }
         }

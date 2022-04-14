@@ -1114,6 +1114,7 @@ dependencies = [
  "failure",
  "futures",
  "getopts",
+ "hex",
  "irc",
  "rand",
  "serde_json",
