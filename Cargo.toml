@@ -30,7 +30,8 @@ opt-level = 2 # fast and small wasm
 # eframe = { git = "https://github.com/emilk/egui", branch = "master" }
 
 # If you fork https://github.com/emilk/egui you can test with:
-# eframe = { path = "../egui/eframe" }
+egui = { path = "../egui/egui" }
+eframe = { path = "../egui/eframe" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"

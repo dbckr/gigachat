@@ -30,7 +30,7 @@ pub fn convert_color(input : &(u8, u8, u8)) -> Color32 {
 
   // normalize brightness
   let target = 200;
-
+ 
   let min = |x, y| -> u8 {
     let z = x < y;
     match z {

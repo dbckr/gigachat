@@ -2,7 +2,7 @@ use std::{collections::HashMap};
 use tokio::sync::mpsc;
 
 use chrono::{Utc,DateTime};
-use eframe::{egui::{self, Label}, epi, epaint::{Color32, text::LayoutJob, FontFamily, FontId}};
+use eframe::{egui::{self, Label}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId}};
 
 use crate::provider::{twitch, convert_color};
 
@@ -65,6 +65,17 @@ pub struct TemplateApp {
   add_channel_menu_provider: String
 }
 
+impl TemplateApp {
+  pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+      // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
+      // Restore app state using cc.storage (requires the "persistence" feature).
+      // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
+      // for e.g. egui::PaintCallback.
+      cc.egui_ctx.set_visuals(egui::Visuals::dark());
+      Self::default()
+  }
+}
+
 impl Default for TemplateApp {
   fn default() -> Self {
     Self {
@@ -80,24 +91,6 @@ impl Default for TemplateApp {
 }
 
 impl epi::App for TemplateApp {
-  fn name(&self) -> &str {
-    "Gigachat 0.0"
-  }
-
-  /// Called once before the first frame.
-  fn setup(
-    &mut self,
-    _ctx: &egui::Context,
-    _frame: &epi::Frame,
-    _storage: Option<&dyn epi::Storage>,
-  ) {
-    // Load previous app state (if any).
-    // Note that you must enable the `persistence` feature for this to work.
-    #[cfg(feature = "persistence")]
-    if let Some(storage) = _storage {
-      *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
-    }
-  }
 
   /// Called by the frame work to save state before shutdown.
   /// Note that you must enable the `persistence` feature for this to work.
@@ -108,7 +101,7 @@ impl epi::App for TemplateApp {
 
   /// Called each time the UI needs repainting, which may be many times per second.
   /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
-  fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+  fn update(&mut self, ctx: &egui::Context, frame: &mut epi::Frame) {
     let Self {
       runtime,
       channels,
@@ -197,7 +190,7 @@ impl epi::App for TemplateApp {
     });
 
     let cframe = egui::Frame { 
-      margin: egui::style::Margin::same(5.0), 
+      inner_margin: egui::style::Margin::same(5.0), 
       fill: egui::Color32::from(egui::Color32::TRANSPARENT),
       ..Default::default() 
     };
@@ -226,7 +219,10 @@ impl epi::App for TemplateApp {
                     };
                     
                     let mut job = LayoutJob {
-                      wrap_width: ui.available_width() * 0.8,
+                      wrap: TextWrapping { 
+                        break_anywhere: false,
+                        ..Default::default()
+                      },
                       //first_row_min_height: row_height,
                       ..Default::default()
                     };
@@ -265,7 +261,7 @@ impl epi::App for TemplateApp {
       });
     });
 
-    ctx.request_repaint();
+    //ctx.request_repaint();
   }
 
   fn save(&mut self, _storage: &mut dyn epi::Storage) {}
@@ -274,7 +270,7 @@ impl epi::App for TemplateApp {
     true
   }
 
-  fn on_exit(&mut self) {}
+  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {}
 
   fn auto_save_interval(&self) -> std::time::Duration {
       std::time::Duration::from_secs(30)
@@ -288,7 +284,7 @@ impl epi::App for TemplateApp {
     // NOTE: a bright gray makes the shadows of the windows look weird.
     // We use a bit of transparency so that if the user switches on the
     // `transparent()` option they get immediate results.
-    egui::Color32::from_rgba_unmultiplied(12, 12, 12, 200).into()
+    egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
   }
 
   fn persist_native_window(&self) -> bool {
