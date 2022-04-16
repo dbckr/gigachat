@@ -21,6 +21,7 @@ failure = "0.1.8"
 rand = "0.8.4"
 chrono = "0.4.7"
 hex = "0.4.3"
+image = "0.24.1"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

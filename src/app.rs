@@ -1,33 +1,12 @@
-use std::{collections::HashMap};
+use std::{collections::HashMap, default};
+use image::imageops::FilterType;
 use tokio::sync::mpsc;
 
 use chrono::{Utc,DateTime};
-use eframe::{egui::{self, Label, emath, InnerResponse}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId}};
+use eframe::{egui::{self, Label, emath, InnerResponse}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, ColorImage}, emath::{Align, Rect, Pos2}};
 
-use crate::provider::{twitch, convert_color};
-
-#[derive(Clone)]
-pub struct UserBadge {
-  pub image_data: Vec<u8>
-}
-
-#[derive(Clone)]
-pub struct UserProfile {
-  pub badges: Vec<UserBadge>,
-  pub display_name: String,
-  pub color: (u8, u8, u8)
-}
-
-
-impl Default for UserProfile {
-  fn default() -> Self {
-    Self {
-      color: (255, 255, 255),
-      display_name: Default::default(),
-      badges: Vec::new()
-    }
-  }
-}
+use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage}, emotes::Emote};
+use crate::emotes;
 
 pub struct ChatMessageUI {
   pub data: ChatMessage,
@@ -35,31 +14,14 @@ pub struct ChatMessageUI {
   //pub ui: egui::Label
 }
 
-#[derive(Clone)]
-pub struct ChatMessage {
-  pub username: String,
-  pub timestamp: DateTime<Utc>,
-  pub message: String,
-  pub profile: UserProfile 
-}
-
-impl Default for ChatMessage {
-  fn default() -> Self {
-    Self {
-      username: Default::default(),
-      timestamp: Utc::now(),
-      message: Default::default(),
-      profile: Default::default()
-    }
-  }
-}
-
 pub struct Channel {
   pub label: String,
+  pub roomid: String,
   pub provider: String,
   pub history: Vec<ChatMessage>,
   pub history_viewport_size_y: f32,
-  pub rx: mpsc::Receiver<ChatMessage>
+  pub rx: mpsc::Receiver<InternalMessage>,
+  pub channel_emotes: HashMap<String, Emote>
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -73,7 +35,8 @@ pub struct TemplateApp {
   draft_message: String,
   add_channel_menu_show: bool,
   add_channel_menu_channel_name: String,
-  add_channel_menu_provider: String
+  add_channel_menu_provider: String,
+  global_emotes: HashMap<String, Emote>
 }
 
 impl TemplateApp {
@@ -96,7 +59,8 @@ impl Default for TemplateApp {
       draft_message: Default::default(),
       add_channel_menu_show: false,
       add_channel_menu_channel_name: Default::default(),
-      add_channel_menu_provider: "twitch".to_owned()
+      add_channel_menu_provider: "twitch".to_owned(),
+      global_emotes: emotes::load_global_emotes().unwrap() //TODO: loading this HashMap should be spun off into a task to not block the UI
     }
   }
 }
@@ -120,8 +84,11 @@ impl epi::App for TemplateApp {
       draft_message,
       add_channel_menu_show,
       add_channel_menu_channel_name,
-      add_channel_menu_provider
+      add_channel_menu_provider,
+      global_emotes
     } = self;
+
+    let mut channel_swap = false;
 
     let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
       let c = match provider_input.as_str() {
@@ -131,7 +98,9 @@ impl epi::App for TemplateApp {
             provider: "null".to_owned(),
             history: Vec::default(),
             history_viewport_size_y: 0.0,
-            rx: mpsc::channel(32).1
+            rx: mpsc::channel(32).1,
+            channel_emotes: Default::default(),
+            roomid: "".to_owned(),
         },
         _ => panic!("invalid provider")
       };
@@ -188,7 +157,10 @@ impl epi::App for TemplateApp {
             if sco.provider != "null" {
               match sco.rx.try_recv() {
                 Ok(x) => {
-                  sco.history.insert(sco.history.len(), x);
+                  match x {
+                    InternalMessage::PrivMsg { message } => sco.history.insert(sco.history.len(), message),
+                    _ => ()
+                  };
                 },
                 Err(_) => break,
               };
@@ -196,7 +168,9 @@ impl epi::App for TemplateApp {
           }
 
           let label = format!("{} ({})", channel, sco.history.len());
-          ui.selectable_value(selected_channel, Some(channel.to_owned()), label.to_owned());
+          if ui.selectable_value(selected_channel, Some(channel.to_owned()), label.to_owned()).clicked() {
+            channel_swap = true;
+          }
         }
       });
     });
@@ -210,12 +184,12 @@ impl epi::App for TemplateApp {
       ui.vertical(|ui| {
         if let Some(sc) = selected_channel {
           if let Some(sco) = channels.get_mut(&sc.to_owned()) {
-            egui::ScrollArea::vertical()
+            let scroll_area = egui::ScrollArea::vertical()
               .max_height(ui.available_height() - 50.)  
               .auto_shrink([false; 2])
               .stick_to_bottom()
               .show_viewport(ui, |ui, viewport| {
-                show_variable_height_rows(ui, viewport, sco);
+                show_variable_height_rows(ctx, ui, viewport, sco, channel_swap, global_emotes);
               });
 
             ui.separator();
@@ -276,7 +250,7 @@ impl epi::App for TemplateApp {
   }
 }
 
-fn show_variable_height_rows(ui : &mut egui::Ui, viewport : emath::Rect, sco: &Channel) -> InnerResponse<()> {
+fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &Channel, channel_swap : bool, global_emotes: &mut HashMap<String, Emote>) -> InnerResponse<()> {
   let y_min = ui.max_rect().top() + viewport.min.y;
   let y_max = ui.max_rect().top() + viewport.max.y;
   let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
@@ -309,17 +283,40 @@ fn show_variable_height_rows(ui : &mut egui::Ui, viewport : emath::Rect, sco: &C
   //print!("{} {}", y_pos, ui.min_size().y);
   ui.skip_ahead_auto_ids(skipped_rows); // Make sure we get consistent IDs.
 
+  let emote = global_emotes.get_mut("_").unwrap();
+  let img = ctx.load_texture("DEFAULT".to_owned(), load_image_from_memory(emote.data.as_ref().unwrap()));
+
+  let mut last_rect : Rect = Rect { min: Pos2{ x: 0.0, y: 0.0 }, max: Pos2{ x: 0.0, y: 0.0 } };
   let mut add_contents = |ui : &mut egui::Ui, row_range : std::ops::Range<f32>| {
     for lbl in labels {
-      temp_dbg_sizes.push(ui.add(lbl).rect.height());
+      ui.horizontal_wrapped(|ui| {      
+        let x = ui.add(lbl);
+        ui.image(&img, img.size_vec2());
+        temp_dbg_sizes.push(x.rect.height());
+        last_rect = x.rect;
+      });
     }
   };
 
   let r = ui.allocate_ui_at_rect(rect, |viewport_ui| {
     add_contents(viewport_ui,  viewport.min.y..viewport.max.y)
   });
+
+  if channel_swap {
+    ui.scroll_to_rect(last_rect, Some(Align::BOTTOM));
+  }
   //println!(" {}", ui.min_size().y);
   r
+}
+
+fn load_image_from_memory(image: &image::DynamicImage) -> ColorImage {
+  let size = [image.width() as _, image.height() as _];
+  let image_buffer = image.to_rgba8();
+  let pixels = image_buffer.as_flat_samples();
+  ColorImage::from_rgba_unmultiplied(
+      size,
+      pixels.as_slice(),
+  )
 }
 
 fn create_chat_message(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32) -> (f32, LayoutJob) {
@@ -340,28 +337,33 @@ fn create_chat_message(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: 
   };
   job.append(&format!("{}",ix), 0., egui::TextFormat { 
     font_id: FontId::new(12.0, FontFamily::Proportional), 
-    color: Color32::WHITE, 
+    color: Color32::WHITE,
+    valign: Align::Center,
     ..Default::default()
   });
   job.append(&sco.label, 0., egui::TextFormat { 
     font_id: FontId::new(12.0, FontFamily::Proportional), 
     color: channel_color, 
+    valign: Align::Center,
     ..Default::default()
   });
   job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
     font_id: FontId::new(12.0, FontFamily::Proportional), 
     color: Color32::DARK_GRAY, 
+    valign: Align::Center,
     ..Default::default()
   });
   job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
     font_id: FontId::new(16.0, FontFamily::Proportional), 
     color: convert_color(&row.profile.color),
+    valign: Align::Center,
     ..Default::default()
   });
   job.append(&row.message.to_owned(), 8.0, egui::TextFormat { 
     font_id: FontId::new(16.0, FontFamily::Proportional),
+    valign: Align::Center,
     ..Default::default()
-  });
+  }); 
 
   let galley = ui.fonts().layout_job(job.clone());
   

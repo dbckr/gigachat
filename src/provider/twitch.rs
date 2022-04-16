@@ -1,22 +1,49 @@
 use futures::prelude::*;
 use irc::client::prelude::*;
 use tokio::{sync::mpsc, runtime::Runtime};
-use crate::{app::{Channel, ChatMessage, UserProfile}, provider::convert_color_hex};
+use crate::{app::{Channel}, provider::convert_color_hex, emotes};
+
+use super::{ChatMessage, UserProfile, UserBadge, InternalMessage};
 
 pub fn open_channel<'a>(name : String, runtime : &Runtime) -> Channel {
-  let (tx, rx) = mpsc::channel(32);
+  let (tx, mut rx) = mpsc::channel(32);
+  let name2 = name.to_owned();
+  let _task = runtime.spawn(async move { spawn_irc(name2, tx).await });
+  let mut rid = Default::default();
+
+  loop {
+    if let Some(msg) = rx.blocking_recv() {
+      match msg {
+        InternalMessage::RoomId { room_id } => {
+          rid = room_id;
+          break;
+        },
+        _ => ()
+      }
+    }
+  }
+
+  let channel_emotes = match emotes::load_channel_emotes(&rid) {
+    Ok(x) => x,
+    Err(x) => { 
+      println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
+      Default::default()
+    }
+  };
+
   let channel = Channel {  
     provider: "twitch".to_owned(), 
-    label: name.to_owned(),
+    label: name.to_string(),
+    roomid: rid,
     rx: rx,
     history: Vec::default(),
-    history_viewport_size_y: Default::default()
+    history_viewport_size_y: Default::default(),
+    channel_emotes: channel_emotes
   };
-  let _task = runtime.spawn(async move { spawn_irc(name, tx).await });
   channel
 }
 
-async fn spawn_irc(name : String, tx : mpsc::Sender<ChatMessage>) -> std::result::Result<(), failure::Error> {
+async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> std::result::Result<(), failure::Error> {
   let config_path = match std::env::var("IRC_Config_File") {
     Ok(val) => val,
     Err(_e) => "config/irc.toml".to_owned()
@@ -31,7 +58,9 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<ChatMessage>) -> std::result
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")])?;
   while let Some(message) = stream.next().await.transpose()? {
-      //print!("{}", message);
+      print!("{}", message);
+
+      //message.
 
       match message.command {
           Command::PRIVMSG(ref _target, ref msg) => {
@@ -56,7 +85,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<ChatMessage>) -> std::result
                     ..Default::default()
                   }
                 };
-                match tx.try_send(cmsg) {
+                match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
                   Ok(_) => (),
                   Err(x) => println!("Send failure: {}", x)
                 };
@@ -65,7 +94,23 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<ChatMessage>) -> std::result
           Command::PING(ref target, ref _msg) => {
               sender.send_pong(target)?;
           },
-          _ => (),
+          Command::Raw(ref command, ref strVec) => {
+            if let Some(tags) = message.tags {
+              if command == "USERSTATE" {
+                tx.try_send(InternalMessage::EmoteSets { emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
+              }
+              else if command == "ROOMSTATE" {
+                tx.try_send(InternalMessage::RoomId { room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() });
+              }
+              else {
+                ()
+              }
+            }
+            else {
+              ()
+            }
+          },
+          _ => ()
       }
   }
 

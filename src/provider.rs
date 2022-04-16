@@ -1,6 +1,55 @@
+use chrono::{DateTime, Utc};
 use eframe::epaint::Color32;
 
 pub mod twitch;
+
+#[derive(Clone)]
+pub struct UserBadge {
+  pub image_data: Vec<u8>
+}
+
+#[derive(Clone)]
+pub struct UserProfile {
+  pub badges: Vec<UserBadge>,
+  pub display_name: String,
+  pub color: (u8, u8, u8)
+}
+
+
+impl Default for UserProfile {
+  fn default() -> Self {
+    Self {
+      color: (255, 255, 255),
+      display_name: Default::default(),
+      badges: Vec::new()
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct ChatMessage {
+  pub username: String,
+  pub timestamp: DateTime<Utc>,
+  pub message: String,
+  pub profile: UserProfile 
+}
+
+impl Default for ChatMessage {
+  fn default() -> Self {
+    Self {
+      username: Default::default(),
+      timestamp: Utc::now(),
+      message: Default::default(),
+      profile: Default::default()
+    }
+  }
+}
+
+pub enum InternalMessage {
+  PrivMsg { message: ChatMessage },
+  EmoteSets { emote_sets: Vec<String> },
+  RoomId { room_id: String }
+}
 
 pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {
   match hex_string {

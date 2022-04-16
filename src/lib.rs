@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), deny(warnings))] // Forbid warnings in release builds
 #![warn(clippy::all, rust_2018_idioms)]
+#![feature(let_chains)]
 
 mod app;
 pub mod provider;
+pub mod emotes;
 pub use app::TemplateApp;
 
 // ----------------------------------------------------------------------------
