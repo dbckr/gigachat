@@ -1,11 +1,11 @@
 use futures::prelude::*;
 use irc::client::prelude::*;
 use tokio::{sync::mpsc, runtime::Runtime};
-use crate::{app::{Channel}, provider::convert_color_hex, emotes};
+use crate::{app::{Channel}, provider::convert_color_hex, emotes::{self, EmoteLoader}};
 
 use super::{ChatMessage, UserProfile, UserBadge, InternalMessage};
 
-pub fn open_channel<'a>(name : String, runtime : &Runtime) -> Channel {
+pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
   let (tx, mut rx) = mpsc::channel(32);
   let name2 = name.to_owned();
   let _task = runtime.spawn(async move { spawn_irc(name2, tx).await });
@@ -23,7 +23,7 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime) -> Channel {
     }
   }
 
-  let channel_emotes = match emotes::load_channel_emotes(&rid) {
+  let channel_emotes = match emote_loader.load_channel_emotes(&rid) {
     Ok(x) => x,
     Err(x) => { 
       println!("ERROR LOADING CHANNEL EMOTES: {}", x); 

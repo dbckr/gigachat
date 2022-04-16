@@ -1,26 +1,41 @@
 use curl::easy::{Easy};
-use eframe::epaint::ColorImage;
 use image::DynamicImage;
-use image::imageops::FilterType;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Write, BufReader, BufRead};
-use std::fs::{OpenOptions, File};
+use std::fs::{OpenOptions, File, DirBuilder};
 use std::str;
 use failure;
 use std::path::Path;
+use glob::glob;
 
 //#[derive(Clone)]
 pub struct Emote {
     pub name: String,
+    pub id: String,
     pub data: Option<DynamicImage>
 }
 
-pub fn load_channel_emotes(channel_id : &String) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
+pub struct EmoteLoader {
+    easy: Easy
+}
+
+impl Default for EmoteLoader {
+    fn default() -> Self {
+        Self {
+            easy: Easy::new()
+        }
+    }
+}
+
+impl EmoteLoader {
+
+pub fn load_channel_emotes(&mut self, channel_id : &String) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
+    let Self { easy } = self;
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
-    let ffz_emotes = process_emote_json(&ffz_url, "generated/ffz-channel-json")?;
-    //let bttv_url = format!("https://api.betterttv.net/3/cached/users/twitch/{}", channel_id);
-    //process_emote_json(&bttv_url, "generated/bttv-channel-json")?;
+    let ffz_emotes = self.process_emote_json(&ffz_url, &format!("generated/ffz-channel-json-{}", channel_id))?;
+    let bttv_url = format!("https://api.betterttv.net/3/cached/users/twitch/{}", channel_id);
+    let bttv_emotes = self.process_emote_json(&bttv_url, &format!("generated/bttv-channel-json-{}", channel_id))?;
     //let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
     //process_emote_json(&seventv_url, "generated/7tv-channel-json")?;
 
@@ -28,17 +43,20 @@ pub fn load_channel_emotes(channel_id : &String) -> std::result::Result<HashMap<
     for emote in ffz_emotes {
         result.insert(emote.name.to_owned(), emote);
     }
+    for emote in bttv_emotes {
+        result.insert(emote.name.to_owned(), emote);
+    }
     Ok(result)
 }
 
-pub fn load_global_emotes() -> std::result::Result<HashMap<String, Emote>, failure::Error> {
-    let bttv_emotes = process_emote_json("https://api.betterttv.net/3/cached/emotes/global", "generated/bttv-global-json")?;
-    let seventv_emotes = process_emote_json("https://api.7tv.app/v2/emotes/global", "generated/7tv-global-json")?;
+pub fn load_global_emotes(&mut self) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
+    let bttv_emotes = self.process_emote_json("https://api.betterttv.net/3/cached/emotes/global", "generated/bttv-global-json")?;
+    let seventv_emotes = self.process_emote_json("https://api.7tv.app/v2/emotes/global", "generated/7tv-global-json")?;
 
     let mut result : HashMap<String, Emote> = HashMap::new();
 
-    let unknown_image = image::open("img/DEFAULT.png").unwrap().resize_exact(24, 24, FilterType::Nearest);
-    result.insert("_".to_owned(), Emote { name: "DEFAULT".to_owned(), data: Some(unknown_image) });
+    let unknown_image = image::open("img/DEFAULT.png").unwrap();
+    result.insert("_".to_owned(), Emote { name: "DEFAULT".to_owned(), id: "-1".to_owned(), data: Some(unknown_image) });
 
     for emote in bttv_emotes {
         result.insert(emote.name.to_owned(), emote);
@@ -78,40 +96,58 @@ pub fn process_emote_list(filename: &str) -> std::result::Result<(), failure::Er
     Ok(())
 }
 
-pub fn process_emote_json(url: &str, filename: &str) -> std::result::Result<Vec<Emote>, failure::Error> {
+pub fn process_emote_json(&mut self, url: &str, filename: &str) -> std::result::Result<Vec<Emote>, failure::Error> {
+    let Self { easy } = self;
+
     println!("processing emote json {}", filename);
-    let data = get_emote_json(url, filename)?;
+    let data = self.get_emote_json(url, filename)?;
     let mut v: Value = serde_json::from_str(&data)?;
 
     let mut emotes : Vec<Emote> = Vec::default();
 
     if v["channelEmotes"].is_null() == false { // BTTV cache api
         for i in v["channelEmotes"].as_array_mut().unwrap() {
-            emotes.push(Emote { name: i["code"].to_string(), data: None })
+            let name = i["code"].to_string().trim_matches('"').to_owned();
+            let id = i["id"].to_string().trim_matches('"').to_owned();
+            let ext = i["imageType"].to_string().trim_matches('"').to_owned();
+            let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+            emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
         }
         for i in v["sharedEmotes"].as_array_mut().unwrap() {
-            emotes.push(Emote { name: i["code"].to_string().trim_matches('"').to_owned(), data: None })
+            let name = i["code"].to_string().trim_matches('"').to_owned();
+            let id = i["id"].to_string().trim_matches('"').to_owned();
+            let ext = i["imageType"].to_string().trim_matches('"').to_owned();
+            let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+            emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
         }
     }
     else if v["emotes"].is_null() == false { // BTTV channel name based API
         //e.g. get_emote_json("https://api.betterttv.net/2/channels/jormh", "bttv-jormh-json")?;
         for i in v["emotes"].as_array_mut().unwrap() {
-            emotes.push(Emote { name: i["code"].to_string().trim_matches('"').to_owned(), data: None })
+            //emotes.push(Emote { name: i["code"].to_string().trim_matches('"').to_owned(), data: None })
         }
     }
     else if v["room"].is_null() == false { // FFZ
         let setid = v["room"]["set"].to_string();
         for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap() {
-            emotes.push(Emote { name: i["name"].to_string().trim_matches('"').to_owned(), data: None })
+            //TODO: Try to get i["urls"]["4"] then i["urls"]["2"] then i["urls"]["1"] in that order of precedence
+            let imgurl = format!("https:{}", i["urls"]["4"].to_string().trim_matches('"'));
+            let name = i["name"].to_string().trim_matches('"').to_owned();
+            let id = i["id"].to_string().trim_matches('"').to_owned();
+            emotes.push(self.get_emote(name, id, &imgurl, "generated/ffz/", None));
         }
     }
     else if v[0].is_null() == false {
         for i in v.as_array_mut().unwrap() {
             if i["code"].is_null() == false {
-                emotes.push(Emote { name: i["code"].to_string().trim_matches('"').to_owned(), data: None })
+                let name = i["code"].to_string().trim_matches('"').to_owned();
+                let id = i["id"].to_string().trim_matches('"').to_owned();
+                let ext = i["imageType"].to_string().trim_matches('"').to_owned();
+                let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+                emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
             }
             else {
-                emotes.push(Emote { name: i["name"].to_string().trim_matches('"').to_owned(), data: None })
+                //emotes.push(Emote { name: i["name"].to_string().trim_matches('"').to_owned(), data: None })
             }
         }
     }
@@ -119,8 +155,8 @@ pub fn process_emote_json(url: &str, filename: &str) -> std::result::Result<Vec<
     Ok(emotes)
 }
 
-pub fn process_twitch_json(url: &str, filename: &str) -> std::result::Result<Vec<Emote>, failure::Error> {
-    let data = get_emote_json(url, filename)?;
+pub fn process_twitch_json(&mut self, url: &str, filename: &str) -> std::result::Result<Vec<Emote>, failure::Error> {
+    let data = self.get_emote_json(url, filename)?;
     let mut v: Value = serde_json::from_str(&data)?;
 
     let mut emotes : Vec<Emote> = Vec::default();
@@ -129,7 +165,7 @@ pub fn process_twitch_json(url: &str, filename: &str) -> std::result::Result<Vec
         for i in v[0]["data"]["channel"]["self"]["availableEmoteSets"].as_array_mut().unwrap() {
             for j in i["emotes"].as_array_mut().unwrap() {
                 //writeln!(f, "{}", j["token"].to_string().trim_matches('"'))?;
-                emotes.push(Emote { name: j["token"].to_string().trim_matches('"').to_owned(), data: None })
+                //emotes.push(get_emote( j["token"].to_string().trim_matches('"').to_owned(), data: None })
             }
         }
     //}
@@ -137,7 +173,7 @@ pub fn process_twitch_json(url: &str, filename: &str) -> std::result::Result<Vec
     Ok(emotes)
 }
 
-pub fn get_emote_json(url: &str, filename: &str) -> std::result::Result<String, failure::Error> {
+pub fn get_emote_json(&mut self, url: &str, filename: &str) -> std::result::Result<String, failure::Error> {
     if Path::new(filename).exists() == false {
         let mut f = OpenOptions::new()
         .create_new(true)
@@ -161,4 +197,79 @@ pub fn get_emote_json(url: &str, filename: &str) -> std::result::Result<String, 
         result.push_str(&line);
     }
     Ok(result)
+}
+
+pub fn get_emote(&mut self, name: String, id: String, url: &str, path: &str, extension: Option<String>) -> Emote {
+    Emote {
+        name: name,
+        data: self.get_image(url, path, &id, extension),
+        id: id,
+    }
+}
+
+pub fn get_image(&mut self, url: &str, path: &str, filename: &str, extension: Option<String>) -> Option<DynamicImage> {
+    let Self { easy } = self;
+
+    let mut inner = |url, filename : &str| -> std::result::Result<DynamicImage, failure::Error> {
+        if path.len() > 0 {
+            DirBuilder::new().recursive(true).create(path)?;
+        }
+
+        match glob(&format!("{}{}.*", path, filename))?.last() {
+            Some(x) => {
+                Ok(image::open(x?.as_path())?)
+            },
+            None => {
+                let mut extension : Option<String> = extension;
+                let mut buffer : Vec<u8> = Default::default();
+        
+                easy.url(url)?;
+                let mut transfer = easy.transfer();
+                if extension == None {
+                    transfer.header_function(|data| {
+                        let result = str::from_utf8(data);
+                        if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
+                            //TODO: extract extension using regex
+                            if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
+                                extension = Some("png".to_owned());
+                            }
+                            else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
+                                extension = Some("gif".to_owned());
+                            }
+                            else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
+                                extension = Some("webp".to_owned());
+                            }
+                        }
+                        true
+                    })?;
+                }
+                transfer.write_function(|data| {
+                    //f.write_all(data).expect("Failed to write to file");
+                    for byte in data {
+                        buffer.push(byte.to_owned());
+                    }
+                    Ok(data.len())
+                })?;
+                transfer.perform()?;
+                drop(transfer);
+
+                if let Some(ext) = extension {
+                    let mut f = OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(format!("{}{}.{}", path, filename, ext))?;
+
+                    f.write(&buffer)?;
+                }
+
+                Ok(image::load_from_memory(&buffer)?)
+            }
+        }
+    };
+    
+    match inner(url, filename) {
+        Ok(x) => Some(x),
+        Err(x) => None
+    }
+}
 }
