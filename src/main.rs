@@ -4,7 +4,6 @@ use eframe;
 fn main() {
     use gigachat::TemplateApp;
 
-  let app = gigachat::TemplateApp::default();
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,

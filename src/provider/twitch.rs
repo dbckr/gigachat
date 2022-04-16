@@ -9,7 +9,8 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime) -> Channel {
     provider: "twitch".to_owned(), 
     label: name.to_owned(),
     rx: rx,
-    history: Vec::default()
+    history: Vec::default(),
+    history_viewport_size_y: Default::default()
   };
   let _task = runtime.spawn(async move { spawn_irc(name, tx).await });
   channel
@@ -30,7 +31,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<ChatMessage>) -> std::result
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")])?;
   while let Some(message) = stream.next().await.transpose()? {
-      print!("{}", message);
+      //print!("{}", message);
 
       match message.command {
           Command::PRIVMSG(ref _target, ref msg) => {

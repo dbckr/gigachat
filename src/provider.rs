@@ -1,5 +1,3 @@
-use std::usize::MAX;
-
 use eframe::epaint::Color32;
 
 pub mod twitch;

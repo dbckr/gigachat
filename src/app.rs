@@ -2,19 +2,22 @@ use std::{collections::HashMap};
 use tokio::sync::mpsc;
 
 use chrono::{Utc,DateTime};
-use eframe::{egui::{self, Label}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId}};
+use eframe::{egui::{self, Label, emath, InnerResponse}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId}};
 
 use crate::provider::{twitch, convert_color};
 
+#[derive(Clone)]
 pub struct UserBadge {
   pub image_data: Vec<u8>
 }
 
+#[derive(Clone)]
 pub struct UserProfile {
   pub badges: Vec<UserBadge>,
   pub display_name: String,
   pub color: (u8, u8, u8)
 }
+
 
 impl Default for UserProfile {
   fn default() -> Self {
@@ -26,11 +29,18 @@ impl Default for UserProfile {
   }
 }
 
+pub struct ChatMessageUI {
+  pub data: ChatMessage,
+  pub viewport_size_y: f32,
+  //pub ui: egui::Label
+}
+
+#[derive(Clone)]
 pub struct ChatMessage {
   pub username: String,
   pub timestamp: DateTime<Utc>,
   pub message: String,
-  pub profile: UserProfile
+  pub profile: UserProfile 
 }
 
 impl Default for ChatMessage {
@@ -48,6 +58,7 @@ pub struct Channel {
   pub label: String,
   pub provider: String,
   pub history: Vec<ChatMessage>,
+  pub history_viewport_size_y: f32,
   pub rx: mpsc::Receiver<ChatMessage>
 }
 
@@ -113,16 +124,18 @@ impl epi::App for TemplateApp {
     } = self;
 
     let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
-      let mut c = match provider_input.as_str() {
+      let c = match provider_input.as_str() {
         "twitch" => twitch::open_channel(channel_name_input.to_owned(), &runtime),
+        "null" => Channel {
+            label: "null".to_owned(),
+            provider: "null".to_owned(),
+            history: Vec::default(),
+            history_viewport_size_y: 0.0,
+            rx: mpsc::channel(32).1
+        },
         _ => panic!("invalid provider")
       };
-      c.history.insert(c.history.len(), ChatMessage { 
-        username: "server".to_owned(), 
-        timestamp: chrono::Utc::now(), 
-        message: format!("Added channel."),
-        profile: UserProfile::default()
-      });
+
       channels.insert(channel_name_input.to_owned(), c);
       *selected_channel = Some(channel_name_input.to_owned());
       *channel_name_input = Default::default();
@@ -172,21 +185,20 @@ impl epi::App for TemplateApp {
       ui.horizontal(|ui| {
         for (channel, sco) in channels.iter_mut() {
           loop {
-            match sco.rx.try_recv() {
-              Ok(x) => {
-                println!("{}", x.message);
-                sco.history.insert(sco.history.len(), x)
-              },
-              Err(_) => break,
-            };
+            if sco.provider != "null" {
+              match sco.rx.try_recv() {
+                Ok(x) => {
+                  sco.history.insert(sco.history.len(), x);
+                },
+                Err(_) => break,
+              };
+            }
           }
 
           let label = format!("{} ({})", channel, sco.history.len());
           ui.selectable_value(selected_channel, Some(channel.to_owned()), label.to_owned());
         }
       });
-
-      egui::warn_if_debug_build(ui);
     });
 
     let cframe = egui::Frame { 
@@ -197,71 +209,35 @@ impl epi::App for TemplateApp {
     egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
       ui.vertical(|ui| {
         if let Some(sc) = selected_channel {
-          if let Some(sco) = channels.get(&sc.to_owned()) {
-            let history = &sco.history;
-
-            let row_height = 16.0;
+          if let Some(sco) = channels.get_mut(&sc.to_owned()) {
             egui::ScrollArea::vertical()
               .max_height(ui.available_height() - 50.)  
               .auto_shrink([false; 2])
               .stick_to_bottom()
-              .show_rows( // needs a way to account for wrapped rows
-                ui,
-                row_height,
-                history.len(),
-                |ui, row_range| {
-                  let rows = history.into_iter().skip(row_range.start).take(row_range.count());
-                  for row in rows {
-                    let channel_color = match sco.provider.as_str() {
-                      "twitch" => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
-                      "youtube" => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
-                      _ => Color32::default()
-                    };
-                    
-                    let mut job = LayoutJob {
-                      wrap: TextWrapping { 
-                        break_anywhere: false,
-                        ..Default::default()
-                      },
-                      //first_row_min_height: row_height,
-                      ..Default::default()
-                    };
+              .show_viewport(ui, |ui, viewport| {
+                show_variable_height_rows(ui, viewport, sco);
+              });
 
-                    job.append(&sco.label, 0., egui::TextFormat { 
-                      font_id: FontId::new(12.0, FontFamily::Proportional), 
-                      color: channel_color, 
-                      ..Default::default()
-                    });
-                    job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
-                      font_id: FontId::new(12.0, FontFamily::Proportional), 
-                      color: Color32::DARK_GRAY, 
-                      ..Default::default()
-                    });
-                    job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
-                      font_id: FontId::new(16.0, FontFamily::Proportional), 
-                      color: convert_color(&row.profile.color),
-                      ..Default::default()
-                    });
-                    job.append(&row.message.to_owned(), 8.0, egui::TextFormat { 
-                      font_id: FontId::new(16.0, FontFamily::Proportional),
-                      ..Default::default()
-                    });
+            ui.separator();
+            ui.label(chrono::Utc::now().to_string());
+            ui.text_edit_singleline(draft_message);
+            //egui::warn_if_debug_build(ui);
 
-                    let lbl = Label::new(job).wrap(true);
-                    ui.add(lbl);
-                  }
-                },
-              );
-              ui.separator();
-              ui.text_edit_singleline(draft_message);
-              ui.label(chrono::Utc::now().to_string());
+            /*if ui.text_edit_singleline(draft_message).has_focus() && ui.input().key_pressed(egui::Key::Enter) {
+              sco.history.insert(sco.history.len(), ChatMessage { 
+                username: "bob".to_owned(), 
+                timestamp: Utc::now(), 
+                message: draft_message.to_owned(), 
+                profile: Default::default() 
+              });
+              draft_message.clear();
+            }*/
           }
         }
-        
       });
     });
 
-    //ctx.request_repaint();
+    ctx.request_repaint();
   }
 
   fn save(&mut self, _storage: &mut dyn epi::Storage) {}
@@ -298,4 +274,102 @@ impl epi::App for TemplateApp {
   fn warm_up_enabled(&self) -> bool {
     false
   }
+}
+
+fn show_variable_height_rows(ui : &mut egui::Ui, viewport : emath::Rect, sco: &Channel) -> InnerResponse<()> {
+  let y_min = ui.max_rect().top() + viewport.min.y;
+  let y_max = ui.max_rect().top() + viewport.max.y;
+  let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+
+  let mut temp_dbg_sizes : Vec<f32> = Vec::default();
+  let mut labels : Vec<Label> = Vec::default();
+  let allowed_y = viewport.max.y - viewport.min.y;
+  let mut used_y = 0.0;
+  let mut y_pos = 0.0;
+  let mut ix = 0;
+  let mut skipped_rows = 0;
+  let mut last_size = 0.0;
+  for row in &sco.history {
+    ix += 1;
+    let (size_y, job) = create_chat_message(ui, sco, row, last_size as u32);
+    last_size = size_y;
+    
+    if y_pos >= viewport.min.y && y_pos <= viewport.max.y /*&& used_y + size_y <= allowed_y*/ {
+      temp_dbg_sizes.push(size_y);
+      labels.push(Label::new(job));
+      used_y += size_y;
+    }
+    if labels.len() == 0 {
+      skipped_rows += 1;
+    }
+    y_pos += size_y;
+  }
+
+  ui.set_height(y_pos);
+  //print!("{} {}", y_pos, ui.min_size().y);
+  ui.skip_ahead_auto_ids(skipped_rows); // Make sure we get consistent IDs.
+
+  let mut add_contents = |ui : &mut egui::Ui, row_range : std::ops::Range<f32>| {
+    for lbl in labels {
+      temp_dbg_sizes.push(ui.add(lbl).rect.height());
+    }
+  };
+
+  let r = ui.allocate_ui_at_rect(rect, |viewport_ui| {
+    add_contents(viewport_ui,  viewport.min.y..viewport.max.y)
+  });
+  //println!(" {}", ui.min_size().y);
+  r
+}
+
+fn create_chat_message(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32) -> (f32, LayoutJob) {
+  let channel_color = match sco.provider.as_str() {
+    "twitch" => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
+    "youtube" => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
+    _ => Color32::default()
+  };
+
+  let mut job = LayoutJob {
+    wrap: TextWrapping { 
+      break_anywhere: false,
+      max_width: ui.available_width(),
+      ..Default::default()
+    },
+    //first_row_min_height: row_height,
+    ..Default::default()
+  };
+  job.append(&format!("{}",ix), 0., egui::TextFormat { 
+    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    color: Color32::WHITE, 
+    ..Default::default()
+  });
+  job.append(&sco.label, 0., egui::TextFormat { 
+    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    color: channel_color, 
+    ..Default::default()
+  });
+  job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
+    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    color: Color32::DARK_GRAY, 
+    ..Default::default()
+  });
+  job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
+    font_id: FontId::new(16.0, FontFamily::Proportional), 
+    color: convert_color(&row.profile.color),
+    ..Default::default()
+  });
+  job.append(&row.message.to_owned(), 8.0, egui::TextFormat { 
+    font_id: FontId::new(16.0, FontFamily::Proportional),
+    ..Default::default()
+  });
+
+  let galley = ui.fonts().layout_job(job.clone());
+  
+  (
+    match galley.size().y {
+      //x if x > 16.0 => x - 16.0,
+      x => x
+    },
+    job
+  )
 }
