@@ -58,9 +58,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> std::re
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")])?;
   while let Some(message) = stream.next().await.transpose()? {
-      print!("{}", message);
-
-      //message.
+      //print!("{}", message);
 
       match message.command {
           Command::PRIVMSG(ref _target, ref msg) => {

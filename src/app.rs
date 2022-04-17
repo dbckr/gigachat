@@ -457,26 +457,25 @@ fn get_texture (ctx : &egui::Context, word: &str, dict: &mut HashMap<String, Emo
     emote.loaded = true;
   }
 
-  let img = emote.data.as_ref();
-  match img {
-    Some(x) => {
-      let frame_ix = (60 * chrono::Utc::now().timestamp_subsec_millis() / 1000) as usize % x.len();
-      let frame = x.get(frame_ix).unwrap();
-      Some(frame.to_owned())
+  let frames_opt = emote.data.as_ref();
+  match frames_opt {
+    Some(frames) => {
+      if emote.duration_msec > 0 {
+        let target_progress = chrono::Utc::now().timestamp_subsec_millis() as u16 % emote.duration_msec;
+        let mut progress_msec : u16 = 0;
+        for (frame, msec) in frames {
+          progress_msec += msec;
+          if progress_msec >= target_progress {
+            return Some(frame.to_owned())
+          }
+        }
+        return None;
+      }
+      else {
+        let (frame, delay) = frames.get(0).unwrap();
+        Some(frame.to_owned())
+      }
     },
     None => None
   }
 }
-
-/*fn get_texture_old (ctx : &egui::Context, word: &str, dict: &HashMap<String, Emote>) -> Option<TextureHandle> {
-  let emote = dict.get(word).unwrap();
-  let img = emote.data.as_ref();
-  match img {
-    Some(x) => {
-      let frame_ix = (30 * chrono::Utc::now().timestamp_subsec_millis() as usize / 1000) % x.len();
-      let frame = x.get(frame_ix as usize).unwrap();
-      Some(ctx.load_texture(word.to_owned(), load_image_from_memory(&frame.resize(24, 24, FilterType::Lanczos3))))
-    },
-    None => None
-  }
-}*/

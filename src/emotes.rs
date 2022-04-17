@@ -15,8 +15,9 @@ use std::str;
 pub struct Emote {
     pub name: String,
     pub id: String,
-    pub data: Option<Vec<TextureHandle>>,
+    pub data: Option<Vec<(TextureHandle, u16)>>,
     pub loaded: bool,
+    pub duration_msec: u16,
     url: String,
     path: String,
     extension: Option<String>
@@ -273,11 +274,16 @@ impl EmoteLoader {
             url: url,
             path: path,
             extension,
+            duration_msec: 0
         }
     }
 
     pub fn load_image(&mut self, ctx: &egui::Context, emote : &mut Emote) {
         emote.data = self.get_image_data(ctx, &emote.url, &emote.path, &emote.id, &emote.extension);
+        emote.duration_msec = match emote.data.as_ref() {
+            Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+            _ => 0
+        };
     }
 
     fn get_image_data(
@@ -287,13 +293,13 @@ impl EmoteLoader {
         path: &str,
         id: &str,
         extension: &Option<String>,
-    ) -> Option<Vec<TextureHandle>> {
+    ) -> Option<Vec<(TextureHandle, u16)>> {
         let Self { easy } = self;
 
         //let filename = format!("{}.{}", id, extension);
 
         let mut inner = ||
-         -> std::result::Result<Option<Vec<TextureHandle>>, failure::Error> {
+         -> std::result::Result<Option<Vec<(TextureHandle, u16)>>, failure::Error> {
             if path.len() > 0 {
                 DirBuilder::new().recursive(true).create(path)?;
             }
@@ -364,12 +370,12 @@ impl EmoteLoader {
     }
 }
 
-fn load_image(ctx: &egui::Context, extension: &str, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
+fn load_image(ctx: &egui::Context, extension: &str, buffer : &[u8]) -> Option<Vec<(TextureHandle, u16)>> {
     match extension {
         "png" => {
             match image::load_from_memory(&buffer) {
                 Ok(img) => {
-                    Some([load_image_into_texture_handle(ctx, &img)].to_vec())
+                    Some([(load_image_into_texture_handle(ctx, &img), 0)].to_vec())
                 },
                 _ => None
             }
@@ -384,23 +390,32 @@ fn load_image(ctx: &egui::Context, extension: &str, buffer : &[u8]) -> Option<Ve
     }
 }
 
-fn load_animated_gif(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
-    let mut loaded_frames : Vec<TextureHandle> = Default::default();
+fn load_animated_gif(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<(TextureHandle, u16)>> {
+    let mut loaded_frames : Vec<(TextureHandle, u16)> = Default::default();
+    let mut loaded_frames_partial : Vec<(TextureHandle, u16)> = Default::default();
+    let mut loaded_delays : Vec<u8> = Default::default();
     let mut decoder = gif::DecodeOptions::new();
     decoder.set_color_output(gif::ColorOutput::RGBA);
     let mut decoder = decoder.read_info(buffer).unwrap();
     let width = decoder.width() as u32;
     let height = decoder.height() as u32;
-    //println!("{} {}", width, height);
+    println!("Processing: {} {}", width, height);
     let mut last_frameimg : Option<DynamicImage>;
+    let mut last_transparent : Option<u8> = None;
+    let mut is_partial = false;
 
     // Handle first frame
     if let Some(frame) = decoder.read_next_frame().unwrap() {
-        //let frametime = frame.delay;
+        let frametime = frame.delay;
+        println!("{} {} {} {} {:?}", frame.top, frame.left, frame.width, frame.height, frame.transparent);
         let temp : Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>
         = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
         if let Some(imgbuf) = temp {
-            last_frameimg = Some(DynamicImage::from(imgbuf));
+            let image = DynamicImage::from(imgbuf);
+            let handle = load_image_into_texture_handle(ctx, &image);
+            last_frameimg = Some(image);
+            loaded_frames.push((handle, frametime));
+            last_transparent = frame.transparent;
         }
         else {
             last_frameimg = None;
@@ -416,36 +431,43 @@ fn load_animated_gif(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureH
         let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> 
             = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
         if let Some(imgbuf) = imgbufopt {
+            let frametime = frame.delay * 10;
+            println!("{} {} {} {} {:?}", frame.top, frame.left, frame.width, frame.height, frame.transparent);
+
             let image = DynamicImage::from(imgbuf);
             let handle : TextureHandle;
+            let handle_partial : TextureHandle;
+            if frame.transparent != last_transparent {
+                is_partial = true;
+            }
+
             if let Some(last_img) = reusable_img {
                 image::imageops::overlay(last_img, &image, 0, 0);
-                handle = load_image_into_texture_handle(ctx, &last_img);
+                handle_partial = load_image_into_texture_handle(ctx, &last_img);
+                loaded_frames_partial.push((handle_partial, frametime));
             }
-            else {
-                handle = load_image_into_texture_handle(ctx, &image);
-            }
-            loaded_frames.push(handle);
+            handle = load_image_into_texture_handle(ctx, &image);
+            loaded_frames.push((handle, frametime));
         }
     }
-    if loaded_frames.len() > 0 {
-        Some(loaded_frames)
-    }
-    else {
-        None
+
+    match is_partial {
+        true if loaded_frames_partial.len() > 0 => Some(loaded_frames_partial),
+        false if loaded_frames.len() > 0 => Some(loaded_frames),
+        _ => None
     }
 }
 
-fn load_animated_webp(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
-    let mut loaded_frames : Vec<TextureHandle> = Default::default();
+fn load_animated_webp(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<(TextureHandle, u16)>> {
+    let mut loaded_frames : Vec<(TextureHandle, u16)> = Default::default();
     let decoder = webp_animation::Decoder::new(&buffer).unwrap();
     let (width, height) = decoder.dimensions();
     for frame in decoder.into_iter() {
-        //let frametime = frame.timestamp();
+        let frametime = frame.timestamp() as u16;
         let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, _>> = image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
         if let Some(imgbuf) = imgbufopt {
             let handle = load_image_into_texture_handle(ctx, &DynamicImage::from(imgbuf));
-            loaded_frames.push(handle);
+            loaded_frames.push((handle, frametime));
         }
     }
     if loaded_frames.len() > 0 {
@@ -456,7 +478,7 @@ fn load_animated_webp(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<Texture
     }
 }
 
-fn load_image_into_texture_handle(ctx: &egui::Context, image: &image::DynamicImage) -> TextureHandle {
+fn  load_image_into_texture_handle(ctx: &egui::Context, image: &image::DynamicImage) -> TextureHandle {
     let uid = rand::random::<u128>(); //TODO: hash the image to create uid
     //let resize_width = image.width() * (24 / image.height());
     //let image = image.resize(resize_width, 24, FilterType::Lanczos3);
