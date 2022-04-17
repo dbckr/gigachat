@@ -391,12 +391,40 @@ fn load_animated_gif(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureH
     let mut decoder = decoder.read_info(buffer).unwrap();
     let width = decoder.width() as u32;
     let height = decoder.height() as u32;
-    println!("{} {}", width, height);
-    while let Some(frame) = decoder.read_next_frame().unwrap() {
+    //println!("{} {}", width, height);
+    let mut last_frameimg : Option<DynamicImage>;
+
+    // Handle first frame
+    if let Some(frame) = decoder.read_next_frame().unwrap() {
         //let frametime = frame.delay;
-        let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, _>> = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
+        let temp : Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>>
+        = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
+        if let Some(imgbuf) = temp {
+            last_frameimg = Some(DynamicImage::from(imgbuf));
+        }
+        else {
+            last_frameimg = None;
+        }
+    }
+    else {
+        last_frameimg = None;
+    }
+
+    let reusable_img = &mut last_frameimg;
+
+    while let Some(frame) = decoder.read_next_frame().unwrap() {
+        let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> 
+            = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
         if let Some(imgbuf) = imgbufopt {
-            let handle = load_image_into_texture_handle(ctx, &DynamicImage::from(imgbuf));
+            let image = DynamicImage::from(imgbuf);
+            let handle : TextureHandle;
+            if let Some(last_img) = reusable_img {
+                image::imageops::overlay(last_img, &image, 0, 0);
+                handle = load_image_into_texture_handle(ctx, &last_img);
+            }
+            else {
+                handle = load_image_into_texture_handle(ctx, &image);
+            }
             loaded_frames.push(handle);
         }
     }
