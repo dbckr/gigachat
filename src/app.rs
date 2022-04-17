@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default, borrow::BorrowMut};
+use std::{collections::HashMap, default, borrow::BorrowMut, time::{UNIX_EPOCH, SystemTime}};
 use image::{self, imageops::FilterType};
 use imageproc;
 use tokio::sync::mpsc;
@@ -307,17 +307,6 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, sco: &Channel, ro
       }
       vec.clear();
     };
-
-    let mut get_texture = |ctx : &egui::Context, word: &str, dict: &HashMap<String, Emote>| -> Option<TextureHandle> {
-      let emote = dict.get(word).unwrap();
-      let img = emote.data.as_ref();
-      match img {
-        Some(x) => {
-          Some(ctx.load_texture(word.to_owned(), load_image_from_memory(&x.resize(24, 24, FilterType::Lanczos3))))
-        },
-        None => None
-      }
-    };
   
     for word in row.message.to_owned().split(" ") {
       if global_emotes.contains_key(word) {
@@ -340,6 +329,19 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, sco: &Channel, ro
   });
 
   ui_row.response.rect
+}
+
+fn get_texture (ctx : &egui::Context, word: &str, dict: &HashMap<String, Emote>) -> Option<TextureHandle> {
+  let emote = dict.get(word).unwrap();
+  let img = emote.data.as_ref();
+  match img {
+    Some(x) => {
+      let frame_ix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % x.len() as u128;
+      let frame = x.get(frame_ix as usize).unwrap();
+      Some(ctx.load_texture(word.to_owned(), load_image_from_memory(&frame.resize(24, 24, FilterType::Lanczos3))))
+    },
+    None => None
+  }
 }
 
 fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &Channel, channel_swap : bool, global_emotes: &HashMap<String, Emote>) -> InnerResponse<()> {

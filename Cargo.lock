@@ -1070,6 +1070,7 @@ dependencies = [
  "failure",
  "futures",
  "getopts",
+ "gif",
  "glob",
  "hex",
  "image",
@@ -1080,6 +1081,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing-wasm",
+ "webp-animation",
 ]
 
 [[package]]
@@ -1417,6 +1419,19 @@ checksum = "efbc0f03f9a775e9f6aed295c6a1ba2253c5757a9e03d55c6caa46a681abcddd"
 dependencies = [
  "cfg-if 1.0.0",
  "winapi",
+]
+
+[[package]]
+name = "libwebp-sys2"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8357b017b613841a0c8c3462491af8a7f3c1ed197eb026b94932ebc4643339a8"
+dependencies = [
+ "cc",
+ "cfg-if 0.1.10",
+ "libc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -2990,6 +3005,16 @@ dependencies = [
  "web-sys",
  "widestring",
  "winapi",
+]
+
+[[package]]
+name = "webp-animation"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "163252366e003e44bda37c723437863b6c96e80379b2699e167f1502865cdf94"
+dependencies = [
+ "libwebp-sys2",
+ "log",
 ]
 
 [[package]]
