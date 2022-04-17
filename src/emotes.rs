@@ -1,7 +1,9 @@
 use curl::easy::Easy;
+use eframe::{egui::{self}, epaint::{ColorImage, TextureHandle}};
 use failure;
 use glob::glob;
 use image::DynamicImage;
+use image::imageops::FilterType;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::{DirBuilder, File, OpenOptions};
@@ -13,7 +15,11 @@ use std::str;
 pub struct Emote {
     pub name: String,
     pub id: String,
-    pub data: Option<Vec<DynamicImage>>,
+    pub data: Option<Vec<TextureHandle>>,
+    pub loaded: bool,
+    url: String,
+    path: String,
+    extension: Option<String>
 }
 
 pub struct EmoteLoader {
@@ -31,7 +37,7 @@ impl EmoteLoader {
         &mut self,
         channel_id: &String,
     ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
-        let Self { easy } = self;
+        let Self { easy: _ } = self;
         let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
         let ffz_emotes = self.process_emote_json(
             &ffz_url,
@@ -78,16 +84,6 @@ impl EmoteLoader {
 
         let mut result: HashMap<String, Emote> = HashMap::new();
 
-        let unknown_image = image::open("img/DEFAULT.png").unwrap();
-        result.insert(
-            "_".to_owned(),
-            Emote {
-                name: "DEFAULT".to_owned(),
-                id: "-1".to_owned(),
-                data: Some([unknown_image].to_vec()),
-            },
-        );
-
         for emote in bttv_emotes {
             result.insert(emote.name.to_owned(), emote);
         }
@@ -133,7 +129,7 @@ impl EmoteLoader {
         url: &str,
         filename: &str,
     ) -> std::result::Result<Vec<Emote>, failure::Error> {
-        let Self { easy } = self;
+        let Self { easy: _ } = self;
 
         println!("processing emote json {}", filename);
         let data = self.get_emote_json(url, filename)?;
@@ -148,14 +144,14 @@ impl EmoteLoader {
                 let id = i["id"].to_string().trim_matches('"').to_owned();
                 let ext = i["imageType"].to_string().trim_matches('"').to_owned();
                 let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-                emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
+                emotes.push(self.get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
             }
             for i in v["sharedEmotes"].as_array_mut().unwrap() {
                 let name = i["code"].to_string().trim_matches('"').to_owned();
                 let id = i["id"].to_string().trim_matches('"').to_owned();
                 let ext = i["imageType"].to_string().trim_matches('"').to_owned();
                 let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-                emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
+                emotes.push(self.get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
             }
         } else if v["emotes"].is_null() == false {
             // BTTV channel name based API
@@ -171,7 +167,7 @@ impl EmoteLoader {
                 let imgurl = format!("https:{}", i["urls"]["4"].to_string().trim_matches('"'));
                 let name = i["name"].to_string().trim_matches('"').to_owned();
                 let id = i["id"].to_string().trim_matches('"').to_owned();
-                emotes.push(self.get_emote(name, id, &imgurl, "generated/ffz/", None));
+                emotes.push(self.get_emote(name, id, imgurl, "generated/ffz/".to_owned(), None));
             }
         } else if v[0].is_null() == false {
             for i in v.as_array_mut().unwrap() {
@@ -180,31 +176,20 @@ impl EmoteLoader {
                     let id = i["id"].to_string().trim_matches('"').to_owned();
                     let ext = i["imageType"].to_string().trim_matches('"').to_owned();
                     let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-                    emotes.push(self.get_emote(name, id, &imgurl, "generated/bttv/", Some(ext)));
+                    emotes.push(self.get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
                 } else if i["name"].is_null() == false {
                     // 7tv
                     //emotes.push(Emote { name: i["name"].to_string().trim_matches('"').to_owned(), data: None })
                     let name = i["name"].to_string().trim_matches('"').to_owned();
                     let id = i["id"].to_string().trim_matches('"').to_owned();
-                    let extension = i["mime"]
-                        .to_string()
-                        .trim_matches('"')
-                        .replace("image/", "");
-                    let x = i["urls"]
-                        .as_array()
-                        .unwrap()
-                        .last()
-                        .unwrap()
-                        .as_array()
-                        .unwrap()
-                        .last()
-                        .unwrap();
+                    let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
+                    let x = i["urls"].as_array().unwrap().last().unwrap().as_array().unwrap().last().unwrap();
                     let imgurl = x.as_str().unwrap();
                     emotes.push(self.get_emote(
                         name,
                         id,
-                        imgurl.trim_matches('"'),
-                        "generated/7tv/",
+                        imgurl.trim_matches('"').to_owned(),
+                        "generated/7tv/".to_owned(),
                         Some(extension),
                     ));
                 }
@@ -276,83 +261,94 @@ impl EmoteLoader {
         &mut self,
         name: String,
         id: String,
-        url: &str,
-        path: &str,
+        url: String,
+        path: String,
         extension: Option<String>,
     ) -> Emote {
         Emote {
             name: name,
-            data: self.get_image_data(url, path, &id, extension),
             id: id,
+            data: None,
+            loaded: false,
+            url: url,
+            path: path,
+            extension,
         }
     }
 
-    pub fn get_image_data(
+    pub fn load_image(&mut self, ctx: &egui::Context, emote : &mut Emote) {
+        emote.data = self.get_image_data(ctx, &emote.url, &emote.path, &emote.id, &emote.extension);
+    }
+
+    fn get_image_data(
         &mut self,
+        ctx: &egui::Context,
         url: &str,
         path: &str,
-        filename: &str,
-        extension: Option<String>,
-    ) -> Option<Vec<DynamicImage>> {
+        id: &str,
+        extension: &Option<String>,
+    ) -> Option<Vec<TextureHandle>> {
         let Self { easy } = self;
 
-        let mut inner = |url,
-                         filename: &str|
-         -> std::result::Result<Option<Vec<DynamicImage>>, failure::Error> {
+        //let filename = format!("{}.{}", id, extension);
+
+        let mut inner = ||
+         -> std::result::Result<Option<Vec<TextureHandle>>, failure::Error> {
             if path.len() > 0 {
                 DirBuilder::new().recursive(true).create(path)?;
             }
 
-            match glob(&format!("{}{}.*", path, filename))?.last() {
+            match glob(&format!("{}{}.*", path, id))?.last() {
                 Some(x) => {
                     let filepath = x?.as_path().to_owned();
                     let mut file = File::open(filepath.to_owned()).unwrap();
                     let mut buf : Vec<u8> = Default::default();
                     file.read_to_end(&mut buf)?;
-                    Ok(load_image(filepath.extension().unwrap().to_str().unwrap(), &buf))
+                    Ok(load_image(ctx, filepath.extension().unwrap().to_str().unwrap(), &buf))
                 } 
                 None => {
-                    let mut extension: Option<String> = extension;
-                    let mut buffer: Vec<u8> = Default::default();
-
-                    easy.url(url)?;
-                    let mut transfer = easy.transfer();
-                    if extension == None {
-                        transfer.header_function(|data| {
-                        let result = str::from_utf8(data);
-                        if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
-                            //TODO: extract extension using regex
-                            if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
-                                extension = Some("png".to_owned());
-                            }
-                            else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
-                                extension = Some("gif".to_owned());
-                            }
-                            else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
-                                extension = Some("webp".to_owned());
-                            }
-                        }
-                        true
-                    })?;
-                    }
-                    transfer.write_function(|data| {
-                        //f.write_all(data).expect("Failed to write to file");
-                        for byte in data {
-                            buffer.push(byte.to_owned());
-                        }
-                        Ok(data.len())
-                    })?;
-                    transfer.perform()?;
-                    drop(transfer);
-
                     if let Some(ref ext) = extension {
+                        let mut extension: Option<String> = Some(ext.to_owned());
+                        let mut buffer: Vec<u8> = Default::default();
+
+                        easy.url(url)?;
+                        let mut transfer = easy.transfer();
+                        if extension == None {
+                            transfer.header_function(|data| {
+                            let result = str::from_utf8(data);
+                            if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
+                                //TODO: extract extension using regex
+                                if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
+                                    extension = Some("png".to_owned());
+                                }
+                                else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
+                                    extension = Some("gif".to_owned());
+                                }
+                                else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
+                                    extension = Some("webp".to_owned());
+                                }
+                            }
+                            true
+                        })?;
+                        }
+                        transfer.write_function(|data| {
+                            //f.write_all(data).expect("Failed to write to file");
+                            for byte in data {
+                                buffer.push(byte.to_owned());
+                            }
+                            Ok(data.len())
+                        })?;
+                        transfer.perform()?;
+                        drop(transfer);
+
+                        
                         let mut f = OpenOptions::new()
                             .create_new(true)
                             .write(true)
-                            .open(format!("{}{}.{}", path, filename, ext))?;
+                            .open(format!("{}{}.{}", path, id, ext))?;
 
                         f.write(&buffer)?;
-                        Ok(load_image(&ext, &buffer))
+                        Ok(load_image(ctx, &ext, &buffer))
                     }
                     else {
                         Ok(None)
@@ -361,30 +357,35 @@ impl EmoteLoader {
             }
         };
 
-        match inner(url, filename) {
+        match inner() {
             Ok(x) => x,
             Err(x) => None,
         }
     }
 }
 
-fn load_image(extension: &str, buffer : &[u8]) -> Option<Vec<DynamicImage>> {
+fn load_image(ctx: &egui::Context, extension: &str, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
     match extension {
         "png" => {
             match image::load_from_memory(&buffer) {
-                Ok(img) => Some([img].to_vec()),
+                Ok(img) => {
+                    Some([load_image_into_texture_handle(ctx, &img)].to_vec())
+                },
                 _ => None
             }
         },
         "gif" => {
-            load_animated_gif(&buffer)
+            load_animated_gif(ctx, &buffer)
+        },
+        "webp" => {
+            load_animated_webp(ctx, &buffer)
         },
         _ => None
     }
 }
 
-fn load_animated_gif(buffer : &[u8]) -> Option<Vec<DynamicImage>> {
-    let mut loaded_frames : Vec<DynamicImage> = Default::default();
+fn load_animated_gif(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
+    let mut loaded_frames : Vec<TextureHandle> = Default::default();
     let mut decoder = gif::DecodeOptions::new();
     decoder.set_color_output(gif::ColorOutput::RGBA);
     let mut decoder = decoder.read_info(buffer).unwrap();
@@ -392,15 +393,12 @@ fn load_animated_gif(buffer : &[u8]) -> Option<Vec<DynamicImage>> {
     let height = decoder.height() as u32;
     println!("{} {}", width, height);
     while let Some(frame) = decoder.read_next_frame().unwrap() {
-        // Process every frame
+        //let frametime = frame.delay;
         let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, _>> = image::ImageBuffer::from_raw(width, height, frame.buffer.to_vec());
         if let Some(imgbuf) = imgbufopt {
-            loaded_frames.push(DynamicImage::from(imgbuf));
+            let handle = load_image_into_texture_handle(ctx, &DynamicImage::from(imgbuf));
+            loaded_frames.push(handle);
         }
-        /*match image::load_from_memory(&frame.buffer) {
-            Ok(img) => loaded_frames.push(img),
-            Err(x) => { println!("{:?}", x); () }
-        };*/
     }
     if loaded_frames.len() > 0 {
         Some(loaded_frames)
@@ -409,3 +407,38 @@ fn load_animated_gif(buffer : &[u8]) -> Option<Vec<DynamicImage>> {
         None
     }
 }
+
+fn load_animated_webp(ctx: &egui::Context, buffer : &[u8]) -> Option<Vec<TextureHandle>> {
+    let mut loaded_frames : Vec<TextureHandle> = Default::default();
+    let decoder = webp_animation::Decoder::new(&buffer).unwrap();
+    let (width, height) = decoder.dimensions();
+    for frame in decoder.into_iter() {
+        //let frametime = frame.timestamp();
+        let imgbufopt : Option<image::ImageBuffer<image::Rgba<u8>, _>> = image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
+        if let Some(imgbuf) = imgbufopt {
+            let handle = load_image_into_texture_handle(ctx, &DynamicImage::from(imgbuf));
+            loaded_frames.push(handle);
+        }
+    }
+    if loaded_frames.len() > 0 {
+        Some(loaded_frames)
+    }
+    else {
+        None
+    }
+}
+
+fn load_image_into_texture_handle(ctx: &egui::Context, image: &image::DynamicImage) -> TextureHandle {
+    let uid = rand::random::<u128>(); //TODO: hash the image to create uid
+    //let resize_width = image.width() * (24 / image.height());
+    //let image = image.resize(resize_width, 24, FilterType::Lanczos3);
+    let image = image.resize(24, 24, FilterType::Lanczos3);
+    let size = [image.width() as _, image.height() as _];
+    let image_buffer = image.to_rgba8();
+    let pixels = image_buffer.as_flat_samples();
+    let cimg = ColorImage::from_rgba_unmultiplied(
+        size,
+        pixels.as_slice()
+    );
+    ctx.load_texture(uid.to_string(), cimg)
+  }

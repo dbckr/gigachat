@@ -1,15 +1,15 @@
 use futures::prelude::*;
 use irc::client::prelude::*;
 use tokio::{sync::mpsc, runtime::Runtime};
-use crate::{app::{Channel}, provider::convert_color_hex, emotes::{self, EmoteLoader}};
+use crate::{app::{Channel}, provider::convert_color_hex, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, UserBadge, InternalMessage};
+use super::{ChatMessage, UserProfile, InternalMessage};
 
 pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
   let (tx, mut rx) = mpsc::channel(32);
   let name2 = name.to_owned();
   let _task = runtime.spawn(async move { spawn_irc(name2, tx).await });
-  let mut rid = Default::default();
+  let rid;
 
   loop {
     if let Some(msg) = rx.blocking_recv() {
@@ -33,7 +33,7 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
 
   let channel = Channel {  
     provider: "twitch".to_owned(), 
-    label: name.to_string(),
+    channel_name: name.to_string(),
     roomid: rid,
     rx: rx,
     history: Vec::default(),
@@ -94,13 +94,15 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> std::re
           Command::PING(ref target, ref _msg) => {
               sender.send_pong(target)?;
           },
-          Command::Raw(ref command, ref strVec) => {
+          Command::Raw(ref command, ref _str_vec) => {
             if let Some(tags) = message.tags {
               if command == "USERSTATE" {
-                tx.try_send(InternalMessage::EmoteSets { emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
+                tx.try_send(InternalMessage::EmoteSets { 
+                  emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
               }
               else if command == "ROOMSTATE" {
-                tx.try_send(InternalMessage::RoomId { room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() });
+                tx.try_send(InternalMessage::RoomId { 
+                  room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() });
               }
               else {
                 ()
