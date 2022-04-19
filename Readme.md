@@ -1,3 +1,7 @@
 # TODO
 
-- Repaint only on new messages or channel status change
+- Links
+- Gif partial redraw
+- Unicode text
+- Badges
+- Wide emotes

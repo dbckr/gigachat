@@ -1,10 +1,16 @@
+#![feature(let_chains)]
 use eframe;
+mod app;
+pub mod provider;
+pub mod emotes;
+pub use app::TemplateApp;
+pub mod test;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     use std::collections::HashMap;
 
-    use gigachat::TemplateApp;
+    //use gigachat::TemplateApp;
 
   let native_options = eframe::NativeOptions { 
     transparent: true, 

@@ -8,7 +8,12 @@ use super::{ChatMessage, UserProfile, InternalMessage};
 pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
   let (tx, mut rx) = mpsc::channel(32);
   let name2 = name.to_owned();
-  let _task = runtime.spawn(async move { spawn_irc(name2, tx).await });
+  let task = runtime.spawn(async move { 
+    match spawn_irc(name2, tx).await {
+      Ok(()) => (),
+      Err(e) => { println!("Error in twitch thread: {}", e); }
+    }
+  });
   let rid;
 
   loop {
@@ -38,12 +43,13 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
     rx: rx,
     history: Vec::default(),
     history_viewport_size_y: Default::default(),
-    channel_emotes: channel_emotes
+    channel_emotes: channel_emotes,
+    task_handle: Some(task)
   };
   channel
 }
 
-async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> std::result::Result<(), failure::Error> {
+async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<(), failure::Error> {
   let config_path = match std::env::var("IRC_Config_File") {
     Ok(val) => val,
     Err(_e) => "config/irc.toml".to_owned()
@@ -76,8 +82,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> std::re
                   message: msg.to_owned(),
                   profile: UserProfile {
                     display_name: match get_tag_value(&tags, "display-name") {
-                      Some(x) => x.to_owned(),
-                      None => "".to_owned()
+                      Some(x) => Some(x.to_owned()),
+                      None => None
                     },
                     color: convert_color_hex(color_tag),
                     ..Default::default()

@@ -23,6 +23,15 @@
         "kind": "build",
         "isDefault": false
       }
+    },
+    {
+      "type": "cargo",
+      "command": "test",
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "group": "test",
+      "label": "rust: cargo test"
     }
   ]
 }

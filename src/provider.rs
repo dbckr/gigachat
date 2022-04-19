@@ -11,7 +11,7 @@ pub struct UserBadge {
 #[derive(Clone)]
 pub struct UserProfile {
   pub badges: Vec<UserBadge>,
-  pub display_name: String,
+  pub display_name: Option<String>,
   pub color: (u8, u8, u8)
 }
 

@@ -1,8 +1,8 @@
-use std::{collections::HashMap};
-use tokio::sync::mpsc;
+use std::{collections::HashMap, borrow::BorrowMut};
+use tokio::{sync::mpsc, task::JoinHandle};
 
-use chrono;
-use eframe::{egui::{self, emath, InnerResponse}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, ColorImage, TextureHandle}, emath::{Align, Rect, Pos2}};
+use chrono::{self, Timelike};
+use eframe::{egui::{self, emath, InnerResponse, RichText}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, ColorImage, TextureHandle}, emath::{Align, Rect, Pos2}};
 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage}, emotes::{Emote, EmoteLoader}};
 use itertools::Itertools;
@@ -14,7 +14,27 @@ pub struct Channel {
   pub history: Vec<ChatMessage>,
   pub history_viewport_size_y: f32,
   pub rx: mpsc::Receiver<InternalMessage>,
-  pub channel_emotes: HashMap<String, Emote>
+  pub channel_emotes: HashMap<String, Emote>,
+  pub task_handle: Option<JoinHandle<()>>
+}
+
+impl Channel {
+  fn close(&mut self) {
+    let Self {
+        channel_name : _,
+        roomid : _,
+        provider : _,
+        history : _,
+        history_viewport_size_y : _,
+        rx : _,
+        channel_emotes : _,
+        task_handle
+    } = self;
+
+    if let Some(handle) = task_handle {
+      handle.abort();
+    }
+  }
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -84,7 +104,20 @@ impl epi::App for TemplateApp {
       emote_loader
     } = self;
 
+    ctx.set_pixels_per_point(1.0);
+
     let mut channel_swap = false;
+    let mut styles = egui::Style::default();
+    styles.text_styles.insert(
+      egui::TextStyle::Small,
+      FontId::new(18.0, egui::FontFamily::Proportional));
+    styles.text_styles.insert(
+      egui::TextStyle::Body,
+      FontId::new(24.0, egui::FontFamily::Proportional));
+    styles.text_styles.insert(
+      egui::TextStyle::Button,
+      FontId::new(24.0, egui::FontFamily::Proportional));
+    ctx.set_style(styles);
 
     let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
       let c = match provider_input.as_str() {
@@ -97,6 +130,7 @@ impl epi::App for TemplateApp {
             rx: mpsc::channel(32).1,
             channel_emotes: Default::default(),
             roomid: "".to_owned(),
+            task_handle: None
         },
         _ => panic!("invalid provider")
       };
@@ -131,22 +165,26 @@ impl epi::App for TemplateApp {
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-      // The top panel is often a good place for a menu bar:
-      egui::menu::bar(ui, |ui| {
-        ui.menu_button("File", |ui| {
-          if ui.button("Configure Tokens").clicked() {
+      ui.horizontal(|ui| {
+        egui::menu::bar(ui, |ui| {
+          ui.menu_button("File", |ui| {
+            if ui.button("Configure Tokens").clicked() {
 
-          }
-          if ui.button("Add channel").clicked() {
-            *add_channel_menu_show = true;
-            ui.close_menu();
-          }
-          if ui.button("Quit").clicked() {
-            frame.quit();
-          }
+            }
+            if ui.button("Add channel").clicked() {
+              *add_channel_menu_show = true;
+              ui.close_menu();
+            }
+            if ui.button("Quit").clicked() {
+              frame.quit();
+            }
+          });
         });
+        egui::warn_if_debug_build(ui);
       });
+      ui.separator();
 
+      let mut channel_removed = false;
       ui.horizontal(|ui| {
         for (channel, sco) in channels.iter_mut() {
           loop {
@@ -163,12 +201,23 @@ impl epi::App for TemplateApp {
             }
           }
 
-          let label = format!("{} ({})", channel, sco.history.len());
-          if ui.selectable_value(selected_channel, Some(channel.to_owned()), label.to_owned()).clicked() {
+          let label = RichText::new(format!("{} ({})", channel, sco.history.len())).size(24.0);
+          let clbl = ui.selectable_value(selected_channel, Some(channel.to_owned()), label);
+          if clbl.clicked() {
             channel_swap = true;
+          }
+          else if clbl.middle_clicked() { //TODO: custom widget that adds close button?
+            sco.close();
+            channel_removed = true;
           }
         }
       });
+      if channel_removed {
+        if let Some(name) = selected_channel {
+          channels.remove(name);
+        }
+        *selected_channel = None;
+      }
     });
 
     let cframe = egui::Frame { 
@@ -176,32 +225,25 @@ impl epi::App for TemplateApp {
       fill: egui::Color32::from(egui::Color32::TRANSPARENT),
       ..Default::default() 
     };
-    egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
-      ui.vertical(|ui| {
+    egui::CentralPanel::default().frame(cframe)
+    .show(ctx, |ui| {
+      ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
         if let Some(sc) = selected_channel {
           if let Some(sco) = channels.get_mut(&sc.to_owned()) {
+            egui::TextEdit::multiline(draft_message)
+              .desired_rows(2)
+              .desired_width(ui.available_width())
+              .hint_text("Type a message to send")
+              .font(egui::TextStyle::Body)
+              .show(ui);
+              ui.separator();
             egui::ScrollArea::vertical()
-              .max_height(ui.available_height() - 50.)  
+              //.max_height(ui.available_height() - 60.)  
               .auto_shrink([false; 2])
               .stick_to_bottom()
               .show_viewport(ui, |ui, viewport| {
                 show_variable_height_rows(ctx, ui, viewport, sco, channel_swap, global_emotes, emote_loader);
               });
-
-            ui.separator();
-            ui.label(chrono::Utc::now().to_string());
-            ui.text_edit_singleline(draft_message);
-            //egui::warn_if_debug_build(ui);
-
-            /*if ui.text_edit_singleline(draft_message).has_focus() && ui.input().key_pressed(egui::Key::Enter) {
-              sco.history.insert(sco.history.len(), ChatMessage { 
-                username: "bob".to_owned(), 
-                timestamp: Utc::now(), 
-                message: draft_message.to_owned(), 
-                profile: Default::default() 
-              });
-              draft_message.clear();
-            }*/
           }
         }
       });
@@ -246,51 +288,52 @@ impl epi::App for TemplateApp {
   }
 }
 
-fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, channel_swap : bool, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> InnerResponse<()> {
-  let y_min = ui.max_rect().top() + viewport.min.y;
-  let y_max = ui.max_rect().top() + viewport.max.y;
-  let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, channel_swap : bool, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
+  ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
+    let y_min = ui.max_rect().top() + viewport.min.y;
+    let y_max = ui.max_rect().top() + viewport.max.y;
+    let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
 
-  let mut temp_dbg_sizes : Vec<f32> = Vec::default();
-  let mut in_view : Vec<(&ChatMessage, u32)> = Vec::default();
-  let allowed_y = viewport.max.y - viewport.min.y;
-  let mut used_y = 0.0;
-  let mut y_pos = 0.0;
-  let mut ix = 0;
-  //let mut skipped_rows = 0;
-  let mut last_size = 0.0;
-  for row in &sco.history {
-    ix += 1;
-    let size_y = get_y_size(ui, sco, row, last_size as u32, global_emotes);
-    last_size = size_y;
-    
-    if y_pos >= viewport.min.y && y_pos <= viewport.max.y /*&& used_y + size_y <= allowed_y*/ {
-      temp_dbg_sizes.push(size_y);
-      in_view.push((row, ix));
-      used_y += size_y;
+    let mut temp_dbg_sizes : Vec<f32> = Vec::default();
+    let mut in_view : Vec<(&ChatMessage, u32)> = Vec::default();
+    let allowed_y = viewport.max.y - viewport.min.y;
+    let mut used_y = 0.0;
+    let mut y_pos = 0.0;
+    let mut ix = 0;
+    //let mut skipped_rows = 0;
+    let mut last_size = 0.0;
+    for row in &sco.history {
+      ix += 1;
+      let size_y = get_y_size(ui, sco, row, last_size as u32, global_emotes);
+      last_size = size_y;
+      
+      if y_pos >= viewport.min.y && y_pos <= viewport.max.y /*&& used_y + size_y <= allowed_y*/ {
+        temp_dbg_sizes.push(size_y);
+        in_view.push((row, ix));
+        used_y += size_y;
+      }
+      y_pos += size_y;
     }
-    y_pos += size_y;
-  }
 
-  ui.set_height(y_pos);
-  //print!("{} {}", y_pos, ui.min_size().y);
-  //ui.skip_ahead_auto_ids(skipped_rows); // Make sure we get consistent IDs.
+    ui.set_height(y_pos);
+    //print!("{} {}", y_pos, ui.min_size().y);
+    //ui.skip_ahead_auto_ids(skipped_rows); // Make sure we get consistent IDs.
 
-  let mut last_rect : Rect = Rect { min: Pos2{ x: 0.0, y: 0.0 }, max: Pos2{ x: 0.0, y: 0.0 } };
-  let r = ui.allocate_ui_at_rect(rect, |viewport_ui| {
-    for (row, ix) in in_view {
-      let rect = viewport_ui.horizontal_wrapped(|ui| {      
-        last_rect = create_chat_message(ctx, ui, &sco.provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
-        temp_dbg_sizes.push(last_rect.height());
-      }).response.rect;
+    let mut last_rect : Rect = Rect { min: Pos2{ x: 0.0, y: 0.0 }, max: Pos2{ x: 0.0, y: 0.0 } };
+    ui.allocate_ui_at_rect(rect, |viewport_ui| {
+      for (row, ix) in in_view {
+        let rect = viewport_ui.horizontal_wrapped(|ui| {      
+          last_rect = create_chat_message(ctx, ui, &sco.provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
+          temp_dbg_sizes.push(last_rect.height());
+        }).response.rect;
+      }
+    });
+
+    if channel_swap {
+      ui.scroll_to_rect(last_rect, Some(Align::BOTTOM));
     }
   });
-
-  if channel_swap {
-    ui.scroll_to_rect(last_rect, Some(Align::BOTTOM));
-  }
   //println!(" {}", ui.min_size().y);
-  r
 }
 
 fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, channel_name: &str, channel_emotes: &mut HashMap<String, Emote>, row: &ChatMessage, ix: u32, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> emath::Rect {
@@ -310,25 +353,29 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, c
     ..Default::default()
   };
   job.append(&format!("{}",ix), 0., egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
     color: Color32::WHITE,
     valign: Align::Center,
     ..Default::default()
   });
   job.append(channel_name, 0., egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
     color: channel_color, 
     valign: Align::Center,
     ..Default::default()
   });
   job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
     color: Color32::DARK_GRAY, 
     valign: Align::Center,
     ..Default::default()
   });
-  job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
-    font_id: FontId::new(16.0, FontFamily::Proportional), 
+  let user = match &row.profile.display_name {
+    Some(x) => x,
+    None => &row.username
+  };
+  job.append(&format!("{}:", user), 8.0, egui::TextFormat { 
+    font_id: FontId::new(24.0, FontFamily::Proportional), 
     color: convert_color(&row.profile.color),
     valign: Align::Center,
     ..Default::default()
@@ -341,28 +388,27 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, c
     let flush_text = |ui : &mut egui::Ui, vec : &mut Vec<String>| {
       let text = vec.into_iter().join(" ");
       if text.len() > 0 {
-        ui.label(text);
+        let lbl = egui::Label::new(RichText::new(text).size(26.0));
+        ui.add(lbl);
       }
       vec.clear();
     };
   
     for word in row.message.to_owned().split(" ") {
-      if global_emotes.contains_key(word) {
+      let emote_resp = match word {
+        _ if channel_emotes.contains_key(word) => channel_emotes.get_mut(word),
+        _ if global_emotes.contains_key(word) => global_emotes.get_mut(word),
+        _ => None
+      };
+
+      if let Some(emote) = emote_resp {
         flush_text(ui, &mut label_text);
-        if let Some(tex) = get_texture(ctx, word, global_emotes, emote_loader) {
-          ui.image(&tex, tex.size_vec2());
+        if let Some(tex) = get_texture(ctx, word, emote, emote_loader) {
+          ui.image(&tex, tex.size_vec2()).on_hover_text_at_pointer(RichText::new(format!("{}\n{}", word, emote.id)).size(24.0));
         }
         else {
-          ui.label(word);
-        }
-      }
-      else if channel_emotes.contains_key(word) {
-        flush_text(ui, &mut label_text);
-        if let Some(tex) = get_texture(ctx, word, channel_emotes, emote_loader) {
-          ui.image(&tex, tex.size_vec2());
-        }
-        else {
-          ui.label(word);
+          let lbl = egui::Label::new(RichText::new(word).size(26.0));
+          ui.add(lbl);
         }
       }
       else {
@@ -394,25 +440,25 @@ fn get_y_size(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32, glob
     ..Default::default()
   };
   job.append(&format!("{}",ix), 0., egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
-    color: Color32::WHITE,
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
+    color: Color32::DARK_GRAY,
     valign: Align::Center,
     ..Default::default()
   });
   job.append(&sco.channel_name, 0., egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
     color: channel_color, 
     valign: Align::Center,
     ..Default::default()
   });
   job.append(&format!("[{}]", row.timestamp.format("%H:%M:%S")), 4.0, egui::TextFormat { 
-    font_id: FontId::new(12.0, FontFamily::Proportional), 
+    font_id: FontId::new(18.0, FontFamily::Proportional), 
     color: Color32::DARK_GRAY, 
     valign: Align::Center,
     ..Default::default()
   });
   job.append(&row.username.to_owned(), 8.0, egui::TextFormat { 
-    font_id: FontId::new(16.0, FontFamily::Proportional), 
+    font_id: FontId::new(24.0, FontFamily::Proportional), 
     color: convert_color(&row.profile.color),
     valign: Align::Center,
     ..Default::default()
@@ -421,7 +467,7 @@ fn get_y_size(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32, glob
   for word in row.message.to_owned().split(" ") {
     if global_emotes.contains_key(word) {
       job.append("IMAGE ", 0.0, egui::TextFormat { 
-        font_id: FontId::new(24.0, FontFamily::Proportional),
+        font_id: FontId::new(42.0, FontFamily::Proportional),
         valign: Align::Center,
         ..Default::default()
       }); 
@@ -435,7 +481,7 @@ fn get_y_size(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32, glob
     }
     else {
       job.append(&format!("{} ", word), 0.0, egui::TextFormat { 
-        font_id: FontId::new(16.0, FontFamily::Proportional),
+        font_id: FontId::new(24.0, FontFamily::Proportional),
         valign: Align::Center,
         ..Default::default()
       }); 
@@ -450,10 +496,11 @@ fn get_y_size(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32, glob
   }
 }
 
-fn get_texture (ctx : &egui::Context, word: &str, dict: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> Option<TextureHandle> {
-  let emote = dict.get_mut(word).unwrap();
+fn get_texture (ctx : &egui::Context, word: &str, emote: &mut Emote, emote_loader: &mut EmoteLoader) -> Option<TextureHandle> {
   if emote.loaded == false {
+    println!("loading {} {}", emote.name, emote.id);
     emote_loader.load_image(ctx, emote);
+    println!("loaded {} {}", emote.name, emote.id);
     emote.loaded = true;
   }
 
@@ -461,13 +508,17 @@ fn get_texture (ctx : &egui::Context, word: &str, dict: &mut HashMap<String, Emo
   match frames_opt {
     Some(frames) => {
       if emote.duration_msec > 0 {
-        let target_progress = chrono::Utc::now().timestamp_subsec_millis() as u16 % emote.duration_msec;
+        let time = chrono::Utc::now();
+        let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
         let mut progress_msec : u16 = 0;
+        let mut ix = 0;
         for (frame, msec) in frames {
-          progress_msec += msec;
+          progress_msec += msec; 
           if progress_msec >= target_progress {
+            //println!("{} {} {} {}", &word, progress_msec, target_progress, ix);
             return Some(frame.to_owned())
           }
+          ix += 1;
         }
         return None;
       }

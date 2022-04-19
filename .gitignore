@@ -1,3 +1,5 @@
 /target
 **irc.toml
 /generated
+flamegraph.svg
+perf.data*
