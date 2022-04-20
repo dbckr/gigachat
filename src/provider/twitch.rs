@@ -76,7 +76,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //println!("{:?}", message);
+            println!("{:?}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -129,8 +129,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
       Some(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { message } => { 
-            match &message.chars().next().unwrap() {
-              ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
+            match &message.chars().next() {
+              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
               _ => sender.send_privmsg(&name, &message)?,
             };
             let cmsg = ChatMessage { 

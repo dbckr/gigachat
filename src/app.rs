@@ -248,12 +248,11 @@ impl epi::App for TemplateApp {
               .show(ui);
               ui.separator();
               ui.add_space(15.0);
-            if outgoing_msg.response.has_focus() && ui.input().key_pressed(egui::Key::Enter) {
-              sco.tx.try_send(OutgoingMessage::Chat { message: draft_message.to_owned() });
+            if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && draft_message.len() > 0 {
+              sco.tx.try_send(OutgoingMessage::Chat { message: draft_message.replace("\n", " ").to_owned() });
               *draft_message = String::new();
             }
             egui::ScrollArea::vertical()
-              //.max_height(ui.available_height() - 60.)  
               .auto_shrink([false; 2])
               .stick_to_bottom()
               .show_viewport(ui, |ui, viewport| {
@@ -316,38 +315,34 @@ fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport :
     let mut used_y = 0.0;
     let mut y_pos = 0.0;
     let mut ix = 0;
-    //let mut skipped_rows = 0;
+    let mut skipped_rows = 0;
     let mut last_size = 0.0;
     for row in &sco.history {
       ix += 1;
       let size_y = get_y_size(ui, sco, row, last_size as u32, global_emotes);
       last_size = size_y;
       
-      if y_pos >= viewport.min.y && y_pos <= viewport.max.y /*&& used_y + size_y <= allowed_y*/ {
+      if y_pos >= viewport.min.y && y_pos <= viewport.max.y && used_y + size_y <= allowed_y {
         temp_dbg_sizes.push(size_y);
         in_view.push((row, ix));
         used_y += size_y;
       }
+      else if in_view.len() == 0 {
+        skipped_rows += 1;
+      }
       y_pos += size_y;
     }
 
-    ui.set_height(y_pos);
-    //print!("{} {}", y_pos, ui.min_size().y);
-    //ui.skip_ahead_auto_ids(skipped_rows); // Make sure we get consistent IDs.
+    ui.set_height(viewport.max.y);
+    ui.skip_ahead_auto_ids(skipped_rows);
 
     let mut last_rect : Rect = Rect { min: Pos2{ x: 0.0, y: 0.0 }, max: Pos2{ x: 0.0, y: 0.0 } };
     ui.allocate_ui_at_rect(rect, |viewport_ui| {
       for (row, ix) in in_view {
-        let rect = viewport_ui.horizontal_wrapped(|ui| {      
-          last_rect = create_chat_message(ctx, ui, &sco.provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
-          temp_dbg_sizes.push(last_rect.height());
-        }).response.rect;
+        last_rect = create_chat_message(ctx, viewport_ui, &sco.provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
+        temp_dbg_sizes.push(last_rect.height());
       }
     });
-
-    /*if channel_swap {
-      ui.scroll_to_rect(last_rect, Some(Align::BOTTOM));
-    }*/
   });
 }
 

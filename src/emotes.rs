@@ -503,7 +503,10 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
   let mut last_timestamp: u16 = 0;
   for frame in decoder.into_iter() {
     let (width, height) = frame.dimensions();
-    let frametime = frame.timestamp() as u16 - last_timestamp;
+    let frametime = match (frame.timestamp() as u16 - last_timestamp) {
+      x if x <= 10 => 50,
+      x => x
+    };
     last_timestamp = frame.timestamp() as u16;
     //println!("{:?} {:?} {}", frame.dimensions(), frame.color_mode(), frame.timestamp());
     let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, _>> =

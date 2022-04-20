@@ -48,4 +48,12 @@ mod test {
     let frames = crate::emotes::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 12);
   }
+
+  //60af09d9a564afa26e8f19ef
+  #[test]
+  fn peepoLeave() {
+    let buf = crate::emotes::load_file_into_buffer("generated/7tv/60b056f5b254a5e16b929707.webp");
+    let frames = crate::emotes::load_animated_webp(&buf);
+    assert_eq!(frames.unwrap().len(), 35);
+  }
 }
