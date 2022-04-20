@@ -20,21 +20,26 @@ pub struct Channel {
 }
 
 impl Channel {
-  fn close(&mut self) {
+  async fn close(&mut self) {
     let Self {
         channel_name : _,
         roomid : _,
         provider : _,
         history : _,
         history_viewport_size_y : _,
-        tx : _,
+        tx,
         rx : _,
         channel_emotes : _,
         task_handle
     } = self;
 
     if let Some(handle) = task_handle {
-      handle.abort();
+      if tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
+        match handle.await {
+          Ok(_) => (),
+          Err(e) => println!("{:?}", e)
+        }
+      }
     }
   }
 }
@@ -210,7 +215,9 @@ impl epi::App for TemplateApp {
             channel_swap = true;
           }
           else if clbl.middle_clicked() { //TODO: custom widget that adds close button?
-            sco.close();
+            runtime.block_on(async {
+              sco.close().await;
+            });
             channel_removed = true;
           }
         }

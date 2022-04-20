@@ -72,81 +72,84 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")])?;
   loop {
-  //while let Some(message_result) = timeout(Duration::from_millis(500), stream.next()).await? {
-    let result = timeout(Duration::from_millis(500), stream.try_next()).await;
-    if let Ok(result) = result && let Ok(result) = result && let Some(message) = result {
-      println!("{:?}", message);
-      match message.command {
-          Command::PRIVMSG(ref _target, ref msg) => {
-            let sender_name = match message.source_nickname() {
-                Some(sn) => sn.to_owned(),
-                _ => "".to_owned()
-              };
-
-              // Parse out tags
-              if let Some(tags) = message.tags {
-                let cmsg = ChatMessage { 
-                  username: sender_name.to_owned(), 
-                  timestamp: chrono::Utc::now(), 
-                  message: msg.to_owned(),
-                  profile: get_user_profile(&tags)
-                };
-                match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
-                  Ok(_) => (),
-                  Err(x) => println!("Send failure: {}", x)
-                };
-              }
+    tokio::select! {
+      Some(result) = stream.next()  => {
+        match result {
+          Ok(message) => {
+            //println!("{:?}", message);
+            match message.command {
+              Command::PRIVMSG(ref _target, ref msg) => {
+                let sender_name = match message.source_nickname() {
+                    Some(sn) => sn.to_owned(),
+                    _ => "".to_owned()
+                  };
+    
+                  // Parse out tags
+                  if let Some(tags) = message.tags {
+                    let cmsg = ChatMessage { 
+                      username: sender_name.to_owned(), 
+                      timestamp: chrono::Utc::now(), 
+                      message: msg.to_owned(),
+                      profile: get_user_profile(&tags)
+                    };
+                    match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+                      Ok(_) => (),
+                      Err(x) => println!("Send failure: {}", x)
+                    };
+                  }
+              },
+              Command::PING(ref target, ref _msg) => {
+                  sender.send_pong(target)?;
+              },
+              Command::Raw(ref command, ref _str_vec) => {
+                if let Some(tags) = message.tags {
+                  if command == "USERSTATE" {
+                    profile = get_user_profile(&tags);
+                    tx.try_send(InternalMessage::EmoteSets { 
+                      emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
+                  }
+                  else if command == "ROOMSTATE" {
+                    tx.try_send(InternalMessage::RoomId { 
+                      room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() });
+                  }
+                  else {
+                    ()
+                  }
+                }
+                else {
+                  ()
+                }
+              },
+              _ => ()
+          }
           },
-          Command::PING(ref target, ref _msg) => {
-              sender.send_pong(target)?;
+          Err(e) => println!("{:?}", e)
+        }
+      },
+      Some(out_msg) = rx.recv() => {
+        match out_msg {
+          OutgoingMessage::Chat { message } => { 
+            match &message.chars().next().unwrap() {
+              ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
+              _ => sender.send_privmsg(&name, &message)?,
+            };
+            let cmsg = ChatMessage { 
+              username: client.current_nickname().to_owned(), 
+              timestamp: chrono::Utc::now(), 
+              message: message, 
+              profile: profile.to_owned()
+            };
+            match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+              Ok(_) => (),
+              Err(x) => println!("Send failure: {}", x)
+            };
           },
-          Command::Raw(ref command, ref _str_vec) => {
-            if let Some(tags) = message.tags {
-              if command == "USERSTATE" {
-                profile = get_user_profile(&tags);
-                tx.try_send(InternalMessage::EmoteSets { 
-                  emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
-              }
-              else if command == "ROOMSTATE" {
-                tx.try_send(InternalMessage::RoomId { 
-                  room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() });
-              }
-              else {
-                ()
-              }
-            }
-            else {
-              ()
-            }
-          },
+          OutgoingMessage::Leave {  } => return Ok(()),
           _ => ()
+        };
       }
-    }
-    else {
-    while let Ok(out_msg) = rx.try_recv() {
-      match out_msg {
-        OutgoingMessage::Chat { message } => { 
-          match &message.chars().next().unwrap() {
-            ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
-            _ => sender.send_privmsg(&name, &message)?,
-          };
-          let cmsg = ChatMessage { 
-            username: client.current_nickname().to_owned(), 
-            timestamp: chrono::Utc::now(), 
-            message: message, 
-            profile: profile.to_owned()
-          };
-          match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
-            Ok(_) => (),
-            Err(x) => println!("Send failure: {}", x)
-          };
-        },
-        OutgoingMessage::Leave {  } => return Ok(()),
-        _ => ()
-      };
-    }
+    };
   }
-}
 }
 
 fn get_user_profile(tags: &Vec<irc::proto::message::Tag>) -> UserProfile {
