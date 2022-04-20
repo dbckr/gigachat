@@ -340,8 +340,8 @@ impl EmoteLoader {
           Some(x) => {
             let filepath : std::path::PathBuf = x?.as_path().to_owned();
             let buffer = load_file_into_buffer(filepath.to_str().unwrap());
-            match extension {
-              Some(ext) => Ok(load_image(ctx, ext.as_str(), &buffer)),
+            match filepath.extension() {
+              Some(ext) => Ok(load_image(ctx, ext.to_str().unwrap(), &buffer)),
               None => Ok(None)
             }
           }
@@ -408,7 +408,7 @@ fn load_image(
 ) -> Option<Vec<(TextureHandle, u16)>> {
   match extension {
     "png" => match image::load_from_memory(&buffer) {
-      Ok(img) => Some([(load_image_into_texture_handle(ctx, &resize_image(&img)), 0)].to_vec()),
+      Ok(img) => Some([(load_image_into_texture_handle(ctx, &resize_image(img)), 0)].to_vec()),
       _ => None,
     },
     "gif" => match load_animated_gif(&buffer) { Some(x) => Some(load_to_texture_handles(ctx, x)), _ => None },
@@ -417,32 +417,43 @@ fn load_image(
   }
 }
 
+pub fn load_animated_gif_is_partial(buffer: &[u8]) -> bool {
+  let mut decoder = gif::DecodeOptions::new();
+  decoder.set_color_output(gif::ColorOutput::RGBA);
+  let mut decoder = decoder.read_info(buffer).unwrap();
+  let mut is_partial = false;
+  let mut last_transparent: Option<u8> = None;
+
+  while let Some(frame) = decoder.read_next_frame().unwrap() {
+    if frame.top > 0 || frame.left > 0 {
+      is_partial = true;
+      break;
+    }
+  }
+  is_partial
+}
+
 pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
+
+  let is_partial = load_animated_gif_is_partial(buffer);
+
   let mut loaded_frames: Vec<(DynamicImage, u16)> = Default::default();
-  let mut loaded_frames_partial: Vec<(DynamicImage, u16)> = Default::default();
-  let mut loaded_delays: Vec<u8> = Default::default();
   let mut decoder = gif::DecodeOptions::new();
   decoder.set_color_output(gif::ColorOutput::RGBA);
   let mut decoder = decoder.read_info(buffer).unwrap();
   let mut last_frameimg: Option<DynamicImage>;
-  let mut last_transparent: Option<u8> = None;
-  let mut is_partial = false;
 
   // Handle first frame
   if let Some(frame) = decoder.read_next_frame().unwrap() {
-    let frametime = frame.delay;
-    println!(
-      "Processing: {} {} {} {} {:?}",
-      frame.top, frame.left, frame.width, frame.height, frame.transparent
-    );
+    //println!("Processing: {} {} {} {} {:?}",frame.left, frame.top, frame.width, frame.height, frame.transparent);
     let temp: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
       image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
     if let Some(imgbuf) = temp {
+      let frametime = frame.delay * 10;
       let image = DynamicImage::from(imgbuf);
-      let handle = resize_image(&image);
+      let handle = resize_image(image.clone());
       last_frameimg = Some(image);
       loaded_frames.push((handle, frametime));
-      last_transparent = frame.transparent;
     } else {
       last_frameimg = None;
     }
@@ -457,34 +468,32 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
       image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
     if let Some(imgbuf) = imgbufopt {
       let frametime = frame.delay * 10;
-      //println!("{} {} {} {} {:?}",frame.top, frame.left, frame.width, frame.height, frame.transparent);
-
+      //println!("{} {} {} {} {:?}",frame.left, frame.top, frame.width, frame.height, frame.transparent);
       let image = DynamicImage::from(imgbuf);
       let handle: DynamicImage;
-      let handle_partial: DynamicImage;
-      if frame.transparent != last_transparent {
-        is_partial = true;
+      if is_partial {
+        if let Some(last_img) = reusable_img {
+          image::imageops::overlay(last_img, &image, frame.left as i64, frame.top as i64);
+          handle = resize_image(last_img.clone());
+          loaded_frames.push((handle, frametime));
+        } else {
+          println!("failed partial frame load gif");
+        }
       }
-
-      if let Some(last_img) = reusable_img {
-        image::imageops::overlay(last_img, &image, 0, 0);
-        handle_partial = resize_image(&last_img);
-        loaded_frames_partial.push((handle_partial, frametime));
-      } else {
-        println!("failed partial frame load gif");
-      }
-
-      handle = resize_image(&image);
-      loaded_frames.push((handle, frametime));
-    } else {
+      else {
+        handle = resize_image(image);
+        loaded_frames.push((handle, frametime));
+      }  
+    }
+    else {
       println!("failed frame load gif");
     }
   }
 
-  match is_partial {
-    true if loaded_frames_partial.len() > 0 => Some(loaded_frames_partial),
-    false if loaded_frames.len() > 0 => Some(loaded_frames),
-    _ => None,
+  if loaded_frames.len() > 0 {
+    Some(loaded_frames)
+  } else {
+    None
   }
 }
 
@@ -500,7 +509,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
     let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, _>> =
       image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
     if let Some(imgbuf) = imgbufopt {
-      let handle = resize_image(&DynamicImage::from(imgbuf));
+      let handle = resize_image(DynamicImage::from(imgbuf));
       loaded_frames.push((handle, frametime));
     } else {
       println!("failed frame load webp");
@@ -521,11 +530,12 @@ pub fn load_file_into_buffer (filepath : &str) -> Vec<u8> {
 }
 
 fn resize_image(
-  image: &image::DynamicImage
+  image: image::DynamicImage
 ) -> DynamicImage {
   //let resize_width = image.width() * (24 / image.height());
   //let image = image.resize(resize_width, 24, FilterType::Lanczos3);
-  image.resize(42, 42, FilterType::Nearest)
+  //image.resize(42, 42, FilterType::Nearest)
+  image
 }
 
 fn load_to_texture_handles(ctx : &egui::Context, frames : Vec<(DynamicImage, u16)>) -> Vec<(TextureHandle, u16)> {

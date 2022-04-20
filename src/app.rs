@@ -4,7 +4,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use chrono::{self, Timelike};
 use eframe::{egui::{self, emath, InnerResponse, RichText}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, ColorImage, TextureHandle}, emath::{Align, Rect, Pos2}};
 
-use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage}, emotes::{Emote, EmoteLoader}};
+use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage}, emotes::{Emote, EmoteLoader}};
 use itertools::Itertools;
 
 pub struct Channel {
@@ -14,6 +14,7 @@ pub struct Channel {
   pub history: Vec<ChatMessage>,
   pub history_viewport_size_y: f32,
   pub rx: mpsc::Receiver<InternalMessage>,
+  pub tx: mpsc::Sender<OutgoingMessage>,
   pub channel_emotes: HashMap<String, Emote>,
   pub task_handle: Option<JoinHandle<()>>
 }
@@ -26,6 +27,7 @@ impl Channel {
         provider : _,
         history : _,
         history_viewport_size_y : _,
+        tx : _,
         rx : _,
         channel_emotes : _,
         task_handle
@@ -127,6 +129,7 @@ impl epi::App for TemplateApp {
             provider: "null".to_owned(),
             history: Vec::default(),
             history_viewport_size_y: 0.0,
+            tx: mpsc::channel::<OutgoingMessage>(32).0,
             rx: mpsc::channel(32).1,
             channel_emotes: Default::default(),
             roomid: "".to_owned(),
@@ -230,13 +233,18 @@ impl epi::App for TemplateApp {
       ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
         if let Some(sc) = selected_channel {
           if let Some(sco) = channels.get_mut(&sc.to_owned()) {
-            egui::TextEdit::multiline(draft_message)
+            let outgoing_msg = egui::TextEdit::multiline(draft_message)
               .desired_rows(2)
               .desired_width(ui.available_width())
               .hint_text("Type a message to send")
               .font(egui::TextStyle::Body)
               .show(ui);
               ui.separator();
+              ui.add_space(15.0);
+            if outgoing_msg.response.has_focus() && ui.input().key_pressed(egui::Key::Enter) {
+              sco.tx.try_send(OutgoingMessage::Chat { message: draft_message.to_owned() });
+              *draft_message = String::new();
+            }
             egui::ScrollArea::vertical()
               //.max_height(ui.available_height() - 60.)  
               .auto_shrink([false; 2])
@@ -292,6 +300,7 @@ fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport :
   ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
     let y_min = ui.max_rect().top() + viewport.min.y;
     let y_max = ui.max_rect().top() + viewport.max.y;
+    //println!("{} {}", y_min, y_max);
     let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
 
     let mut temp_dbg_sizes : Vec<f32> = Vec::default();
@@ -329,11 +338,10 @@ fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport :
       }
     });
 
-    if channel_swap {
+    /*if channel_swap {
       ui.scroll_to_rect(last_rect, Some(Align::BOTTOM));
-    }
+    }*/
   });
-  //println!(" {}", ui.min_size().y);
 }
 
 fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, channel_name: &str, channel_emotes: &mut HashMap<String, Emote>, row: &ChatMessage, ix: u32, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> emath::Rect {
@@ -404,7 +412,10 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, c
       if let Some(emote) = emote_resp {
         flush_text(ui, &mut label_text);
         if let Some(tex) = get_texture(ctx, word, emote, emote_loader) {
-          ui.image(&tex, tex.size_vec2()).on_hover_text_at_pointer(RichText::new(format!("{}\n{}", word, emote.id)).size(24.0));
+          ui.image(&tex, egui::vec2(tex.size_vec2().x * (42. / tex.size_vec2().y), 42.)).on_hover_ui_at_pointer(|ui| {
+            ui.label(format!("{}\n{}", word, emote.id));
+            ui.image(&tex, tex.size_vec2());
+          });
         }
         else {
           let lbl = egui::Label::new(RichText::new(word).size(26.0));

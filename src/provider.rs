@@ -45,10 +45,16 @@ impl Default for ChatMessage {
   }
 }
 
+#[derive(Clone)]
 pub enum InternalMessage {
   PrivMsg { message: ChatMessage },
   EmoteSets { emote_sets: Vec<String> },
-  RoomId { room_id: String }
+  RoomId { room_id: String },
+}
+
+pub enum OutgoingMessage {
+  Chat { message: String },
+  Leave {},
 }
 
 pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {

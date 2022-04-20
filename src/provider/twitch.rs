@@ -1,15 +1,20 @@
+use std::time::Duration;
+
+use eframe::egui::style::Interaction;
 use futures::prelude::*;
-use irc::client::prelude::*;
-use tokio::{sync::mpsc, runtime::Runtime};
+use irc::client::{prelude::*, data::User};
+use tokio::{sync::{mpsc}, runtime::Runtime, time::timeout};
 use crate::{app::{Channel}, provider::convert_color_hex, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, InternalMessage};
+use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage};
 
 pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
-  let (tx, mut rx) = mpsc::channel(32);
+  let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
+  let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = name.to_owned();
+
   let task = runtime.spawn(async move { 
-    match spawn_irc(name2, tx).await {
+    match spawn_irc(name2, out_tx, in_rx).await {
       Ok(()) => (),
       Err(e) => { println!("Error in twitch thread: {}", e); }
     }
@@ -17,7 +22,7 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
   let rid;
 
   loop {
-    if let Some(msg) = rx.blocking_recv() {
+    if let Ok(msg) = out_rx.try_recv() {
       match msg {
         InternalMessage::RoomId { room_id } => {
           rid = room_id;
@@ -40,7 +45,8 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
     provider: "twitch".to_owned(), 
     channel_name: name.to_string(),
     roomid: rid,
-    rx: rx,
+    tx: in_tx,
+    rx: out_rx,
     history: Vec::default(),
     history_viewport_size_y: Default::default(),
     channel_emotes: channel_emotes,
@@ -49,11 +55,13 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
   channel
 }
 
-async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<(), failure::Error> {
+async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) -> Result<(), failure::Error> {
   let config_path = match std::env::var("IRC_Config_File") {
     Ok(val) => val,
     Err(_e) => "config/irc.toml".to_owned()
   };
+
+  let mut profile = UserProfile::default();
 
   let mut config = Config::load(config_path)?;
   let name = format!("#{}", name);
@@ -63,9 +71,11 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<
   let mut stream = client.stream()?;
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")])?;
-  while let Some(message) = stream.next().await.transpose()? {
-      //print!("{}", message);
-
+  loop {
+  //while let Some(message_result) = timeout(Duration::from_millis(500), stream.next()).await? {
+    let result = timeout(Duration::from_millis(500), stream.try_next()).await;
+    if let Ok(result) = result && let Ok(result) = result && let Some(message) = result {
+      println!("{:?}", message);
       match message.command {
           Command::PRIVMSG(ref _target, ref msg) => {
             let sender_name = match message.source_nickname() {
@@ -75,19 +85,11 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<
 
               // Parse out tags
               if let Some(tags) = message.tags {
-                let color_tag = get_tag_value(&tags, "color");
                 let cmsg = ChatMessage { 
                   username: sender_name.to_owned(), 
                   timestamp: chrono::Utc::now(), 
                   message: msg.to_owned(),
-                  profile: UserProfile {
-                    display_name: match get_tag_value(&tags, "display-name") {
-                      Some(x) => Some(x.to_owned()),
-                      None => None
-                    },
-                    color: convert_color_hex(color_tag),
-                    ..Default::default()
-                  }
+                  profile: get_user_profile(&tags)
                 };
                 match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
                   Ok(_) => (),
@@ -101,6 +103,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<
           Command::Raw(ref command, ref _str_vec) => {
             if let Some(tags) = message.tags {
               if command == "USERSTATE" {
+                profile = get_user_profile(&tags);
                 tx.try_send(InternalMessage::EmoteSets { 
                   emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() });
               }
@@ -118,15 +121,46 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>) -> Result<
           },
           _ => ()
       }
+    }
+    else {
+    while let Ok(out_msg) = rx.try_recv() {
+      match out_msg {
+        OutgoingMessage::Chat { message } => { 
+          match &message.chars().next().unwrap() {
+            ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
+            _ => sender.send_privmsg(&name, &message)?,
+          };
+          let cmsg = ChatMessage { 
+            username: client.current_nickname().to_owned(), 
+            timestamp: chrono::Utc::now(), 
+            message: message, 
+            profile: profile.to_owned()
+          };
+          match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+            Ok(_) => (),
+            Err(x) => println!("Send failure: {}", x)
+          };
+        },
+        OutgoingMessage::Leave {  } => return Ok(()),
+        _ => ()
+      };
+    }
   }
-
-  Ok(())
+}
 }
 
-fn get_tag_value<'a>(tags: &'a Vec<irc::proto::message::Tag>, key: &str) -> Option<&'a String> {
+fn get_user_profile(tags: &Vec<irc::proto::message::Tag>) -> UserProfile {
+  UserProfile {
+    display_name: get_tag_value(&tags, "display-name"),
+    color: convert_color_hex(get_tag_value(&tags, "color").as_ref()),
+    ..Default::default()
+  }
+}
+
+fn get_tag_value(tags: &Vec<irc::proto::message::Tag>, key: &str) -> Option<String> {
   for tag in tags {
     if tag.0 == key {
-      return tag.1.as_ref();
+      return tag.1.to_owned();
     }
   }
   return None;
