@@ -43,17 +43,34 @@ mod test {
   }
 
   #[test]
+  fn elnosabe2() {
+    let buf = crate::emotes::load_file_into_buffer("generated/7tv/60560bceba9052000d450655.gif");
+    let frames = crate::emotes::load_animated_gif(&buf);
+    assert_eq!(frames.unwrap().len(), 4);
+  }
+
+  #[test]
   fn omegalaughing() {
     let buf = crate::emotes::load_file_into_buffer("generated/bttv/5b3fd6770f8f6c2547825a6f.gif");
     let frames = crate::emotes::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 12);
   }
 
-  //60af09d9a564afa26e8f19ef
   #[test]
   fn peepoLeave() {
     let buf = crate::emotes::load_file_into_buffer("generated/7tv/60b056f5b254a5e16b929707.webp");
     let frames = crate::emotes::load_animated_webp(&buf);
     assert_eq!(frames.unwrap().len(), 35);
   }
+
+  #[test]
+  fn peepoLeave2() {
+    let buf = crate::emotes::load_file_into_buffer("generated/bttv/5d324913ff6ed36801311fd2.gif");
+    let frames = crate::emotes::load_animated_gif(&buf);
+    assert_eq!(frames.unwrap().len(), 35);
+  }
+
+  // 5f402fe68abf185d76c7617a NOTED
+
+  // 5ec059009af1ea16863b2dec PETTHEPEEPO
 }

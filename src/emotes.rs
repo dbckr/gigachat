@@ -4,6 +4,7 @@ use eframe::{
   epaint::{ColorImage, TextureHandle},
 };
 use failure;
+use gif::DisposalMethod;
 use glob::glob;
 use image::imageops::FilterType;
 use image::DynamicImage;
@@ -435,55 +436,81 @@ pub fn load_animated_gif_is_partial(buffer: &[u8]) -> bool {
 
 pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
 
-  let is_partial = load_animated_gif_is_partial(buffer);
+  //let is_partial = load_animated_gif_is_partial(buffer);
 
   let mut loaded_frames: Vec<(DynamicImage, u16)> = Default::default();
   let mut decoder = gif::DecodeOptions::new();
   decoder.set_color_output(gif::ColorOutput::RGBA);
   let mut decoder = decoder.read_info(buffer).unwrap();
-  let mut last_frameimg: Option<DynamicImage>;
-
-  // Handle first frame
-  if let Some(frame) = decoder.read_next_frame().unwrap() {
-    //println!("Processing: {} {} {} {} {:?}",frame.left, frame.top, frame.width, frame.height, frame.transparent);
-    let temp: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
-      image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
-    if let Some(imgbuf) = temp {
-      let frametime = frame.delay * 10;
-      let image = DynamicImage::from(imgbuf);
-      let handle = resize_image(image.clone());
-      last_frameimg = Some(image);
-      loaded_frames.push((handle, frametime));
-    } else {
-      last_frameimg = None;
-    }
-  } else {
-    last_frameimg = None;
-  }
-
-  let reusable_img = &mut last_frameimg;
+  let mut last_key_img: Option<DynamicImage> = None;
+  let mut last_frame_img: Option<DynamicImage> = None;
+  let dimensions = (decoder.width(), decoder.height());
+  //let reusable_img = &mut last_frameimg;
 
   while let Some(frame) = decoder.read_next_frame().unwrap() {
     let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
       image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
-    if let Some(imgbuf) = imgbufopt {
-      let frametime = frame.delay * 10;
-      //println!("{} {} {} {} {:?}",frame.left, frame.top, frame.width, frame.height, frame.transparent);
-      let image = DynamicImage::from(imgbuf);
-      let handle: DynamicImage;
-      if is_partial {
-        if let Some(last_img) = reusable_img {
-          image::imageops::overlay(last_img, &image, frame.left as i64, frame.top as i64);
-          handle = resize_image(last_img.clone());
-          loaded_frames.push((handle, frametime));
-        } else {
-          println!("failed partial frame load gif");
-        }
-      }
-      else {
-        handle = resize_image(image);
-        loaded_frames.push((handle, frametime));
-      }  
+      if let Some(imgbuf) = imgbufopt {
+        let frametime = match frame.delay {
+          x if x <= 1 => 100,
+          x => x * 10
+        };
+        let image = match dimensions {
+          (w, h) if frame.width == w && frame.height == h => {
+            DynamicImage::from(imgbuf)
+          },
+          _ => {
+            let mut img = DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) ));
+            image::imageops::replace(&mut img, &DynamicImage::from(imgbuf), frame.left as i64, frame.top as i64);
+            img
+          }
+        }; 
+        let handle: DynamicImage;
+        println!("{:?} {:?} {:?} {:?} {:?} {:?}", frame.dispose, frame.left, frame.top, frame.width, frame.height, frametime);
+        match frame.dispose {
+          DisposalMethod::Previous | DisposalMethod::Keep if last_key_img.is_some() => {
+            if let Some(last_img) = last_key_img.as_mut() {
+              let mut new_img = last_img.clone();
+              image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
+              if frame.dispose == DisposalMethod::Keep {
+                last_key_img = Some(new_img.clone());
+              }
+              last_frame_img = Some(new_img.clone());
+              handle = resize_image(new_img);
+              loaded_frames.push((handle, frametime));
+            } else {
+              println!("failed partial frame load gif");
+            }
+          },
+          DisposalMethod::Background if last_frame_img.is_some() => {
+            if let Some(last_img) = last_frame_img.as_mut() {
+              let mut new_img = last_img.clone();
+              image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
+              last_frame_img = None;// Some(DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) )));
+              last_key_img = None;
+              handle = resize_image(new_img);
+              loaded_frames.push((handle, frametime));
+            } else {
+              println!("failed partial frame load gif");
+            }
+          },
+          _ => {
+            match frame.dispose {
+              DisposalMethod::Keep => {
+                last_key_img = Some(image.clone());
+                last_frame_img = Some(image.clone());
+              },
+              DisposalMethod::Background => {
+                last_frame_img = None;
+                last_key_img = None;
+              },
+              _ => last_frame_img = Some(image.clone())
+            };
+            handle = resize_image(image);
+            loaded_frames.push((handle, frametime));
+            //println!("success: full frame");
+          }
+        };   
     }
     else {
       println!("failed frame load gif");
@@ -504,7 +531,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
   for frame in decoder.into_iter() {
     let (width, height) = frame.dimensions();
     let frametime = match (frame.timestamp() as u16 - last_timestamp) {
-      x if x <= 10 => 50,
+      x if x <= 10 => 100,
       x => x
     };
     last_timestamp = frame.timestamp() as u16;
