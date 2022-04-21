@@ -1,8 +1,14 @@
-use std::{collections::HashMap, borrow::BorrowMut};
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+use std::{collections::HashMap};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use chrono::{self, Timelike};
-use eframe::{egui::{self, emath, InnerResponse, RichText}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, ColorImage, TextureHandle}, emath::{Align, Rect, Pos2}};
+use eframe::{egui::{self, emath, RichText}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage}, emotes::{Emote, EmoteLoader}};
 use itertools::Itertools;
@@ -249,14 +255,17 @@ impl epi::App for TemplateApp {
               ui.separator();
               ui.add_space(15.0);
             if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && draft_message.len() > 0 {
-              sco.tx.try_send(OutgoingMessage::Chat { message: draft_message.replace("\n", " ").to_owned() });
+              match sco.tx.try_send(OutgoingMessage::Chat { message: draft_message.replace("\n", " ").to_owned() }) {
+                Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                _ => ()
+              } 
               *draft_message = String::new();
             }
             egui::ScrollArea::vertical()
               .auto_shrink([false; 2])
               .stick_to_bottom()
               .show_viewport(ui, |ui, viewport| {
-                show_variable_height_rows(ctx, ui, viewport, sco, channel_swap, global_emotes, emote_loader);
+                show_variable_height_rows(ctx, ui, viewport, sco, global_emotes, emote_loader);
               });
           }
         }
@@ -302,7 +311,7 @@ impl epi::App for TemplateApp {
   }
 }
 
-fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, channel_swap : bool, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
+fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
   ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
     let y_min = ui.max_rect().top() + viewport.min.y;
     let y_max = ui.max_rect().top() + viewport.max.y;
@@ -413,7 +422,7 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, c
 
       if let Some(emote) = emote_resp {
         flush_text(ui, &mut label_text);
-        if let Some(tex) = get_texture(ctx, word, emote, emote_loader) {
+        if let Some(tex) = get_texture(ctx, emote, emote_loader) {
           ui.image(&tex, egui::vec2(tex.size_vec2().x * (42. / tex.size_vec2().y), 42.)).on_hover_ui_at_pointer(|ui| {
             ui.label(format!("{}\n{}", word, emote.id));
             ui.image(&tex, tex.size_vec2());
@@ -509,7 +518,7 @@ fn get_y_size(ui: &mut egui::Ui, sco: &Channel, row: &ChatMessage, ix: u32, glob
   }
 }
 
-fn get_texture (ctx : &egui::Context, word: &str, emote: &mut Emote, emote_loader: &mut EmoteLoader) -> Option<TextureHandle> {
+fn get_texture (ctx : &egui::Context, emote: &mut Emote, emote_loader: &mut EmoteLoader) -> Option<TextureHandle> {
   if emote.loaded == false {
     println!("loading {} {}", emote.name, emote.id);
     emote_loader.load_image(ctx, emote);
@@ -524,19 +533,17 @@ fn get_texture (ctx : &egui::Context, word: &str, emote: &mut Emote, emote_loade
         let time = chrono::Utc::now();
         let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
         let mut progress_msec : u16 = 0;
-        let mut ix = 0;
         for (frame, msec) in frames {
           progress_msec += msec; 
           if progress_msec >= target_progress {
             //println!("{} {} {} {}", &word, progress_msec, target_progress, ix);
             return Some(frame.to_owned())
           }
-          ix += 1;
         }
         return None;
       }
       else {
-        let (frame, delay) = frames.get(0).unwrap();
+        let (frame, _delay) = frames.get(0).unwrap();
         Some(frame.to_owned())
       }
     },

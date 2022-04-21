@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use curl::easy::Easy;
 use eframe::{
   egui::{self},
@@ -6,7 +12,6 @@ use eframe::{
 use failure;
 use gif::DisposalMethod;
 use glob::glob;
-use image::imageops::FilterType;
 use image::DynamicImage;
 use serde_json::Value;
 use std::{collections::HashMap};
@@ -170,12 +175,6 @@ impl EmoteLoader {
           Some(ext),
         ));
       }
-    } else if v["emotes"].is_null() == false {
-      // BTTV channel name based API
-      //e.g. get_emote_json("https://api.betterttv.net/2/channels/jormh", "bttv-jormh-json")?;
-      for i in v["emotes"].as_array_mut().unwrap() {
-        //emotes.push(Emote { name: i["code"].to_string().trim_matches('"').to_owned(), data: None })
-      }
     } else if v["room"].is_null() == false {
       // FFZ
       let setid = v["room"]["set"].to_string();
@@ -241,7 +240,7 @@ impl EmoteLoader {
     let data = self.get_emote_json(url, filename)?;
     let mut v: Value = serde_json::from_str(&data)?;
 
-    let mut emotes: Vec<Emote> = Vec::default();
+    let emotes: Vec<Emote> = Vec::default();
 
     //if v[0]["data"]["channel"]["self"]["availableEmoteSets"].is_null() == false {
     for i in v[0]["data"]["channel"]["self"]["availableEmoteSets"]
@@ -328,9 +327,6 @@ impl EmoteLoader {
     extension: &Option<String>,
   ) -> Option<Vec<(TextureHandle, u16)>> {
     let Self { easy } = self;
-
-    //let filename = format!("{}.{}", id, extension);
-
     let mut inner =
       || -> std::result::Result<Option<Vec<(TextureHandle, u16)>>, failure::Error> {
         if path.len() > 0 {
@@ -397,7 +393,7 @@ impl EmoteLoader {
 
     match inner() {
       Ok(x) => x,
-      Err(x) => None,
+      Err(_) => None,
     }
   }
 }
@@ -418,26 +414,7 @@ fn load_image(
   }
 }
 
-pub fn load_animated_gif_is_partial(buffer: &[u8]) -> bool {
-  let mut decoder = gif::DecodeOptions::new();
-  decoder.set_color_output(gif::ColorOutput::RGBA);
-  let mut decoder = decoder.read_info(buffer).unwrap();
-  let mut is_partial = false;
-  let mut last_transparent: Option<u8> = None;
-
-  while let Some(frame) = decoder.read_next_frame().unwrap() {
-    if frame.top > 0 || frame.left > 0 {
-      is_partial = true;
-      break;
-    }
-  }
-  is_partial
-}
-
 pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
-
-  //let is_partial = load_animated_gif_is_partial(buffer);
-
   let mut loaded_frames: Vec<(DynamicImage, u16)> = Default::default();
   let mut decoder = gif::DecodeOptions::new();
   decoder.set_color_output(gif::ColorOutput::RGBA);
@@ -530,7 +507,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
   let mut last_timestamp: u16 = 0;
   for frame in decoder.into_iter() {
     let (width, height) = frame.dimensions();
-    let frametime = match (frame.timestamp() as u16 - last_timestamp) {
+    let frametime = match frame.timestamp() as u16 - last_timestamp {
       x if x <= 10 => 100,
       x => x
     };

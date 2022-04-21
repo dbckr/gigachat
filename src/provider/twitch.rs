@@ -1,16 +1,19 @@
-use std::time::Duration;
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
 
-use eframe::egui::style::Interaction;
 use futures::prelude::*;
-use irc::client::{prelude::*, data::User};
-use tokio::{sync::{mpsc}, runtime::Runtime, time::timeout};
+use irc::client::{prelude::*};
+use tokio::{sync::{mpsc}, runtime::Runtime};
 use crate::{app::{Channel}, provider::convert_color_hex, emotes::{EmoteLoader}};
 
 use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage};
 
 pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
   let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
-  let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
+  let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = name.to_owned();
 
   let task = runtime.spawn(async move { 
@@ -144,8 +147,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
               Err(x) => println!("Send failure: {}", x)
             };
           },
-          OutgoingMessage::Leave {  } => return Ok(()),
-          _ => ()
+          OutgoingMessage::Leave {  } => return Ok(())
         };
       }
     };

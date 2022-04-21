@@ -1,17 +1,14 @@
-#![feature(let_chains)]
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use eframe;
-mod app;
-pub mod provider;
-pub mod emotes;
-pub use app::TemplateApp;
-pub mod test;
+use gigachat::TemplateApp;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use std::collections::HashMap;
-
-    //use gigachat::TemplateApp;
-
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
