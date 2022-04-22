@@ -52,6 +52,7 @@ impl EmoteLoader {
     let ffz_emotes = self.process_emote_json(
       &ffz_url,
       &format!("generated/ffz-channel-json-{}", channel_id),
+      None
     )?;
     let bttv_url = format!(
       "https://api.betterttv.net/3/cached/users/twitch/{}",
@@ -60,11 +61,13 @@ impl EmoteLoader {
     let bttv_emotes = self.process_emote_json(
       &bttv_url,
       &format!("generated/bttv-channel-json-{}", channel_id),
+      None
     )?;
     let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
     let seventv_emotes = self.process_emote_json(
       &seventv_url,
       &format!("generated/7tv-channel-json-{}", channel_id),
+      None
     )?;
 
     let mut result: HashMap<String, Emote> = HashMap::new();
@@ -86,10 +89,12 @@ impl EmoteLoader {
     let bttv_emotes = self.process_emote_json(
       "https://api.betterttv.net/3/cached/emotes/global",
       "generated/bttv-global-json",
+      None
     )?;
     let seventv_emotes = self.process_emote_json(
       "https://api.7tv.app/v2/emotes/global",
       "generated/7tv-global-json",
+      None
     )?;
 
     let mut result: HashMap<String, Emote> = HashMap::new();
@@ -106,6 +111,31 @@ impl EmoteLoader {
     //process_emote_list("config/twitch-global")?;
     //process_emote_list("config/generic-emoji-list")?;
     //process_emote_list("config/emoji-unicode")?;
+  }
+
+  pub fn twitch_get_emote_set(&mut self, emote_set_id : &String) -> HashMap<String, Emote> {
+    let bttv_emotes = self.process_emote_json(
+      &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
+      &format!("generated/twitch-emote-set-{}", emote_set_id),
+      Some([
+        ("Authorization", &format!("Bearer {}", crate::provider::twitch::load_token())),
+        ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
+      ].to_vec())
+    );
+
+    match bttv_emotes {
+      Ok(emotes) => {
+        let mut map = HashMap::new();
+        for emote in emotes {
+          map.insert(emote.name.to_owned(), emote);
+        }
+        map
+      },
+      Err(e) => {
+        println!("Error loading emote set: {}", e);
+        HashMap::new()
+      }
+    }
   }
 
   pub fn load_list_file(filename: &str) -> std::result::Result<Vec<String>, failure::Error> {
@@ -138,17 +168,38 @@ impl EmoteLoader {
     &mut self,
     url: &str,
     filename: &str,
+    headers: Option<Vec<(&str, &String)>>,
   ) -> std::result::Result<Vec<Emote>, failure::Error> {
     let Self { easy: _ } = self;
 
     println!("processing emote json {}", filename);
-    let data = self.get_emote_json(url, filename)?;
+    let data = self.get_emote_json(url, filename, headers)?;
     let mut v: Value = serde_json::from_str(&data)?;
-
     let mut emotes: Vec<Emote> = Vec::default();
-
-    if v["channelEmotes"].is_null() == false {
-      // BTTV cache api
+    if v["data"].is_array() { // Twitch Global
+      for i in v["data"].as_array_mut().unwrap() {
+        let name = i["name"].to_string().trim_matches('"').to_owned();
+        let id = i["id"].to_string().trim_matches('"').to_owned();
+        let extension;
+        let wtf = i["format"].as_array().unwrap();
+        let imgurl = if /*wtf.len() == 2*/ false { // Disabled -- weezl crate cannot handle twitch animated emotes https://github.com/image-rs/lzw/issues/28
+          extension = Some("gif".to_owned());
+          i["images"]["url_4x"].to_string().trim_matches('"').replace("/static/", "/animated/").to_owned()
+        }
+        else {
+          extension = Some("png".to_owned());
+          i["images"]["url_4x"].to_string().trim_matches('"').to_owned()
+        };
+        emotes.push(self.get_emote(
+          name,
+          id,
+          imgurl,
+          "generated/twitch/".to_owned(),
+          extension
+        ));
+      }
+    }
+    else if v["channelEmotes"].is_null() == false { // BTTV
       for i in v["channelEmotes"].as_array_mut().unwrap() {
         let name = i["code"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
@@ -175,8 +226,7 @@ impl EmoteLoader {
           Some(ext),
         ));
       }
-    } else if v["room"].is_null() == false {
-      // FFZ
+    } else if v["room"].is_null() == false { // FFZ
       let setid = v["room"]["set"].to_string();
       for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap() {
         //TODO: Try to get i["urls"]["4"] then i["urls"]["2"] then i["urls"]["1"] in that order of precedence
@@ -186,7 +236,7 @@ impl EmoteLoader {
         emotes.push(self.get_emote(name, id, imgurl, "generated/ffz/".to_owned(), None));
       }
     } else if v[0].is_null() == false {
-      for i in v.as_array_mut().unwrap() {
+      for i in v.as_array_mut().unwrap() { // BTTV Global
         if i["code"].is_null() == false {
           let name = i["code"].to_string().trim_matches('"').to_owned();
           let id = i["id"].to_string().trim_matches('"').to_owned();
@@ -199,60 +249,19 @@ impl EmoteLoader {
             "generated/bttv/".to_owned(),
             Some(ext),
           ));
-        } else if i["name"].is_null() == false {
-          // 7tv
-          //emotes.push(Emote { name: i["name"].to_string().trim_matches('"').to_owned(), data: None })
+        } else if i["name"].is_null() == false { // 7TV
           let name = i["name"].to_string().trim_matches('"').to_owned();
           let id = i["id"].to_string().trim_matches('"').to_owned();
-          let extension = i["mime"]
-            .to_string()
-            .trim_matches('"')
-            .replace("image/", "");
-          let x = i["urls"]
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap();
+          let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
+          let x = i["urls"].as_array().unwrap()
+            .last().unwrap()
+            .as_array().unwrap()
+            .last().unwrap();
           let imgurl = x.as_str().unwrap();
-          emotes.push(self.get_emote(
-            name,
-            id,
-            imgurl.trim_matches('"').to_owned(),
-            "generated/7tv/".to_owned(),
-            Some(extension),
-          ));
+          emotes.push(self.get_emote(name, id, imgurl.trim_matches('"').to_owned(), "generated/7tv/".to_owned(), Some(extension)));
         }
       }
     }
-
-    Ok(emotes)
-  }
-
-  pub fn process_twitch_json(
-    &mut self,
-    url: &str,
-    filename: &str,
-  ) -> std::result::Result<Vec<Emote>, failure::Error> {
-    let data = self.get_emote_json(url, filename)?;
-    let mut v: Value = serde_json::from_str(&data)?;
-
-    let emotes: Vec<Emote> = Vec::default();
-
-    //if v[0]["data"]["channel"]["self"]["availableEmoteSets"].is_null() == false {
-    for i in v[0]["data"]["channel"]["self"]["availableEmoteSets"]
-      .as_array_mut()
-      .unwrap()
-    {
-      for j in i["emotes"].as_array_mut().unwrap() {
-        //writeln!(f, "{}", j["token"].to_string().trim_matches('"'))?;
-        //emotes.push(get_emote( j["token"].to_string().trim_matches('"').to_owned(), data: None })
-      }
-    }
-    //}
 
     Ok(emotes)
   }
@@ -261,6 +270,7 @@ impl EmoteLoader {
     &mut self,
     url: &str,
     filename: &str,
+    headers: Option<Vec<(&str, &String)>>,
   ) -> std::result::Result<String, failure::Error> {
     if Path::new(filename).exists() == false {
       let mut f = OpenOptions::new()
@@ -271,6 +281,13 @@ impl EmoteLoader {
 
       let mut easy = Easy::new();
       easy.url(url)?;
+      if let Some(headers) = headers {
+        let mut list = curl::easy::List::new();
+        for head in headers {
+          list.append(&format!("{}: {}", head.0, head.1))?;
+        }
+        easy.http_headers(list)?;
+      }
       let mut transfer = easy.transfer();
       transfer.write_function(|data| {
         f.write_all(data).expect("Failed to write to file");
@@ -423,76 +440,85 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
   let mut last_frame_img: Option<DynamicImage> = None;
   let dimensions = (decoder.width(), decoder.height());
   //let reusable_img = &mut last_frameimg;
-
-  while let Some(frame) = decoder.read_next_frame().unwrap() {
-    let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
-      image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
-      if let Some(imgbuf) = imgbufopt {
-        let frametime = match frame.delay {
-          x if x <= 1 => 100,
-          x => x * 10
-        };
-        let image = match dimensions {
-          (w, h) if frame.width == w && frame.height == h => {
-            DynamicImage::from(imgbuf)
-          },
-          _ => {
-            let mut img = DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) ));
-            image::imageops::replace(&mut img, &DynamicImage::from(imgbuf), frame.left as i64, frame.top as i64);
-            img
-          }
-        }; 
-        let handle: DynamicImage;
-        println!("{:?} {:?} {:?} {:?} {:?} {:?}", frame.dispose, frame.left, frame.top, frame.width, frame.height, frametime);
-        match frame.dispose {
-          DisposalMethod::Previous | DisposalMethod::Keep if last_key_img.is_some() => {
-            if let Some(last_img) = last_key_img.as_mut() {
-              let mut new_img = last_img.clone();
-              image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
-              if frame.dispose == DisposalMethod::Keep {
-                last_key_img = Some(new_img.clone());
+  
+  loop {
+    match decoder.read_next_frame() { Err(x) => { 
+      println!("{}", x); break;
+    }, Ok(frame) => {  
+      if let Some(frame) = frame {
+      let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
+        image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
+        if let Some(imgbuf) = imgbufopt {
+          let frametime = match frame.delay {
+            x if x <= 1 => 100,
+            x => x * 10
+          };
+          let image = match dimensions {
+            (w, h) if frame.width == w && frame.height == h => {
+              DynamicImage::from(imgbuf)
+            },
+            _ => {
+              let mut img = DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) ));
+              image::imageops::replace(&mut img, &DynamicImage::from(imgbuf), frame.left as i64, frame.top as i64);
+              img
+            }
+          }; 
+          let handle: DynamicImage;
+          println!("{:?} {:?} {:?} {:?} {:?} {:?}", frame.dispose, frame.left, frame.top, frame.width, frame.height, frametime);
+          match frame.dispose {
+            DisposalMethod::Previous | DisposalMethod::Keep if last_key_img.is_some() => {
+              if let Some(last_img) = last_key_img.as_mut() {
+                let mut new_img = last_img.clone();
+                image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
+                if frame.dispose == DisposalMethod::Keep {
+                  last_key_img = Some(new_img.clone());
+                }
+                last_frame_img = Some(new_img.clone());
+                handle = resize_image(new_img);
+                loaded_frames.push((handle, frametime));
+              } else {
+                println!("failed partial frame load gif");
               }
-              last_frame_img = Some(new_img.clone());
-              handle = resize_image(new_img);
-              loaded_frames.push((handle, frametime));
-            } else {
-              println!("failed partial frame load gif");
-            }
-          },
-          DisposalMethod::Background if last_frame_img.is_some() => {
-            if let Some(last_img) = last_frame_img.as_mut() {
-              let mut new_img = last_img.clone();
-              image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
-              last_frame_img = None;// Some(DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) )));
-              last_key_img = None;
-              handle = resize_image(new_img);
-              loaded_frames.push((handle, frametime));
-            } else {
-              println!("failed partial frame load gif");
-            }
-          },
-          _ => {
-            match frame.dispose {
-              DisposalMethod::Keep => {
-                last_key_img = Some(image.clone());
-                last_frame_img = Some(image.clone());
-              },
-              DisposalMethod::Background => {
-                last_frame_img = None;
+            },
+            DisposalMethod::Background if last_frame_img.is_some() => {
+              if let Some(last_img) = last_frame_img.as_mut() {
+                let mut new_img = last_img.clone();
+                image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
+                last_frame_img = None;// Some(DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) )));
                 last_key_img = None;
-              },
-              _ => last_frame_img = Some(image.clone())
-            };
-            handle = resize_image(image);
-            loaded_frames.push((handle, frametime));
-            //println!("success: full frame");
-          }
-        };   
+                handle = resize_image(new_img);
+                loaded_frames.push((handle, frametime));
+              } else {
+                println!("failed partial frame load gif");
+              }
+            },
+            _ => {
+              match frame.dispose {
+                DisposalMethod::Keep => {
+                  last_key_img = Some(image.clone());
+                  last_frame_img = Some(image.clone());
+                },
+                DisposalMethod::Background => {
+                  last_frame_img = None;
+                  last_key_img = None;
+                },
+                _ => last_frame_img = Some(image.clone())
+              };
+              handle = resize_image(image);
+              loaded_frames.push((handle, frametime));
+              //println!("success: full frame");
+            }
+          };   
+      }
+      else {
+        println!("failed frame load gif");
+      }
     }
     else {
-      println!("failed frame load gif");
+      println!("break");
+      break;
     }
-  }
+    }}}
 
   if loaded_frames.len() > 0 {
     Some(loaded_frames)

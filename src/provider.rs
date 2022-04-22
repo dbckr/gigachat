@@ -4,30 +4,67 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use std::collections::{HashMap, HashSet};
+
 use chrono::{DateTime, Utc};
 use eframe::epaint::Color32;
+use tokio::{sync::mpsc, task::JoinHandle};
+
+use crate::emotes::Emote;
 
 pub mod twitch;
 
 #[derive(Clone)]
-pub struct UserBadge {
-  pub image_data: Vec<u8>
+pub enum InternalMessage {
+  PrivMsg { message: ChatMessage },
+  EmoteSets { emote_sets: Vec<String> },
+  RoomId { room_id: String },
 }
 
-#[derive(Clone)]
-pub struct UserProfile {
-  pub badges: Vec<UserBadge>,
-  pub display_name: Option<String>,
-  pub color: (u8, u8, u8)
+pub enum OutgoingMessage {
+  Chat { message: String },
+  Leave {},
 }
 
+pub struct Provider {
+  pub provider: String,
+  pub emote_sets: HashMap<String,HashMap<String,Emote>>,
+  pub user_emote_sets: HashSet<String>
+}
 
-impl Default for UserProfile {
-  fn default() -> Self {
-    Self {
-      color: (255, 255, 255),
-      display_name: Default::default(),
-      badges: Vec::new()
+pub struct Channel {
+  pub channel_name: String,
+  pub roomid: String,
+  pub provider: String,
+  pub history: Vec<ChatMessage>,
+  pub history_viewport_size_y: f32,
+  pub rx: mpsc::Receiver<InternalMessage>,
+  pub tx: mpsc::Sender<OutgoingMessage>,
+  pub channel_emotes: HashMap<String, Emote>,
+  pub task_handle: Option<JoinHandle<()>>
+}
+
+impl Channel {
+  pub async fn close(&mut self) {
+    let Self {
+        channel_name : _,
+        roomid : _,
+        provider : _,
+        history : _,
+        history_viewport_size_y : _,
+        tx,
+        rx : _,
+        channel_emotes : _,
+        task_handle
+    } = self;
+
+    if let Some(handle) = task_handle {
+      if tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
+        match handle.await {
+          Ok(_) => (),
+          Err(e) => println!("{:?}", e)
+        }
+      }
     }
   }
 }
@@ -52,15 +89,25 @@ impl Default for ChatMessage {
 }
 
 #[derive(Clone)]
-pub enum InternalMessage {
-  PrivMsg { message: ChatMessage },
-  EmoteSets { emote_sets: Vec<String> },
-  RoomId { room_id: String },
+pub struct UserProfile {
+  pub badges: Vec<UserBadge>,
+  pub display_name: Option<String>,
+  pub color: (u8, u8, u8)
 }
 
-pub enum OutgoingMessage {
-  Chat { message: String },
-  Leave {},
+impl Default for UserProfile {
+  fn default() -> Self {
+    Self {
+      color: (255, 255, 255),
+      display_name: Default::default(),
+      badges: Vec::new()
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct UserBadge {
+  pub image_data: Vec<u8>
 }
 
 pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {

@@ -4,51 +4,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap};
+use std::{collections::{HashMap, HashSet}};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use chrono::{self, Timelike};
 use eframe::{egui::{self, emath, RichText}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
 
-use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage}, emotes::{Emote, EmoteLoader}};
+use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider}, emotes::{Emote, EmoteLoader}};
 use itertools::Itertools;
-
-pub struct Channel {
-  pub channel_name: String,
-  pub roomid: String,
-  pub provider: String,
-  pub history: Vec<ChatMessage>,
-  pub history_viewport_size_y: f32,
-  pub rx: mpsc::Receiver<InternalMessage>,
-  pub tx: mpsc::Sender<OutgoingMessage>,
-  pub channel_emotes: HashMap<String, Emote>,
-  pub task_handle: Option<JoinHandle<()>>
-}
-
-impl Channel {
-  async fn close(&mut self) {
-    let Self {
-        channel_name : _,
-        roomid : _,
-        provider : _,
-        history : _,
-        history_viewport_size_y : _,
-        tx,
-        rx : _,
-        channel_emotes : _,
-        task_handle
-    } = self;
-
-    if let Some(handle) = task_handle {
-      if tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
-        match handle.await {
-          Ok(_) => (),
-          Err(e) => println!("{:?}", e)
-        }
-      }
-    }
-  }
-}
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -56,6 +19,7 @@ impl Channel {
 pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: tokio::runtime::Runtime,
+  providers: HashMap<String, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
   draft_message: String,
@@ -68,10 +32,6 @@ pub struct TemplateApp {
 
 impl TemplateApp {
   pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-      // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
-      // Restore app state using cc.storage (requires the "persistence" feature).
-      // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
-      // for e.g. egui::PaintCallback.
       cc.egui_ctx.set_visuals(egui::Visuals::dark());
       Self::default()
   }
@@ -81,6 +41,7 @@ impl Default for TemplateApp {
   fn default() -> Self {
     Self {
       runtime: tokio::runtime::Runtime::new().expect("new tokio Runtime"),
+      providers: HashMap::new(),
       channels: HashMap::new(),
       selected_channel: None,
       draft_message: Default::default(),
@@ -107,6 +68,7 @@ impl epi::App for TemplateApp {
   fn update(&mut self, ctx: &egui::Context, frame: &mut epi::Frame) {
     let Self {
       runtime,
+      providers,
       channels,
       selected_channel,
       draft_message,
@@ -134,7 +96,16 @@ impl epi::App for TemplateApp {
 
     let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
       let c = match provider_input.as_str() {
-        "twitch" => twitch::open_channel(channel_name_input.to_owned(), &runtime, emote_loader),
+        "twitch" => { 
+          if providers.contains_key("twitch") == false {
+            providers.insert("twitch".to_owned(), Provider {
+                provider: "twitch".to_owned(),
+                emote_sets: HashMap::new(),
+                user_emote_sets: HashSet::new(),
+            });
+          }
+          twitch::open_channel(channel_name_input.to_owned(), &runtime, emote_loader, providers.get_mut("twitch").unwrap())
+        },
         "null" => Channel {
             channel_name: "null".to_owned(),
             provider: "null".to_owned(),
@@ -207,6 +178,7 @@ impl epi::App for TemplateApp {
                 Ok(x) => {
                   match x {
                     InternalMessage::PrivMsg { message } => sco.history.insert(sco.history.len(), message),
+                    InternalMessage::EmoteSets { emote_sets } => {},
                     _ => ()
                   };
                 },
@@ -265,7 +237,7 @@ impl epi::App for TemplateApp {
               .auto_shrink([false; 2])
               .stick_to_bottom()
               .show_viewport(ui, |ui, viewport| {
-                show_variable_height_rows(ctx, ui, viewport, sco, global_emotes, emote_loader);
+                show_variable_height_rows(ctx, ui, viewport, sco, providers.get_mut(&sco.provider).unwrap(), global_emotes, emote_loader);
               });
           }
         }
@@ -311,7 +283,7 @@ impl epi::App for TemplateApp {
   }
 }
 
-fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
+fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport : emath::Rect, sco: &mut Channel, provider: &mut Provider, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
   ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
     let y_min = ui.max_rect().top() + viewport.min.y;
     let y_max = ui.max_rect().top() + viewport.max.y;
@@ -348,15 +320,15 @@ fn show_variable_height_rows(ctx: &egui::Context, ui : &mut egui::Ui, viewport :
     let mut last_rect : Rect = Rect { min: Pos2{ x: 0.0, y: 0.0 }, max: Pos2{ x: 0.0, y: 0.0 } };
     ui.allocate_ui_at_rect(rect, |viewport_ui| {
       for (row, ix) in in_view {
-        last_rect = create_chat_message(ctx, viewport_ui, &sco.provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
+        last_rect = create_chat_message(ctx, viewport_ui, provider, &sco.channel_name, &mut sco.channel_emotes, row, ix, global_emotes, emote_loader);
         temp_dbg_sizes.push(last_rect.height());
       }
     });
   });
 }
 
-fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, channel_name: &str, channel_emotes: &mut HashMap<String, Emote>, row: &ChatMessage, ix: u32, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> emath::Rect {
-  let channel_color = match provider {
+fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &mut Provider, channel_name: &str, channel_emotes: &mut HashMap<String, Emote>, row: &ChatMessage, ix: u32, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> emath::Rect {
+  let channel_color = match provider.provider.as_str() {
     "twitch" => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
     "youtube" => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
     _ => Color32::default()
@@ -414,11 +386,15 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &str, c
     };
   
     for word in row.message.to_owned().split(" ") {
-      let emote_resp = match word {
-        _ if channel_emotes.contains_key(word) => channel_emotes.get_mut(word),
-        _ if global_emotes.contains_key(word) => global_emotes.get_mut(word),
-        _ => None
-      };
+      let emote_resp;
+      if channel_emotes.contains_key(word) { emote_resp = channel_emotes.get_mut(word); }
+      else if global_emotes.contains_key(word) { emote_resp = global_emotes.get_mut(word); }
+      else if let Some(set) = provider.emote_sets.values_mut().find(|x| x.contains_key(word)){
+        emote_resp = set.get_mut(word);
+      }
+      else {
+        emote_resp = None;
+      }
 
       if let Some(emote) = emote_resp {
         flush_text(ui, &mut label_text);
@@ -522,7 +498,12 @@ fn get_texture (ctx : &egui::Context, emote: &mut Emote, emote_loader: &mut Emot
   if emote.loaded == false {
     println!("loading {} {}", emote.name, emote.id);
     emote_loader.load_image(ctx, emote);
-    println!("loaded {} {}", emote.name, emote.id);
+    if emote.data.is_none() || emote.data.as_ref().unwrap().len() == 0 {
+      println!("failed to decode {} {}", emote.name, emote.id);  
+    }
+    else {
+      println!("loaded {} {}", emote.name, emote.id);
+    }
     emote.loaded = true;
   }
 

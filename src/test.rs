@@ -72,6 +72,15 @@ mod test {
     assert_eq!(frames.unwrap().len(), 35);
   }
 
+  #[test]
+  fn jormhBlind() {
+    let buf = crate::emotes::load_file_into_buffer("generated/twitch/emotesv2_416771680590441f97d188886925b153.gif");
+    let frames = crate::emotes::load_animated_gif(&buf);
+    assert_eq!(frames.unwrap().len(), 35);
+  }
+
+  // emotesv2_416771680590441f97d188886925b153.gif jormhBlind
+
   // 5f402fe68abf185d76c7617a NOTED
 
   // 5ec059009af1ea16863b2dec PETTHEPEEPO

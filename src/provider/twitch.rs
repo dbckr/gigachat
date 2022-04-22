@@ -4,14 +4,22 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use std::io::Read;
+
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{app::{Channel}, provider::convert_color_hex, emotes::{EmoteLoader}};
+use crate::{provider::{Channel, convert_color_hex}, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage};
+use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider};
 
-pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
+pub fn load_token() -> String {
+  let mut result : String = Default::default();
+  _ = std::fs::File::open("config/twitchkey").unwrap().read_to_string(&mut result);
+  result
+}
+
+pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
   let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = name.to_owned();
@@ -30,6 +38,14 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
         InternalMessage::RoomId { room_id } => {
           rid = room_id;
           break;
+        },
+        InternalMessage::EmoteSets { emote_sets } => {
+          for set in emote_sets {
+            if provider.emote_sets.contains_key(&set) == false {
+              provider.emote_sets.insert(set.to_owned(), emote_loader.twitch_get_emote_set(&set));
+            }
+            provider.user_emote_sets.insert(set);
+          }
         },
         _ => ()
       }
@@ -169,4 +185,23 @@ fn get_tag_value(tags: &Vec<irc::proto::message::Tag>, key: &str) -> Option<Stri
     }
   }
   return None;
+}
+
+pub struct TwitchToken {
+  token : String
+}
+
+impl std::fmt::Display for TwitchToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.token)
+    }
+}
+
+pub fn authenticate(runtime : &Runtime) {
+  let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
+  let scope = "";
+  let state = format!("{}", rand::random::<u128>());
+  let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
+
+  open::that(authorize_url);
 }

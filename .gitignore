@@ -3,3 +3,4 @@
 /generated
 flamegraph.svg
 perf.data*
+/config
