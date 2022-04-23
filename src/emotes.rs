@@ -480,7 +480,7 @@ fn get_image_data(
           if extension.is_none() {
             transfer.header_function(|data| {
               let result = str::from_utf8(data);
-              println!("result {:?}", result);
+              //println!("result {:?}", result);
               if let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
                 //TODO: extract extension using regex
                 if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {

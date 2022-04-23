@@ -4,9 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, HashSet}, borrow::BorrowMut};
+use std::{collections::{HashMap, HashSet}, borrow::BorrowMut, vec::IntoIter};
 use ::egui::Style;
 use image::DynamicImage;
+use irc::proto::chan;
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use chrono::{self, Timelike, DateTime, Utc};
@@ -26,6 +27,7 @@ pub struct TemplateApp {
   providers: HashMap<String, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
+  chat_history: Vec<ChatMessage>,
   draft_message: String,
   add_channel_menu_show: bool,
   add_channel_menu_channel_name: String,
@@ -52,6 +54,7 @@ impl Default for TemplateApp {
       providers: HashMap::new(),
       channels: HashMap::new(),
       selected_channel: None,
+      chat_history: Default::default(),
       draft_message: Default::default(),
       add_channel_menu_show: false,
       add_channel_menu_channel_name: Default::default(),
@@ -213,29 +216,31 @@ impl epi::App for TemplateApp {
 
       let mut channel_removed = false;
       ui.horizontal(|ui| {
+        let label = RichText::new("All Channels").size(24.0);
+        let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
+        if clbl.clicked() {
+          channel_swap = true;
+        }
+
         for (channel, sco) in (&mut self.channels).iter_mut() {
-          loop {
-            if sco.provider != "null" {
-              match sco.rx.try_recv() {
-                Ok(x) => {
-                  match x {
-                    InternalMessage::PrivMsg { message } => sco.history.insert(sco.history.len(), message),
-                    InternalMessage::MsgEmotes { emote_ids } => {
-                      if let Some(provider) = (&mut self.providers).get_mut(&sco.provider) {
-                        for (id, name) in emote_ids {
-                          if provider.emotes.contains_key(&name) == false {
-                            println!("inserted twitch emote: {} {}", name, id);
-                            provider.emotes.insert(name.to_owned(), self.emote_loader.get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
-                          }
-                        }
-                      }
-                    },
-                    _ => ()
-                  };
-                },
-                Err(_) => break,
-              };
-            }
+          while let Ok(x) = sco.rx.try_recv() {
+            match x {
+              InternalMessage::PrivMsg { message } => {
+                //sco.history.insert(sco.history.len(), message)
+                self.chat_history.insert(self.chat_history.len(), message)
+              },
+              InternalMessage::MsgEmotes { emote_ids } => {
+                if let Some(provider) = (&mut self.providers).get_mut(&sco.provider) {
+                  for (id, name) in emote_ids {
+                    if provider.emotes.contains_key(&name) == false {
+                      println!("inserted twitch emote: {} {}", name, id);
+                      provider.emotes.insert(name.to_owned(), self.emote_loader.get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
+                    }
+                  }
+                }
+              },
+              _ => ()
+            };
           }
 
           let label = RichText::new(format!("{} ({})", channel, sco.history.len())).size(24.0);
@@ -285,13 +290,13 @@ impl epi::App for TemplateApp {
                 *(&mut self.draft_message) = String::new();
               }
             }
-            egui::ScrollArea::vertical()
-              .auto_shrink([false; 2])
-              .stick_to_bottom()
-              .show_viewport(ui, |ui, viewport| {
-                self.show_variable_height_rows(ctx, ui, viewport, sc);
-              });
-        }
+          }
+          egui::ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .stick_to_bottom()
+            .show_viewport(ui, |ui, viewport| {
+              self.show_variable_height_rows(ctx, ui, viewport, &self.selected_channel.to_owned());
+            });
       });
     });
 
@@ -337,7 +342,7 @@ impl epi::App for TemplateApp {
   }
 }
 impl TemplateApp {
-  fn show_variable_height_rows(&mut self, ctx: &egui::Context, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &String) {
+  fn show_variable_height_rows(&mut self, ctx: &egui::Context, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.style_mut().spacing.item_spacing.x = 5.0;
       let y_min = ui.max_rect().top() + viewport.min.y;
@@ -347,18 +352,25 @@ impl TemplateApp {
       let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Vec<(f32, Option<usize>)>)> = Vec::default();
       let mut y_pos = 0.0;
       let mut skipped_rows = 0;
-      let channel = self.channels.get_mut(channel_name).expect("missing channel name");
-      for row in &channel.history {
-        let provider = self.providers.get_mut("twitch").expect("missing provider");
-        let provider_emotes = &mut provider.emotes;
-        let channel_emotes = &mut channel.channel_emotes;
+      //let channel = self.channels.get_mut(channel_name).expect("missing channel name");
 
-        let emotes = get_emotes_for_message(row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader);
-        let msg_sizing = get_chat_msg_size(ui, row, &emotes);
+      //for row in &channel.history {
+      for row in &self.chat_history {
+        if let Some(channel) = channel_name && &row.channel[1..] != channel {
+          //println!("{} {}", row.channel, channel);
+          continue;
+        }
+
+        let provider_emotes = self.providers.get_mut("twitch").and_then(|p| Some(&mut p.emotes));
+        //let channel_emotes = &mut channel.channel_emotes;
+        let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| Some(&mut c.channel_emotes));
+
+        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader);
+        let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
         let size_y : f32 = (&msg_sizing).into_iter().map(|(height, _first_word)| height).sum();
         
         if y_pos >= viewport.min.y && y_pos /* + size_y */ <= viewport.max.y {
-          in_view.push((row, emotes, msg_sizing));
+          in_view.push((&row, emotes, msg_sizing));
         }
         else if in_view.len() == 0 {
           skipped_rows += 1;
@@ -377,17 +389,18 @@ impl TemplateApp {
   }
 }
 
-fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: &mut HashMap<String, Emote>, channel_emotes: &mut HashMap<String, Emote>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
+fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(" ") {
     let emote = 
-      if let Some(emote) = channel_emotes.get_mut(word) {
+      //if let Some(&mut ref mut emote) = channel_emotes.and_then(|ce| ce.get_mut(word)) {
+      if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name))
       }
       else if let Some(emote) = global_emotes.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote))
       }
-      else if let Some(emote) = provider_emotes.get_mut(word) {
+      else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
       }
       /*else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
