@@ -8,6 +8,7 @@ use std::io::Read;
 
 use futures::prelude::*;
 use irc::client::{prelude::*};
+use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex}, emotes::{EmoteLoader}};
 
@@ -41,8 +42,8 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
         },
         InternalMessage::EmoteSets { emote_sets } => {
           for set in emote_sets {
-            if provider.emote_sets.contains_key(&set) == false {
-              provider.emote_sets.insert(set.to_owned(), emote_loader.twitch_get_emote_set(&set));
+            if provider.emote_sets.contains_key(&set) == false && let Some(set_list) = emote_loader.twitch_get_emote_set(&set) {
+              provider.emote_sets.insert(set.to_owned(), set_list);
             }
             provider.user_emote_sets.insert(set);
           }
@@ -95,7 +96,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            println!("{:?}", message);
+            println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -115,6 +116,10 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                       Ok(_) => (),
                       Err(x) => println!("Send failure: {}", x)
                     };
+                    if let Some(emote_sets) = get_tag_value(&tags, "emotes") {
+                      tx.try_send(InternalMessage::EmoteSets { 
+                        emote_sets: emote_sets.split(",").map(|x| x.split(":").find_or_first(|x| true).unwrap().to_owned()).collect_vec() });
+                    }
                   }
               },
               Command::PING(ref target, ref _msg) => {

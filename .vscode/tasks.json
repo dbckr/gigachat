@@ -31,7 +31,18 @@
         "$rustc"
       ],
       "group": "test",
-      "label": "rust: cargo test"
+      "label": "rust: cargo test",
+      "env": { "RUST_BACKTRACE": "full" }
+    },
+    {
+      "type": "cargo",
+      "command": "test",
+      "problemMatcher": [
+        "$rustc"
+      ],
+      "group": "test",
+      "label": "rust: cargo test",
+      "env": { "RUST_BACKTRACE": "full" }
     }
   ]
 }

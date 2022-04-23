@@ -1050,7 +1050,18 @@ name = "gif"
 version = "0.11.3"
 dependencies = [
  "color_quant",
- "weezl",
+ "weezl 0.1.6",
+]
+
+[[package]]
+name = "gif-dispose"
+version = "3.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "243e0347e8f4384181cb12069d87b9dae021c41bdaada7bd0d6743ad6d95c1d7"
+dependencies = [
+ "gif",
+ "imgref",
+ "rgb",
 ]
 
 [[package]]
@@ -1069,6 +1080,7 @@ dependencies = [
  "futures",
  "getopts",
  "gif",
+ "gif-dispose",
  "glob",
  "hex",
  "image",
@@ -1274,6 +1286,12 @@ dependencies = [
  "rayon",
  "rusttype",
 ]
+
+[[package]]
+name = "imgref"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41d0c0db6c932f8262e0ed8909f2e7f8c0e9b1cfb4da884267ce09a10be54365"
 
 [[package]]
 name = "inflate"
@@ -2262,6 +2280,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rgb"
+version = "0.8.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e74fdc210d8f24a7dbfedc13b04ba5764f5232754ccebfdf5fff1bad791ccbc6"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2587,7 +2614,7 @@ checksum = "7cfada0986f446a770eca461e8c6566cb879682f7d687c8348aa0c857bd52286"
 dependencies = [
  "flate2",
  "jpeg-decoder",
- "weezl",
+ "weezl 0.1.5",
 ]
 
 [[package]]
@@ -3037,6 +3064,10 @@ name = "weezl"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b77fdfd5a253be4ab714e4ffa3c49caf146b4de743e97510c0656cf90f1e8e"
+
+[[package]]
+name = "weezl"
+version = "0.1.6"
 
 [[package]]
 name = "wide"

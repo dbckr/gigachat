@@ -10,35 +10,129 @@ use eframe::{
   epaint::{ColorImage, TextureHandle},
 };
 use failure;
-use gif::DisposalMethod;
 use glob::glob;
-use image::DynamicImage;
+use image::{DynamicImage};
+use itertools::Itertools;
 use serde_json::Value;
+use tokio::{runtime::Runtime, sync::mpsc::{Receiver, Sender}, task::JoinHandle};
 use std::{collections::HashMap};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::str;
 
+pub enum EmoteRequest {
+  GlobalEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String> },
+  ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
+  EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: String },
+}
+
+impl EmoteRequest {
+  pub fn new_channel_request(emote: &Emote, channel_name: &str) -> Self {
+    EmoteRequest::ChannelEmoteImage { 
+      name: emote.name.to_owned(),
+      id: emote.id.to_owned(), 
+      url: emote.url.to_owned(), 
+      path: emote.path.to_owned(), 
+      extension: emote.extension.to_owned(), 
+      channel_name: channel_name.to_owned()
+    }
+  } 
+  pub fn new_global_request(emote: &Emote) -> Self {
+    EmoteRequest::GlobalEmoteImage {
+      name: emote.name.to_owned(),
+      id: emote.id.to_owned(), 
+      url: emote.url.to_owned(), 
+      path: emote.path.to_owned(), 
+      extension: emote.extension.to_owned()
+    }
+  }
+  pub fn new_emoteset_request(emote: &Emote, provider_name: &String, set_id: &String) -> Self {
+    EmoteRequest::EmoteSetImage {
+      name: emote.name.to_owned(),
+      id: emote.id.to_owned(), 
+      url: emote.url.to_owned(), 
+      path: emote.path.to_owned(), 
+      extension: emote.extension.to_owned(), 
+      provider_name: provider_name.to_owned(),
+      set_id: set_id.to_owned()
+    }
+  }  
+}
+
+pub enum EmoteResponse {
+  GlobalEmoteImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
+  ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
+  EmoteSetImageLoaded { name: String, set_id: String, provider_name: String, data: Option<Vec<(DynamicImage, u16)>> },
+}
+
+pub enum EmoteStatus {
+  NotLoaded,
+  Loading,
+  Loaded,
+}
+
 //#[derive(Clone)]
 pub struct Emote {
   pub name: String,
   pub id: String,
   pub data: Option<Vec<(TextureHandle, u16)>>,
-  pub loaded: bool,
+  pub loaded: EmoteStatus,
   pub duration_msec: u16,
   url: String,
-  path: String,
-  extension: Option<String>,
+  pub path: String,
+  pub extension: Option<String>,
 }
 
 pub struct EmoteLoader {
-  easy: Easy,
+  pub tx: Sender<EmoteRequest>,
+  pub rx: Receiver<EmoteResponse>,
+  handle: JoinHandle<()>
 }
 
-impl Default for EmoteLoader {
-  fn default() -> Self {
-    Self { easy: Easy::new() }
+impl EmoteLoader {
+  pub fn new(runtime: &Runtime) -> Self {
+    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<EmoteRequest>(32);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(32);
+
+    let task : JoinHandle<()> = runtime.spawn(async move { 
+      let mut easy = Easy::new();
+      loop {
+        if let Ok(msg) = in_rx.try_recv() {
+          let sent_msg = match msg {
+            EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
+              println!("loading channel emote {} for {}", name, channel_name);
+              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+              out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
+            },
+            EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
+              println!("loading global emote {}", name);
+              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+              out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
+            },
+            EmoteRequest::EmoteSetImage { name, id, url, path, extension, set_id, provider_name } => {
+              println!("loading set emote {} for set {}", name, set_id);
+              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+              out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data })
+            }
+          };
+          match sent_msg {
+            Ok(()) => (),
+            Err(e) => println!("Error sending loaded image event: {}", e)
+          };
+        }
+      }
+    });
+
+    Self { 
+      tx: in_tx,
+      rx: out_rx,
+      handle: task
+     }
+  }
+
+  pub fn close(&mut self) {
+    self.handle.abort();
   }
 }
 
@@ -47,7 +141,6 @@ impl EmoteLoader {
     &mut self,
     channel_id: &String,
   ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
-    let Self { easy: _ } = self;
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
     let ffz_emotes = self.process_emote_json(
       &ffz_url,
@@ -113,8 +206,12 @@ impl EmoteLoader {
     //process_emote_list("config/emoji-unicode")?;
   }
 
-  pub fn twitch_get_emote_set(&mut self, emote_set_id : &String) -> HashMap<String, Emote> {
-    let bttv_emotes = self.process_emote_json(
+  pub fn twitch_get_emote_set(&mut self, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
+    if emote_set_id.contains(":") || emote_set_id.contains("-") {
+      return None;
+    }
+
+    let emotes = self.process_emote_json(
       &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
       &format!("generated/twitch-emote-set-{}", emote_set_id),
       Some([
@@ -123,17 +220,17 @@ impl EmoteLoader {
       ].to_vec())
     );
 
-    match bttv_emotes {
+    match emotes {
       Ok(emotes) => {
         let mut map = HashMap::new();
         for emote in emotes {
           map.insert(emote.name.to_owned(), emote);
         }
-        map
+        Some(map)
       },
       Err(e) => {
         println!("Error loading emote set: {}", e);
-        HashMap::new()
+        Some(HashMap::new())
       }
     }
   }
@@ -170,8 +267,6 @@ impl EmoteLoader {
     filename: &str,
     headers: Option<Vec<(&str, &String)>>,
   ) -> std::result::Result<Vec<Emote>, failure::Error> {
-    let Self { easy: _ } = self;
-
     println!("processing emote json {}", filename);
     let data = self.get_emote_json(url, filename, headers)?;
     let mut v: Value = serde_json::from_str(&data)?;
@@ -182,7 +277,7 @@ impl EmoteLoader {
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let extension;
         let wtf = i["format"].as_array().unwrap();
-        let imgurl = if /*wtf.len() == 2*/ false { // Disabled -- weezl crate cannot handle twitch animated emotes https://github.com/image-rs/lzw/issues/28
+        let imgurl = if wtf.len() == 2 { //// Disabled -- weezl crate cannot handle twitch animated emotes https://github.com/image-rs/lzw/issues/28
           extension = Some("gif".to_owned());
           i["images"]["url_4x"].to_string().trim_matches('"').replace("/static/", "/animated/").to_owned()
         }
@@ -230,9 +325,12 @@ impl EmoteLoader {
       let setid = v["room"]["set"].to_string();
       for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap() {
         //TODO: Try to get i["urls"]["4"] then i["urls"]["2"] then i["urls"]["1"] in that order of precedence
-        let imgurl = format!("https:{}", i["urls"]["4"].to_string().trim_matches('"'));
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
+
+        println!("{} {}", name, id);
+
+        let imgurl = format!("https:{}", i["urls"].as_object_mut().unwrap().values().last().unwrap().to_string().trim_matches('"'));
         emotes.push(self.get_emote(name, id, imgurl, "generated/ffz/".to_owned(), None));
       }
     } else if v[0].is_null() == false {
@@ -319,206 +417,141 @@ impl EmoteLoader {
       name: name,
       id: id,
       data: None,
-      loaded: false,
+      loaded: EmoteStatus::NotLoaded,
       url: url,
       path: path,
       extension,
       duration_msec: 0,
     }
   }
+}
 
-  pub fn load_image(&mut self, ctx: &egui::Context, emote: &mut Emote) {
-    emote.data = self.get_image_data(ctx, &emote.url, &emote.path, &emote.id, &emote.extension);
-    emote.duration_msec = match emote.data.as_ref() {
-      Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
-      _ => 0,
-    };
-  }
+fn get_image_data(
+  url: &str,
+  path: &str,
+  id: &str,
+  extension: &Option<String>,
+  easy: &mut Easy
+) -> Option<Vec<(DynamicImage, u16)>> {
+  let mut inner =
+    || -> std::result::Result<Option<Vec<(DynamicImage, u16)>>, failure::Error> {
+      if path.len() > 0 {
+        DirBuilder::new().recursive(true).create(path)?;
+      }
 
-  fn get_image_data(
-    &mut self,
-    ctx: &egui::Context,
-    url: &str,
-    path: &str,
-    id: &str,
-    extension: &Option<String>,
-  ) -> Option<Vec<(TextureHandle, u16)>> {
-    let Self { easy } = self;
-    let mut inner =
-      || -> std::result::Result<Option<Vec<(TextureHandle, u16)>>, failure::Error> {
-        if path.len() > 0 {
-          DirBuilder::new().recursive(true).create(path)?;
-        }
-
-        match glob(&format!("{}{}.*", path, id))?.last() {
-          Some(x) => {
-            let filepath : std::path::PathBuf = x?.as_path().to_owned();
-            let buffer = load_file_into_buffer(filepath.to_str().unwrap());
-            match filepath.extension() {
-              Some(ext) => Ok(load_image(ctx, ext.to_str().unwrap(), &buffer)),
-              None => Ok(None)
-            }
-          }
-          None => {
-            if let Some(ref ext) = extension {
-              let mut extension: Option<String> = Some(ext.to_owned());
-              let mut buffer: Vec<u8> = Default::default();
-
-              easy.url(url)?;
-              let mut transfer = easy.transfer();
-              if extension == None {
-                transfer.header_function(|data| {
-                  let result = str::from_utf8(data);
-                    if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
-                    //TODO: extract extension using regex
-                    if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
-                      extension = Some("png".to_owned());
-                    }
-                    else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
-                      extension = Some("gif".to_owned());
-                    }
-                    else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
-                      extension = Some("webp".to_owned());
-                    }
-                  }
-                  true
-                })?;
-              }
-              transfer.write_function(|data| {
-                //f.write_all(data).expect("Failed to write to file");
-                for byte in data {
-                  buffer.push(byte.to_owned());
-                }
-                Ok(data.len())
-              })?;
-              transfer.perform()?;
-              drop(transfer);
-
-              let mut f = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(format!("{}{}.{}", path, id, ext))?;
-
-              f.write(&buffer)?;
-              Ok(load_image(ctx, &ext, &buffer))
-            } else {
-              Ok(None)
-            }
-          }
-        }
+      let paths = match glob(&format!("{}{}.*", path, id)) {
+        Ok(paths) => paths,
+        Err(e) => panic!("{}", e)
       };
 
-    match inner() {
-      Ok(x) => x,
-      Err(_) => None,
-    }
+      match paths.last() {
+        Some(x) => {
+          let filepath : std::path::PathBuf = x?.as_path().to_owned();
+          let buffer = load_file_into_buffer(filepath.to_str().unwrap());
+          match filepath.extension() {
+            Some(ext) => Ok(load_image(ext.to_str().unwrap(), &buffer)),
+            None => Ok(None)
+          }
+        }
+        None => {
+          let mut extension = match extension {
+            Some(ref ext) => Some(ext.to_owned()),
+            None => None
+          };
+          let mut buffer: Vec<u8> = Default::default();
+
+          easy.url(url)?;
+          let mut transfer = easy.transfer();
+          if extension.is_none() {
+            transfer.header_function(|data| {
+              let result = str::from_utf8(data);
+              if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
+                //TODO: extract extension using regex
+                if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
+                  extension = Some("png".to_owned());
+                }
+                else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
+                  extension = Some("gif".to_owned());
+                }
+                else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
+                  extension = Some("webp".to_owned());
+                }
+              }
+              true
+            })?;
+          }
+          transfer.write_function(|data| {
+            //f.write_all(data).expect("Failed to write to file");
+            for byte in data {
+              buffer.push(byte.to_owned());
+            }
+            Ok(data.len())
+          })?;
+          transfer.perform()?;
+          drop(transfer);
+
+          match extension { 
+            Some(ext) => {
+              let mut f = OpenOptions::new()
+              .create_new(true)
+              .write(true)
+              .open(format!("{}{}.{}", path, id, ext))?;
+
+            f.write(&buffer)?;
+            Ok(load_image(&ext, &buffer))
+            },
+            None => Ok(None)
+          }
+        } 
+      }
+    };
+
+  match inner() {
+    Ok(x) => x,
+    Err(_) => None,
   }
 }
 
 fn load_image(
-  ctx: &egui::Context,
   extension: &str,
   buffer: &[u8],
-) -> Option<Vec<(TextureHandle, u16)>> {
+) -> Option<Vec<(DynamicImage, u16)>> {
   match extension {
     "png" => match image::load_from_memory(&buffer) {
-      Ok(img) => Some([(load_image_into_texture_handle(ctx, &resize_image(img)), 0)].to_vec()),
+      Ok(img) => Some([(resize_image(img), 0)].to_vec()),
       _ => None,
     },
-    "gif" => match load_animated_gif(&buffer) { Some(x) => Some(load_to_texture_handles(ctx, x)), _ => None },
-    "webp" => match load_animated_webp(&buffer) { Some(x) => Some(load_to_texture_handles(ctx, x)), _ => None },
+    "gif" => match load_animated_gif(&buffer) { Some(x) => Some(x), _ => None },
+    "webp" => match load_animated_webp(&buffer) { Some(x) => Some(x), _ => None },
     _ => None,
   }
 }
 
 pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
   let mut loaded_frames: Vec<(DynamicImage, u16)> = Default::default();
-  let mut decoder = gif::DecodeOptions::new();
-  decoder.set_color_output(gif::ColorOutput::RGBA);
-  let mut decoder = decoder.read_info(buffer).unwrap();
-  let mut last_key_img: Option<DynamicImage> = None;
-  let mut last_frame_img: Option<DynamicImage> = None;
-  let dimensions = (decoder.width(), decoder.height());
-  //let reusable_img = &mut last_frameimg;
-  
-  loop {
-    match decoder.read_next_frame() { Err(x) => { 
-      println!("{}", x); break;
-    }, Ok(frame) => {  
-      if let Some(frame) = frame {
-      let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
-        image::ImageBuffer::from_raw(frame.width.into(), frame.height.into(), frame.buffer.to_vec());
-        if let Some(imgbuf) = imgbufopt {
-          let frametime = match frame.delay {
-            x if x <= 1 => 100,
-            x => x * 10
-          };
-          let image = match dimensions {
-            (w, h) if frame.width == w && frame.height == h => {
-              DynamicImage::from(imgbuf)
-            },
-            _ => {
-              let mut img = DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) ));
-              image::imageops::replace(&mut img, &DynamicImage::from(imgbuf), frame.left as i64, frame.top as i64);
-              img
-            }
-          }; 
-          let handle: DynamicImage;
-          println!("{:?} {:?} {:?} {:?} {:?} {:?}", frame.dispose, frame.left, frame.top, frame.width, frame.height, frametime);
-          match frame.dispose {
-            DisposalMethod::Previous | DisposalMethod::Keep if last_key_img.is_some() => {
-              if let Some(last_img) = last_key_img.as_mut() {
-                let mut new_img = last_img.clone();
-                image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
-                if frame.dispose == DisposalMethod::Keep {
-                  last_key_img = Some(new_img.clone());
-                }
-                last_frame_img = Some(new_img.clone());
-                handle = resize_image(new_img);
-                loaded_frames.push((handle, frametime));
-              } else {
-                println!("failed partial frame load gif");
-              }
-            },
-            DisposalMethod::Background if last_frame_img.is_some() => {
-              if let Some(last_img) = last_frame_img.as_mut() {
-                let mut new_img = last_img.clone();
-                image::imageops::overlay(&mut new_img, &image, frame.left as i64, frame.top as i64);
-                last_frame_img = None;// Some(DynamicImage::from(image::ImageBuffer::from_pixel(dimensions.0 as u32, dimensions.1 as u32, image::Rgba::<u8>([0, 0, 0, 0]) )));
-                last_key_img = None;
-                handle = resize_image(new_img);
-                loaded_frames.push((handle, frametime));
-              } else {
-                println!("failed partial frame load gif");
-              }
-            },
-            _ => {
-              match frame.dispose {
-                DisposalMethod::Keep => {
-                  last_key_img = Some(image.clone());
-                  last_frame_img = Some(image.clone());
-                },
-                DisposalMethod::Background => {
-                  last_frame_img = None;
-                  last_key_img = None;
-                },
-                _ => last_frame_img = Some(image.clone())
-              };
-              handle = resize_image(image);
-              loaded_frames.push((handle, frametime));
-              //println!("success: full frame");
-            }
-          };   
-      }
-      else {
-        println!("failed frame load gif");
-      }
+  let mut gif_opts = gif::DecodeOptions::new();
+  gif_opts.set_color_output(gif::ColorOutput::Indexed);
+
+  let mut decoder = gif_opts.read_info(buffer).unwrap();
+  let mut screen = gif_dispose::Screen::new_decoder(&decoder);
+
+  while let Ok(frame) = decoder.read_next_frame() && let Some(frame) = frame {
+    let frametime = match frame.delay {
+      x if x <= 1 => 100,
+      x => x * 10
+    };
+    match screen.blit_frame(&frame) {
+      Ok(_) => {
+        let x = screen.pixels.pixels().flat_map(|px| [px.r, px.g, px.b, px.a]).collect_vec();
+        let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
+          image::ImageBuffer::from_raw(screen.pixels.width() as u32, screen.pixels.height() as u32, x);
+        let image = DynamicImage::from(imgbufopt.unwrap());
+        let handle = resize_image(image);
+        loaded_frames.push((handle, frametime));
+      },
+      Err(e) => println!("Error processing gif: {}", e)
     }
-    else {
-      println!("break");
-      break;
-    }
-    }}}
+  }
 
   if loaded_frames.len() > 0 {
     Some(loaded_frames)
@@ -571,8 +604,11 @@ fn resize_image(
   image
 }
 
-fn load_to_texture_handles(ctx : &egui::Context, frames : Vec<(DynamicImage, u16)>) -> Vec<(TextureHandle, u16)> {
-  frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, &frame), msec) }).collect()
+pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(DynamicImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
+  match frames {
+    Some(frames) => Some(frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, &frame), msec) }).collect()),
+    None => None
+  }
 }
 
 fn load_image_into_texture_handle(
