@@ -1048,9 +1048,11 @@ dependencies = [
 [[package]]
 name = "gif"
 version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3a7187e78088aead22ceedeee99779455b23fc231fe13ec443f99bb71694e5b"
 dependencies = [
  "color_quant",
- "weezl 0.1.6",
+ "weezl",
 ]
 
 [[package]]
@@ -2614,7 +2616,7 @@ checksum = "7cfada0986f446a770eca461e8c6566cb879682f7d687c8348aa0c857bd52286"
 dependencies = [
  "flate2",
  "jpeg-decoder",
- "weezl 0.1.5",
+ "weezl",
 ]
 
 [[package]]
@@ -3061,13 +3063,8 @@ dependencies = [
 
 [[package]]
 name = "weezl"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b77fdfd5a253be4ab714e4ffa3c49caf146b4de743e97510c0656cf90f1e8e"
-
-[[package]]
-name = "weezl"
 version = "0.1.6"
+source = "git+https://github.com/dbckr/lzw?branch=decode-without-starting-clear-code#45af870d1304a0eac5114701c6ce0f9d453f8fdc"
 
 [[package]]
 name = "wide"

@@ -6,7 +6,7 @@
 
 use curl::easy::Easy;
 use eframe::{
-  egui::{self},
+  egui::{self, plot::Text},
   epaint::{ColorImage, TextureHandle},
 };
 use failure;
@@ -93,7 +93,8 @@ pub struct Emote {
 pub struct EmoteLoader {
   pub tx: Sender<EmoteRequest>,
   pub rx: Receiver<EmoteResponse>,
-  handle: JoinHandle<()>
+  handle: JoinHandle<()>,
+  pub transparent_img: Option<TextureHandle>
 }
 
 impl EmoteLoader {
@@ -145,7 +146,8 @@ impl EmoteLoader {
     Self { 
       tx: in_tx,
       rx: out_rx,
-      handle: task
+      handle: task,
+      transparent_img: None
      }
   }
 
@@ -625,7 +627,7 @@ pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(Dynami
   }
 }
 
-fn load_image_into_texture_handle(
+pub fn load_image_into_texture_handle(
   ctx: &egui::Context,
   image: &image::DynamicImage,
 ) -> TextureHandle {
