@@ -18,6 +18,7 @@ pub mod twitch;
 pub enum InternalMessage {
   PrivMsg { message: ChatMessage },
   EmoteSets { emote_sets: Vec<String> },
+  MsgEmotes { emote_ids: Vec<(String, String)> },
   RoomId { room_id: String },
 }
 
@@ -28,8 +29,8 @@ pub enum OutgoingMessage {
 
 pub struct Provider {
   pub provider: String,
+  pub emotes: HashMap<String, Emote>,
   pub emote_sets: HashMap<String,HashMap<String,Emote>>,
-  pub user_emote_sets: HashSet<String>
 }
 
 pub struct Channel {

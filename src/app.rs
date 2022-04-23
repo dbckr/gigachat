@@ -116,6 +116,17 @@ impl epi::App for TemplateApp {
             };
             emote.loaded = EmoteStatus::Loaded;
           }
+        },
+        EmoteResponse::TwitchMsgEmoteLoaded { name, id, data } => {
+          if let Some(provider) = providers.get_mut("twitch") 
+            && let Some(emote) = provider.emotes.get_mut(&name) {
+            emote.data = crate::emotes::load_to_texture_handles(ctx, data);
+            emote.duration_msec = match emote.data.as_ref() {
+              Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+              _ => 0,
+            };
+            emote.loaded = EmoteStatus::Loaded;
+          }
         }
       }
     }
@@ -139,8 +150,8 @@ impl epi::App for TemplateApp {
           if providers.contains_key("twitch") == false {
             providers.insert("twitch".to_owned(), Provider {
                 provider: "twitch".to_owned(),
-                emote_sets: HashMap::new(),
-                user_emote_sets: HashSet::new(),
+                emote_sets: Default::default(),
+                emotes: Default::default(),
             });
           }
           twitch::open_channel(channel_name_input.to_owned(), &runtime, emote_loader, providers.get_mut("twitch").unwrap())
@@ -218,11 +229,12 @@ impl epi::App for TemplateApp {
                 Ok(x) => {
                   match x {
                     InternalMessage::PrivMsg { message } => sco.history.insert(sco.history.len(), message),
-                    InternalMessage::EmoteSets { emote_sets } => {
+                    InternalMessage::MsgEmotes { emote_ids } => {
                       if let Some(provider) = providers.get_mut(&sco.provider) {
-                        for set in emote_sets {
-                          if provider.emote_sets.contains_key(&set) == false && let Some(emote_set) = emote_loader.twitch_get_emote_set(&set) {
-                            provider.emote_sets.insert(set.to_owned(), emote_set);
+                        for (id, name) in emote_ids {
+                          if provider.emotes.contains_key(&name) == false {
+                            println!("inserted twitch emote: {} {}", name, id);
+                            provider.emotes.insert(name.to_owned(), emote_loader.get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
                           }
                         }
                       }
@@ -302,6 +314,7 @@ impl epi::App for TemplateApp {
   }
 
   fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
+    self.emote_loader.tx.try_send(EmoteRequest::Shutdown);
     self.emote_loader.close();
     for channel in self.channels.values_mut() {
       channel.close();
@@ -436,9 +449,12 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, provider: &mut Pr
         else if let Some(emote) = global_emotes.get_mut(word) {
           get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote))
         }
-        else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
-          get_texture(emote_loader, emote, EmoteRequest::new_emoteset_request(emote, &provider.provider, &set_id))
+        else if let Some(emote) = provider.emotes.get_mut(word) {
+          get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
         }
+        /*else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
+          get_texture(emote_loader, emote, EmoteRequest::new_emoteset_request(emote, &provider.provider, &set_id))
+        }*/
         else {
           None
         };

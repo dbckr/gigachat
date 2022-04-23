@@ -15,7 +15,7 @@ use image::{DynamicImage};
 use itertools::Itertools;
 use serde_json::Value;
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver, Sender}, task::JoinHandle};
-use std::{collections::HashMap};
+use std::{collections::HashMap, net::Shutdown, time::Duration};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -25,6 +25,8 @@ pub enum EmoteRequest {
   GlobalEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String> },
   ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
   EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: String },
+  TwitchMsgEmoteImage { name: String, id: String },
+  Shutdown
 }
 
 impl EmoteRequest {
@@ -57,13 +59,17 @@ impl EmoteRequest {
       provider_name: provider_name.to_owned(),
       set_id: set_id.to_owned()
     }
-  }  
+  }
+  pub fn new_twitch_msg_emote_request(emote: &Emote) -> Self {
+    EmoteRequest::TwitchMsgEmoteImage { name: emote.name.to_owned(), id: emote.id.to_owned() }
+  }
 }
 
 pub enum EmoteResponse {
   GlobalEmoteImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
   ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
   EmoteSetImageLoaded { name: String, set_id: String, provider_name: String, data: Option<Vec<(DynamicImage, u16)>> },
+  TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(DynamicImage, u16)>> }
 }
 
 pub enum EmoteStatus {
@@ -98,7 +104,7 @@ impl EmoteLoader {
     let task : JoinHandle<()> = runtime.spawn(async move { 
       let mut easy = Easy::new();
       loop {
-        if let Ok(msg) = in_rx.try_recv() {
+        while let Ok(msg) = in_rx.try_recv() {
           let sent_msg = match msg {
             EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
               println!("loading channel emote {} for {}", name, channel_name);
@@ -114,6 +120,17 @@ impl EmoteLoader {
               println!("loading set emote {} for set {}", name, set_id);
               let data = get_image_data(&url, &path, &id, &extension, &mut easy);
               out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data })
+            },
+            EmoteRequest::TwitchMsgEmoteImage { name, id } => {
+              let data = if let Some(x) = get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
+                Some(x)
+              } else {
+                get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), "generated/twitch/", &id, &None, &mut easy)
+              };
+              out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name, id: id, data: data })
+            },
+            Shutdown => {
+              break;
             }
           };
           match sent_msg {
@@ -121,6 +138,7 @@ impl EmoteLoader {
             Err(e) => println!("Error sending loaded image event: {}", e)
           };
         }
+        tokio::time::sleep(Duration::from_millis(100)).await;
       }
     });
 
@@ -199,15 +217,10 @@ impl EmoteLoader {
       result.insert(emote.name.to_owned(), emote);
     }
     Ok(result)
-
-    //process_twitch_json("config/twitch-json-data")?;
-    //process_emote_list("config/twitch-global")?;
-    //process_emote_list("config/generic-emoji-list")?;
-    //process_emote_list("config/emoji-unicode")?;
   }
 
   pub fn twitch_get_emote_set(&mut self, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
-    if emote_set_id.contains(":") || emote_set_id.contains("-") {
+    if emote_set_id.contains(":") || emote_set_id.contains("-") || emote_set_id.contains("emotesv2") {
       return None;
     }
 
@@ -235,7 +248,7 @@ impl EmoteLoader {
     }
   }
 
-  pub fn load_list_file(filename: &str) -> std::result::Result<Vec<String>, failure::Error> {
+  fn load_list_file(filename: &str) -> std::result::Result<Vec<String>, failure::Error> {
     let file = File::open(filename).expect("no such file");
     Ok(BufReader::new(file)
       .lines()
@@ -243,7 +256,7 @@ impl EmoteLoader {
       .collect())
   }
 
-  pub fn process_emote_list(filename: &str) -> std::result::Result<(), failure::Error> {
+  fn process_emote_list(filename: &str) -> std::result::Result<(), failure::Error> {
     println!("processing emote list {}", filename);
 
     let mut f = OpenOptions::new()
@@ -261,7 +274,7 @@ impl EmoteLoader {
     Ok(())
   }
 
-  pub fn process_emote_json(
+  fn process_emote_json(
     &mut self,
     url: &str,
     filename: &str,
@@ -364,7 +377,7 @@ impl EmoteLoader {
     Ok(emotes)
   }
 
-  pub fn get_emote_json(
+  fn get_emote_json(
     &mut self,
     url: &str,
     filename: &str,
@@ -465,15 +478,16 @@ fn get_image_data(
           if extension.is_none() {
             transfer.header_function(|data| {
               let result = str::from_utf8(data);
-              if let Ok(header) = result && (header.contains("content-disposition") || header.contains("content-type")) {
+              println!("result {:?}", result);
+              if let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
                 //TODO: extract extension using regex
-                if header.to_lowercase().contains(".png") || header.to_lowercase().ends_with("png") {
+                if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
                   extension = Some("png".to_owned());
                 }
-                else if header.to_lowercase().contains(".gif") || header.to_lowercase().ends_with("gif") {
+                else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
                   extension = Some("gif".to_owned());
                 }
-                else if header.to_lowercase().contains(".webp") || header.to_lowercase().ends_with("webp") {
+                else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
                   extension = Some("webp".to_owned());
                 }
               }

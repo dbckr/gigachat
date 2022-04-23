@@ -45,7 +45,6 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
             if provider.emote_sets.contains_key(&set) == false && let Some(set_list) = emote_loader.twitch_get_emote_set(&set) {
               provider.emote_sets.insert(set.to_owned(), set_list);
             }
-            provider.user_emote_sets.insert(set);
           }
         },
         _ => ()
@@ -96,7 +95,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            println!("{}", message);
+            //println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -109,16 +108,25 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                     let cmsg = ChatMessage { 
                       username: sender_name.to_owned(), 
                       timestamp: chrono::Utc::now(), 
-                      message: msg.to_owned(),
+                      message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
                       profile: get_user_profile(&tags)
                     };
                     match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
                       Ok(_) => (),
                       Err(x) => println!("Send failure: {}", x)
                     };
-                    if let Some(emote_sets) = get_tag_value(&tags, "emotes") {
-                      tx.try_send(InternalMessage::EmoteSets { 
-                        emote_sets: emote_sets.split(",").map(|x| x.split(":").find_or_first(|x| true).unwrap().to_owned()).collect_vec() });
+                    if let Some(emote_ids) = get_tag_value(&tags, "emotes") && emote_ids.len() > 0 {
+                      let ids = emote_ids.split(",").filter_map(|x| {
+                        let pair = x.split(":").collect_vec();
+                        if pair.len() < 2 { return None; }
+                        let range = pair[1].split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(x) => None } ).collect_vec();
+                        match range.len() {
+                          2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
+                          _ => None
+                        }
+                      }).to_owned().collect_vec();
+                      tx.try_send(InternalMessage::MsgEmotes { 
+                        emote_ids: ids });
                     }
                   }
               },
