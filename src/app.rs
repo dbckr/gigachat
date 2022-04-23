@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, HashSet}, borrow::BorrowMut, vec::IntoIter};
+use std::{collections::{HashMap, HashSet}, borrow::BorrowMut, vec::IntoIter, ops::Add};
 use ::egui::Style;
 use image::DynamicImage;
 use irc::proto::chan;
@@ -13,10 +13,27 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use chrono::{self, Timelike, DateTime, Utc};
 use eframe::{egui::{self, emath, RichText, FontSelection}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
 
-use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, Providers}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
+use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, ProviderName, youtube}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
 use itertools::Itertools;
 
 const EMOTE_HEIGHT : f32 = 42.0;
+
+pub struct AddChannelMenu {
+  channel_name: String,
+  channel_id: String,
+  auth_token: String,
+  provider: ProviderName,
+}
+
+impl Default for AddChannelMenu {
+    fn default() -> Self {
+        Self { 
+          channel_name: Default::default(), 
+          channel_id: Default::default(), 
+          auth_token: Default::default(), 
+          provider: ProviderName::Twitch }
+    }
+}
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -24,14 +41,13 @@ const EMOTE_HEIGHT : f32 = 42.0;
 pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: tokio::runtime::Runtime,
-  providers: HashMap<String, Provider>,
+  providers: HashMap<ProviderName, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
   chat_history: Vec<ChatMessage>,
   draft_message: String,
   add_channel_menu_show: bool,
-  add_channel_menu_channel_name: String,
-  add_channel_menu_provider: String,
+  add_channel_menu: AddChannelMenu,
   pub global_emotes: HashMap<String, Emote>,
   pub emote_loader: EmoteLoader
 }
@@ -56,11 +72,10 @@ impl Default for TemplateApp {
       selected_channel: None,
       chat_history: Default::default(),
       draft_message: Default::default(),
-      add_channel_menu_show: false,
-      add_channel_menu_channel_name: Default::default(),
-      add_channel_menu_provider: "twitch".to_owned(),
       global_emotes: Default::default(),
-      emote_loader: loader
+      emote_loader: loader,
+      add_channel_menu_show: Default::default(), 
+      add_channel_menu: Default::default()
     }
   } 
 }
@@ -113,7 +128,7 @@ impl epi::App for TemplateApp {
           }
         },
         EmoteResponse::TwitchMsgEmoteLoaded { name, id, data } => {
-          if let Some(provider) = self.providers.get_mut("twitch") 
+          if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) 
             && let Some(emote) = provider.emotes.get_mut(&name) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
@@ -139,56 +154,80 @@ impl epi::App for TemplateApp {
       FontId::new(24.0, egui::FontFamily::Proportional));
     ctx.set_style(styles);
 
-    let mut add_channel = |show_toggle: &mut bool, channel_name_input: &mut String, provider_input: &mut String| -> () {
-      let c = match provider_input.as_str() {
-        "twitch" => { 
-          if self.providers.contains_key("twitch") == false {
-            self.providers.insert("twitch".to_owned(), Provider {
+    let mut add_channel = |
+        channel_options: &mut AddChannelMenu| -> () {
+      let c = match channel_options.provider {
+        ProviderName::Twitch => { 
+          if self.providers.contains_key(&ProviderName::Twitch) == false {
+            self.providers.insert(ProviderName::Twitch, Provider {
                 name: "twitch".to_owned(),
                 emote_sets: Default::default(),
                 emotes: Default::default(),
             });
           }
-          twitch::open_channel(channel_name_input.to_owned(), &self.runtime, &mut self.emote_loader, &mut self.providers.get_mut("twitch").unwrap())
+          twitch::open_channel(channel_options.channel_name.to_owned(), &self.runtime, &mut self.emote_loader, &mut self.providers.get_mut(&ProviderName::Twitch).unwrap())
         },
-        "null" => Channel {
+        ProviderName::YouTube => {
+          if self.providers.contains_key(&ProviderName::Twitch) == false {
+            self.providers.insert(ProviderName::Twitch, Provider {
+                name: "twitch".to_owned(),
+                emote_sets: Default::default(),
+                emotes: Default::default(),
+            });
+          }
+          youtube::open_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), channel_options.auth_token.to_owned(), &self.runtime)
+        }
+        ProviderName::Null => Channel {
             channel_name: "null".to_owned(),
-            provider: "null".to_owned(),
+            provider: ProviderName::Null,
             history: Vec::default(),
             tx: mpsc::channel::<OutgoingMessage>(32).0,
             rx: mpsc::channel(32).1,
             channel_emotes: Default::default(),
             roomid: "".to_owned(),
-            task_handle: None
+            task_handle: None,
+            is_live: false
         },
         _ => panic!("invalid provider")
       };
 
-      self.channels.insert(channel_name_input.to_owned(), c);
-      *(&mut self.selected_channel) = Some(channel_name_input.to_owned());
-      *channel_name_input = Default::default();
-      *show_toggle = false;
+      self.channels.insert(channel_options.channel_name.to_owned(), c);
+      *(&mut self.selected_channel) = Some(channel_options.channel_name.to_owned());
+      channel_options.channel_name = Default::default();
     };
 
     if self.add_channel_menu_show {
       egui::Window::new("Add Channel").show(ctx, |ui| {
         ui.horizontal(|ui| {
           ui.label("Provider:");
-          ui.selectable_value(&mut self.add_channel_menu_provider, "twitch".to_owned(), "Twitch");
-          ui.selectable_value(&mut self.add_channel_menu_provider, "youtube".to_owned(), "Youtube");
-          ui.selectable_value(&mut self.add_channel_menu_provider, "dgg".to_owned(), "destiny.gg");
-          ui.selectable_value(&mut self.add_channel_menu_provider, "null".to_owned(), "Null");
+          ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::Twitch, "Twitch");
+          ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::YouTube, "Youtube");
+          //ui.selectable_value(&mut self.add_channel_menu_provider, ProviderName::Null, "destiny.gg");
+          //ui.selectable_value(&mut self.add_channel_menu_provider, ProviderName::Null, "Null");
         });
         ui.horizontal(|ui| {
           ui.label("Channel Name:");
-          let name_input = ui.text_edit_singleline(&mut self.add_channel_menu_channel_name);
-          name_input.request_focus();
+          let name_input = ui.text_edit_singleline(&mut self.add_channel_menu.channel_name);
+          //name_input.request_focus();
           if name_input.has_focus() && ui.input().key_pressed(egui::Key::Enter) {
-            add_channel(&mut self.add_channel_menu_show, &mut self.add_channel_menu_channel_name, &mut self.add_channel_menu_provider); 
+            add_channel(&mut self.add_channel_menu); 
+            self.add_channel_menu_show = false;
           }
         });
+        if self.add_channel_menu.provider == ProviderName::YouTube {
+          ui.horizontal(|ui| {
+            ui.label("Channel ID:");
+            ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
+          });
+          ui.horizontal(|ui| {
+            ui.label("Auth Token:");
+            ui.text_edit_singleline(&mut self.add_channel_menu.auth_token);
+          });
+        }
+        
         if ui.button("Add channel").clicked() {
-          add_channel(&mut self.add_channel_menu_show, &mut self.add_channel_menu_channel_name, &mut self.add_channel_menu_provider);
+          add_channel(&mut self.add_channel_menu);
+          self.add_channel_menu_show = false;
         }
       });
     }
@@ -201,7 +240,7 @@ impl epi::App for TemplateApp {
             if ui.button("Configure Tokens").clicked() {
 
             }
-            if ui.button("Add channel").clicked() {
+            if ui.button("Add a channel").clicked() {
               *(&mut self.add_channel_menu_show) = true;
               ui.close_menu();
             }
@@ -243,7 +282,9 @@ impl epi::App for TemplateApp {
             };
           }
 
-          let label = RichText::new(format!("{} ({})", channel, sco.history.len())).size(24.0);
+          let label = RichText::new(format!("{} ({})", channel, sco.history.len()))
+          .color(get_provider_color(&sco.provider))
+          .size(24.0);
           let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), label);
           if clbl.clicked() {
             channel_swap = true;
@@ -356,12 +397,12 @@ impl TemplateApp {
 
       //for row in &channel.history {
       for row in &self.chat_history {
-        if let Some(channel) = channel_name && &row.channel[1..] != channel {
+        if let Some(channel) = channel_name && &row.channel != channel {
           //println!("{} {}", row.channel, channel);
           continue;
         }
 
-        let provider_emotes = self.providers.get_mut("twitch").and_then(|p| Some(&mut p.emotes));
+        let provider_emotes = self.providers.get_mut(&ProviderName::Twitch).and_then(|p| Some(&mut p.emotes));
         //let channel_emotes = &mut channel.channel_emotes;
         let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| Some(&mut c.channel_emotes));
 
@@ -393,7 +434,6 @@ fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes
   let mut result : HashMap<String, EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(" ") {
     let emote = 
-      //if let Some(&mut ref mut emote) = channel_emotes.and_then(|ce| ce.get_mut(word)) {
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name))
       }
@@ -417,12 +457,16 @@ fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes
   result
 }
 
-fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)> ) -> emath::Rect {
-  let channel_color = match row.provider {
-    Providers::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
-    Providers::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
+fn get_provider_color(provider : &ProviderName) -> Color32 {
+  match provider {
+    ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
+    ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
     _ => Color32::default()
-  };
+  }
+}
+
+fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)> ) -> emath::Rect {
+  let channel_color = get_provider_color(&row.provider);
 
   let job = get_chat_msg_header_layoutjob(ui, &row.channel, channel_color, &row.username, &row.timestamp, &row.profile);
 
@@ -481,7 +525,7 @@ fn get_chat_msg_header_layoutjob(ui: &mut egui::Ui, channel_name: &str, channel_
       },
       ..Default::default()
     };
-    job.append(&format!("{channel_name}"), 0., egui::TextFormat { 
+    job.append(&format!("#{channel_name}"), 0., egui::TextFormat { 
       font_id: FontId::new(18.0, FontFamily::Proportional), 
       color: channel_color.linear_multiply(0.6), 
       valign: Align::Center,

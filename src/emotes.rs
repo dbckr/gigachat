@@ -21,10 +21,12 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::str;
 
+use crate::provider::ProviderName;
+
 pub enum EmoteRequest {
   GlobalEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String> },
   ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
-  EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: String },
+  EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: ProviderName },
   TwitchMsgEmoteImage { name: String, id: String },
   Shutdown
 }
@@ -49,7 +51,7 @@ impl EmoteRequest {
       extension: emote.extension.to_owned()
     }
   }
-  pub fn new_emoteset_request(emote: &Emote, provider_name: &String, set_id: &String) -> Self {
+  pub fn new_emoteset_request(emote: &Emote, provider_name: &ProviderName, set_id: &String) -> Self {
     EmoteRequest::EmoteSetImage {
       name: emote.name.to_owned(),
       id: emote.id.to_owned(), 
@@ -68,7 +70,7 @@ impl EmoteRequest {
 pub enum EmoteResponse {
   GlobalEmoteImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
   ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
-  EmoteSetImageLoaded { name: String, set_id: String, provider_name: String, data: Option<Vec<(DynamicImage, u16)>> },
+  EmoteSetImageLoaded { name: String, set_id: String, provider_name: ProviderName, data: Option<Vec<(DynamicImage, u16)>> },
   TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(DynamicImage, u16)>> }
 }
 

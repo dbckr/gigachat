@@ -10,7 +10,7 @@ use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{provider::{Channel, convert_color_hex, Providers}, emotes::{EmoteLoader}};
+use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader}};
 
 use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider};
 
@@ -61,14 +61,15 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
   };
 
   let channel = Channel {  
-    provider: "twitch".to_owned(), 
+    provider: ProviderName::Twitch, 
     channel_name: name.to_string(),
     roomid: rid,
     tx: in_tx,
     rx: out_rx,
     history: Vec::default(),
     channel_emotes: channel_emotes,
-    task_handle: Some(task)
+    task_handle: Some(task),
+    is_live: false
   };
   channel
 }
@@ -82,8 +83,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
   let mut profile = UserProfile::default();
 
   let mut config = Config::load(config_path)?;
-  let name = format!("#{}", name);
-  config.channels.push(name.to_owned());
+  let name = name.to_owned();
+  config.channels.push(format!("#{}", name.to_owned()));
   let mut client = Client::from_config(config).await?;
   client.identify()?;
   let mut stream = client.stream()?;
@@ -105,7 +106,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                   // Parse out tags
                   if let Some(tags) = message.tags {
                     let cmsg = ChatMessage { 
-                      provider: Providers::Twitch,
+                      provider: ProviderName::Twitch,
                       channel: name.to_owned(),
                       username: sender_name.to_owned(), 
                       timestamp: chrono::Utc::now(), 
@@ -167,7 +168,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
               _ => sender.send_privmsg(&name, &message)?,
             };*/
             let cmsg = ChatMessage { 
-              provider: Providers::Twitch,
+              provider: ProviderName::Twitch,
               channel: name.to_owned(),
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 

@@ -13,6 +13,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use crate::emotes::Emote;
 
 pub mod twitch;
+pub mod youtube;
 
 #[derive(Clone)]
 pub enum InternalMessage {
@@ -33,10 +34,12 @@ pub struct Provider {
   pub emote_sets: HashMap<String,HashMap<String,Emote>>
 }
 
+#[derive(Eq, Hash, PartialEq)]
 #[derive(Clone)]
-pub enum Providers {
+pub enum ProviderName {
   Twitch,
-  YouTube
+  YouTube,
+  Null
 }
 
 pub struct Tab {
@@ -47,12 +50,13 @@ pub struct Tab {
 pub struct Channel {
   pub channel_name: String,
   pub roomid: String,
-  pub provider: String,
+  pub provider: ProviderName,
   pub history: Vec<ChatMessage>,
   pub rx: mpsc::Receiver<InternalMessage>,
   pub tx: mpsc::Sender<OutgoingMessage>,
   pub channel_emotes: HashMap<String, Emote>,
-  pub task_handle: Option<JoinHandle<()>>
+  pub task_handle: Option<JoinHandle<()>>,
+  pub is_live: bool
 }
 
 impl Channel {
@@ -65,7 +69,8 @@ impl Channel {
         tx,
         rx : _,
         channel_emotes : _,
-        task_handle
+        task_handle,
+        is_live
     } = self;
 
     if let Some(handle) = task_handle {
@@ -81,7 +86,7 @@ impl Channel {
 
 #[derive(Clone)]
 pub struct ChatMessage {
-  pub provider: Providers,
+  pub provider: ProviderName,
   pub channel: String,
   pub username: String,
   pub timestamp: DateTime<Utc>,
