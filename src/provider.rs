@@ -28,9 +28,20 @@ pub enum OutgoingMessage {
 }
 
 pub struct Provider {
-  pub provider: String,
+  pub name: String,
   pub emotes: HashMap<String, Emote>,
-  pub emote_sets: HashMap<String,HashMap<String,Emote>>,
+  pub emote_sets: HashMap<String,HashMap<String,Emote>>
+}
+
+#[derive(Clone)]
+pub enum Providers {
+  Twitch,
+  YouTube
+}
+
+pub struct Tab {
+  channels: Vec<String>,
+  history: Vec<ChatMessage>
 }
 
 pub struct Channel {
@@ -38,7 +49,6 @@ pub struct Channel {
   pub roomid: String,
   pub provider: String,
   pub history: Vec<ChatMessage>,
-  pub history_viewport_size_y: f32,
   pub rx: mpsc::Receiver<InternalMessage>,
   pub tx: mpsc::Sender<OutgoingMessage>,
   pub channel_emotes: HashMap<String, Emote>,
@@ -52,7 +62,6 @@ impl Channel {
         roomid : _,
         provider : _,
         history : _,
-        history_viewport_size_y : _,
         tx,
         rx : _,
         channel_emotes : _,
@@ -72,21 +81,12 @@ impl Channel {
 
 #[derive(Clone)]
 pub struct ChatMessage {
+  pub provider: Providers,
+  pub channel: String,
   pub username: String,
   pub timestamp: DateTime<Utc>,
   pub message: String,
   pub profile: UserProfile 
-}
-
-impl Default for ChatMessage {
-  fn default() -> Self {
-    Self {
-      username: Default::default(),
-      timestamp: Utc::now(),
-      message: Default::default(),
-      profile: Default::default()
-    }
-  }
 }
 
 #[derive(Clone)]

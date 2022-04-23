@@ -10,7 +10,7 @@ use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{provider::{Channel, convert_color_hex}, emotes::{EmoteLoader}};
+use crate::{provider::{Channel, convert_color_hex, Providers}, emotes::{EmoteLoader}};
 
 use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider};
 
@@ -67,7 +67,6 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
     tx: in_tx,
     rx: out_rx,
     history: Vec::default(),
-    history_viewport_size_y: Default::default(),
     channel_emotes: channel_emotes,
     task_handle: Some(task)
   };
@@ -106,6 +105,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                   // Parse out tags
                   if let Some(tags) = message.tags {
                     let cmsg = ChatMessage { 
+                      provider: Providers::Twitch,
+                      channel: name.to_owned(),
                       username: sender_name.to_owned(), 
                       timestamp: chrono::Utc::now(), 
                       message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
@@ -166,6 +167,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
               _ => sender.send_privmsg(&name, &message)?,
             };*/
             let cmsg = ChatMessage { 
+              provider: Providers::Twitch,
+              channel: name.to_owned(),
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 
               message: message, 
