@@ -27,8 +27,7 @@ pub enum EmoteRequest {
   GlobalEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String> },
   ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
   EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: ProviderName },
-  TwitchMsgEmoteImage { name: String, id: String },
-  Shutdown
+  TwitchMsgEmoteImage { name: String, id: String }
 }
 
 impl EmoteRequest {
@@ -93,69 +92,81 @@ pub struct Emote {
 }
 
 pub struct EmoteLoader {
-  pub tx: Sender<EmoteRequest>,
+  pub tx: async_channel::Sender<EmoteRequest>,
   pub rx: Receiver<EmoteResponse>,
-  handle: JoinHandle<()>,
+  handle: Vec<JoinHandle<()>>,
   pub transparent_img: Option<TextureHandle>
 }
 
 impl EmoteLoader {
   pub fn new(runtime: &Runtime) -> Self {
-    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<EmoteRequest>(128);
-    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(128);
+    let (in_tx, in_rx) = async_channel::unbounded(); //tokio::sync::mpsc::channel::<EmoteRequest>(128);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(256);
 
-    let task : JoinHandle<()> = runtime.spawn(async move { 
-      let mut easy = Easy::new();
-      loop {
-        while let Ok(msg) = in_rx.try_recv() {
-          let sent_msg = match msg {
-            EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
-              println!("loading channel emote {} for {}", name, channel_name);
-              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
-              out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
-            },
-            EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
-              println!("loading global emote {}", name);
-              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
-              out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
-            },
-            EmoteRequest::EmoteSetImage { name, id, url, path, extension, set_id, provider_name } => {
-              println!("loading set emote {} for set {}", name, set_id);
-              let data = get_image_data(&url, &path, &id, &extension, &mut easy);
-              out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data })
-            },
-            EmoteRequest::TwitchMsgEmoteImage { name, id } => {
-              println!("loading twitch emote {}", name);
-              let data = if let Some(x) = get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
-                Some(x)
-              } else {
-                get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), "generated/twitch/", &id, &None, &mut easy)
-              };
-              out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name, id: id, data: data })
-            },
-            Shutdown => {
-              break;
-            }
-          };
-          match sent_msg {
-            Ok(()) => (),
-            Err(e) => println!("Error sending loaded image event: {}", e)
-          };
+    let mut tasks : Vec<JoinHandle<()>> = Vec::new();
+    for n in 1..5 {
+      let in_rx = in_rx.clone();
+      let out_tx = out_tx.clone();
+      let n = n;
+      let task : JoinHandle<()> = runtime.spawn(async move { 
+        println!("emote thread {n}");
+        let mut easy = Easy::new();
+        loop {
+          let recv_msg = in_rx.recv().await;
+          if let Ok(msg) = recv_msg {
+            let sent_msg = match msg {
+              EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
+                println!("{n} loading channel emote {} for {}", name, channel_name);
+                let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+                out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
+              },
+              EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
+                println!("{n} loading global emote {}", name);
+                let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+                out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
+              },
+              EmoteRequest::EmoteSetImage { name, id, url, path, extension, set_id, provider_name } => {
+                println!("{n} loading set emote {} for set {}", name, set_id);
+                let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+                let data_copy = data.clone();
+                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name.to_owned(), id: id, data: data });
+                out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data_copy })
+              },
+              EmoteRequest::TwitchMsgEmoteImage { name, id } => {
+                println!("{n} loading twitch emote {}", name);
+                let data = if let Some(x) = get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
+                  Some(x)
+                } else {
+                  get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), "generated/twitch/", &id, &None, &mut easy)
+                };
+                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name, id: id, data: data })
+              }
+            };
+            match sent_msg {
+              Ok(()) => (),
+              Err(e) => println!("Error sending loaded image event: {}", e)
+            };
+          }
+          // everything ends up handled by one thread without this delay
+          tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-      }
-    });
+      });
+      tasks.insert(tasks.len(), task);
+    }
+
+    //println!("counted {} receivers", in_rx.receiver_count());
+    //in_rx.close();
 
     Self { 
       tx: in_tx,
       rx: out_rx,
-      handle: task,
+      handle: tasks,
       transparent_img: None
      }
   }
 
   pub fn close(&mut self) {
-    self.handle.abort();
+    self.handle.iter().for_each(|x| x.abort());
   }
 }
 

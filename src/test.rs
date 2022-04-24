@@ -36,4 +36,11 @@ mod test {
     let frames = crate::emotes::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 35);
   }
+
+  #[test]
+  fn test222() {
+    let ix : usize = 1;
+    let x = ix.saturating_sub(2);
+    assert_eq!(x, 0);
+  }
 }

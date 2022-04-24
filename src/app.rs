@@ -4,13 +4,13 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, HashSet, VecDeque}, borrow::BorrowMut, vec::IntoIter, ops::Add, time::Duration};
+use std::{collections::{HashMap, HashSet, VecDeque}, borrow::BorrowMut, vec::IntoIter, ops::{Add, Index}, time::Duration};
 use image::DynamicImage;
 use irc::proto::chan;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
 
 use chrono::{self, Timelike, DateTime, Utc};
-use eframe::{egui::{self, emath, RichText, FontSelection}, epi, epaint::{Color32, Stroke, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
+use eframe::{egui::{self, emath, RichText, FontSelection, Key, Modifiers}, epi, epaint::{Color32, Stroke, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, ProviderName, youtube}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
 use itertools::Itertools;
@@ -48,7 +48,8 @@ pub struct TemplateApp {
   add_channel_menu_show: bool,
   add_channel_menu: AddChannelMenu,
   pub global_emotes: HashMap<String, Emote>,
-  pub emote_loader: EmoteLoader
+  pub emote_loader: EmoteLoader,
+  pub selected_emote: Option<String>
 }
 
 impl TemplateApp {
@@ -74,7 +75,8 @@ impl Default for TemplateApp {
       global_emotes: Default::default(),
       emote_loader: loader,
       add_channel_menu_show: Default::default(), 
-      add_channel_menu: Default::default()
+      add_channel_menu: Default::default(),
+      selected_emote: None
     }
   } 
 }
@@ -318,7 +320,11 @@ impl epi::App for TemplateApp {
     .show(ctx, |ui| {
       ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
         if let Some(sc) = &self.selected_channel.to_owned() {
-            let outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
+          let goto_next_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
+          let goto_prev_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
+          let enter_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
+
+            let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
               .desired_rows(2)
               .desired_width(ui.available_width())
               .hint_text("Type a message to send")
@@ -332,6 +338,72 @@ impl epi::App for TemplateApp {
                   _ => ()
                 } 
                 *(&mut self.draft_message) = String::new();
+              }
+            }
+            else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+              let emotes = self.get_possible_emotes(cursor_pos.primary.index);
+              if let Some((word, emotes)) = emotes {
+                if enter_emote && let Some(emote_text) = &self.selected_emote {
+                  let msg = (&mut self.draft_message).to_owned();
+                  self.draft_message = msg.replace(&word, emote_text.as_str());
+                  self.selected_emote = None;
+                  outgoing_msg.response.request_focus();
+                  outgoing_msg.state.set_ccursor_range(
+                    Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message.len())))
+                  );
+                  outgoing_msg.state.store(ctx, outgoing_msg.response.id);
+                }
+                else {
+                  if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix + 1 < emotes.len() {
+                    self.selected_emote = emotes.get(ix + 1).and_then(|x| Some(x.0.to_owned()));
+                  }
+                  else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix > 0 {
+                    self.selected_emote = emotes.get(ix - 1).and_then(|x| Some(x.0.to_owned()));
+                  }
+                  else if self.selected_emote.is_none() || emotes.iter().any(|x| Some(&x.0) == self.selected_emote.as_ref()) == false {
+                    self.selected_emote = emotes.first().and_then(|x| Some(x.0.to_owned()));
+                  }
+
+                  ui.allocate_ui_with_layout(emath::Vec2::new(ui.available_width(), 130.0), 
+                      egui::Layout::from_main_dir_and_cross_align( egui::Direction::LeftToRight, Align::BOTTOM), |ui| {
+                  egui::ScrollArea::horizontal()
+                  .id_source("emote_selector_scrollarea")
+                  .always_show_scroll(true)
+                  .show(ui, |ui|{
+                      for emote in emotes {
+                        if goto_prev_emote && self.selected_emote.as_ref() == Some(&emote.0) {
+                          ui.scroll_to_cursor(None)
+                        }
+                        ui.vertical(|ui| {
+                          if let Some(img) = emote.1 {
+                            if ui.image(&img.texture, egui::vec2(&img.texture.size_vec2().x * (EMOTE_HEIGHT * 2. / &img.texture.size_vec2().y), EMOTE_HEIGHT * 2.))
+                                .interact(egui::Sense::click())
+                                .clicked() {
+                              self.selected_emote = Some(emote.0.to_owned());
+                            }
+                          }
+                          else if let Some(trnsp) = &self.emote_loader.transparent_img {
+                            ui.add_space(EMOTE_HEIGHT);
+                            /*if ui.image(trnsp, egui::vec2(1., EMOTE_HEIGHT * 2.))
+                                .interact(egui::Sense::click())
+                                .clicked() {
+                              self.selected_emote = Some(emote.0.to_owned());
+                            }*/
+                          }
+
+                          ui.style_mut().wrap = Some(false);
+                          let mut disp_text = emote.0.to_owned();
+                          disp_text.truncate(12);
+                          ui.selectable_value(&mut self.selected_emote, Some(emote.0.to_owned()), RichText::new(disp_text).size(20.0))
+                            .on_hover_text_at_pointer(emote.0.to_owned());
+                        });
+                        if goto_next_emote && self.selected_emote.as_ref() == Some(&emote.0) {
+                          ui.scroll_to_cursor(None)
+                        }
+                      }
+                    });
+                  });
+                }
               }
             }
           }
@@ -355,7 +427,7 @@ impl epi::App for TemplateApp {
   }
 
   fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
-    self.emote_loader.tx.try_send(EmoteRequest::Shutdown);
+    //self.emote_loader.tx.try_send(EmoteRequest::Shutdown);
     self.emote_loader.close();
     for channel in self.channels.values_mut() {
       channel.close();
@@ -410,7 +482,7 @@ impl TemplateApp {
         //let channel_emotes = &mut channel.channel_emotes;
         let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| Some(&mut c.channel_emotes));
 
-        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader);
+        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader, &self.runtime);
         let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
 
         
@@ -423,7 +495,7 @@ impl TemplateApp {
             }
 
             lines_to_include.insert(lines_to_include.len(), true);
-          }
+          } 
           else {
             lines_to_include.insert(lines_to_include.len(), false);
           }
@@ -452,20 +524,74 @@ impl TemplateApp {
       });
     });
   }
+
+  fn get_possible_emotes(&mut self, cursor_position: usize) -> Option<(String, Vec<(String, Option<EmoteFrame>)>)> {
+    let msg = &self.draft_message;
+    let word : Option<&str> = msg.split_whitespace()
+      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
+      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some(p.1) } else { None })
+      .next();
+
+    if let Some(word) = word {
+      if word.len() < 2 {
+        return None;
+      }
+
+      let mut emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
+      // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
+      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
+        for (name, emote) in &mut channel.channel_emotes { // Channel emotes
+          if name == word {
+            return None;
+          }
+          else if name.starts_with(word) || name.contains(word) {
+            let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_channel_request(&emote, &channel_name), &self.runtime);
+            emotes.try_insert(name.to_owned(), tex);
+          }
+        }
+        if let Some(provider) = self.providers.get_mut(&channel.provider) { // Provider emotes
+          for (set_id, emote_set) in &mut provider.emote_sets {
+            for (name, emote) in emote_set {
+              if name == word {
+                return None;
+              }
+              else if name.starts_with(word) || name.contains(word) {
+                let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_emoteset_request(&emote, &channel.provider, set_id), &self.runtime);
+                emotes.try_insert(name.to_owned(), tex);
+              }
+            }
+          }
+        }
+      }
+      for (name, emote) in &mut self.global_emotes { // Global emotes
+        if name == word {
+          return None;
+        }
+        else if name.starts_with(word) || name.contains(word) {
+          let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_global_request(&emote), &self.runtime);
+          emotes.try_insert(name.to_owned(), tex);
+        }
+      }
+      Some((word.to_owned(), emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec()))
+    }
+    else {
+      None
+    }
+  }
 }
 
-fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
+fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader, runtime: &Runtime) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(" ") {
     let emote = 
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name))
+        get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name), runtime)
       }
       else if let Some(emote) = global_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote))
+        get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote), runtime)
       }
       else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
+        get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote), runtime)
       }
       /*else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_emoteset_request(emote, &provider.provider, &set_id))
@@ -665,9 +791,12 @@ pub struct EmoteFrame {
   texture: TextureHandle
 }
 
-fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest) -> Option<EmoteFrame>{
+fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest, runtime: &Runtime) -> Option<EmoteFrame>{
   match emote.loaded {
     EmoteStatus::NotLoaded => {
+      /*runtime.block_on(async move {
+        emote_loader.tx.send(request).await
+      });*/
       emote_loader.tx.try_send(request);
       emote.loaded = EmoteStatus::Loading;
       None

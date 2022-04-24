@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), deny(warnings))]
 #![feature(let_chains)]
 #![feature(is_some_with)]
+#![feature(map_try_insert)]
 
 pub mod app;
 pub mod provider;

@@ -3,14 +3,14 @@
   "configurations": [
       {
           "name": "(Windows) Launch",
-          "type": "lldb",
+          "type": "cppvsdbg",
           "request": "launch",
           "program": "${workspaceRoot}/target/debug/gigachat.exe",
           "args": [],
           "stopAtEntry": false,
           "cwd": "${workspaceFolder}",
-          "environment": [ "RUST_BACKTRACE=1"],
-          "preLaunchTask": "cargo build"
+          "preLaunchTask": "cargo build",
+          "environment": [],
       }
   ]
 }
