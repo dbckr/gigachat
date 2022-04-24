@@ -30,6 +30,7 @@ gif = "0.11.3"
 webp-animation = "0.6.0"
 open = "2.1.1"
 gif-dispose = "3.1.1"
+regex = "1.5.5"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

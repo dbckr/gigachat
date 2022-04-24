@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), deny(warnings))]
 #![feature(let_chains)]
+#![feature(is_some_with)]
 
 pub mod app;
 pub mod provider;

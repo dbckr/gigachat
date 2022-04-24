@@ -6,3 +6,4 @@
 - Clickable links
 - Unicode text
 - Badges
+- Zero width emotes

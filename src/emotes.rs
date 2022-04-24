@@ -101,8 +101,8 @@ pub struct EmoteLoader {
 
 impl EmoteLoader {
   pub fn new(runtime: &Runtime) -> Self {
-    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<EmoteRequest>(32);
-    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(32);
+    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<EmoteRequest>(128);
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(128);
 
     let task : JoinHandle<()> = runtime.spawn(async move { 
       let mut easy = Easy::new();
@@ -125,6 +125,7 @@ impl EmoteLoader {
               out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data })
             },
             EmoteRequest::TwitchMsgEmoteImage { name, id } => {
+              println!("loading twitch emote {}", name);
               let data = if let Some(x) = get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
                 Some(x)
               } else {
@@ -261,8 +262,7 @@ impl EmoteLoader {
   }
 
   fn process_emote_list(filename: &str) -> std::result::Result<(), failure::Error> {
-    println!("processing emote list {}", filename);
-
+    //println!("processing emote list {}", filename);
     let mut f = OpenOptions::new()
       .append(true)
       .create(true) // Optionally create the file if it doesn't already exist
@@ -284,7 +284,7 @@ impl EmoteLoader {
     filename: &str,
     headers: Option<Vec<(&str, &String)>>,
   ) -> std::result::Result<Vec<Emote>, failure::Error> {
-    println!("processing emote json {}", filename);
+    //println!("processing emote json {}", filename);
     let data = self.get_emote_json(url, filename, headers)?;
     let mut v: Value = serde_json::from_str(&data)?;
     let mut emotes: Vec<Emote> = Vec::default();
@@ -341,12 +341,8 @@ impl EmoteLoader {
     } else if v["room"].is_null() == false { // FFZ
       let setid = v["room"]["set"].to_string();
       for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap() {
-        //TODO: Try to get i["urls"]["4"] then i["urls"]["2"] then i["urls"]["1"] in that order of precedence
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
-
-        println!("{} {}", name, id);
-
         let imgurl = format!("https:{}", i["urls"].as_object_mut().unwrap().values().last().unwrap().to_string().trim_matches('"'));
         emotes.push(self.get_emote(name, id, imgurl, "generated/ffz/".to_owned(), None));
       }

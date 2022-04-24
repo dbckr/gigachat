@@ -21,6 +21,7 @@ pub enum InternalMessage {
   EmoteSets { emote_sets: Vec<String> },
   MsgEmotes { emote_ids: Vec<(String, String)> },
   RoomId { room_id: String },
+  StreamingStatus { is_live: bool}
 }
 
 pub enum OutgoingMessage {

@@ -21,7 +21,7 @@ pub fn load_token() -> String {
 }
 
 pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
-  let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
+  let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(256);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = name.to_owned();
 
@@ -123,7 +123,8 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                         if pair.len() < 2 { return None; }
                         let range = pair[1].split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(x) => None } ).collect_vec();
                         match range.len() {
-                          2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
+                          //2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
+                          2 => Some((pair[0].to_owned(), msg.to_owned().chars().skip(range[0]).take(range[1] - range[0]).collect())),
                           _ => None
                         }
                       }).to_owned().collect_vec();
