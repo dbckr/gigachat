@@ -342,7 +342,7 @@ impl epi::App for TemplateApp {
             }
             else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
               let emotes = self.get_possible_emotes(cursor_pos.primary.index);
-              if let Some((word, emotes)) = emotes {
+              if let Some((word, emotes)) = emotes && emotes.len() > 0 {
                 if enter_emote && let Some(emote_text) = &self.selected_emote {
                   let msg = (&mut self.draft_message).to_owned();
                   self.draft_message = msg.replace(&word, emote_text.as_str());
@@ -420,7 +420,9 @@ impl epi::App for TemplateApp {
     ctx.request_repaint();
   }
 
-  fn save(&mut self, _storage: &mut dyn epi::Storage) {}
+  fn save(&mut self, _storage: &mut dyn epi::Storage) {
+    
+  }
 
   fn on_exit_event(&mut self) -> bool {
     true

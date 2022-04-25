@@ -124,7 +124,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                         let range = pair[1].split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(x) => None } ).collect_vec();
                         match range.len() {
                           //2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
-                          2 => Some((pair[0].to_owned(), msg.to_owned().chars().skip(range[0]).take(range[1] - range[0]).collect())),
+                          2 => Some((pair[0].to_owned(), msg.to_owned().chars().skip(range[0]).take(range[1] - range[0] + 1).collect())),
                           _ => None
                         }
                       }).to_owned().collect_vec();
