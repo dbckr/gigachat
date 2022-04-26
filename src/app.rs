@@ -16,6 +16,9 @@ use eframe::{egui::{self, emath, RichText, FontSelection, Key, Modifiers}, epi, 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, ProviderName, youtube}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
 use itertools::Itertools;
 
+/// Max length before manually splitting up a string without whitespace
+const WORD_LENGTH_MAX : usize = 20;
+/// Emotes in chat messages will be scaled to this height
 const EMOTE_HEIGHT : f32 = 42.0;
 
 pub struct AddChannelMenu {
@@ -325,8 +328,10 @@ impl epi::App for TemplateApp {
                 _ => ()
               };
             }
-            while self.chat_history.len() > 2000 {
-              self.chat_history.pop_front();
+            if self.chat_history.len() > 4000 {
+              for i in 1..1000 {
+                self.chat_history.pop_front();
+              }
             }
 
             let label = RichText::new(format!("{} {}", channel, match t.is_live { true => "🔴", false => ""}))
@@ -551,15 +556,6 @@ impl TemplateApp {
         if (&lines_to_include).into_iter().any(|x| *x) {
           in_view.push((&row, emotes, msg_sizing, lines_to_include));
         }
-
-        /*let size_y : f32 = (&msg_sizing).into_iter().map(|(height, _first_word)| height).sum();
-        if y_pos >= viewport.min.y && y_pos + size_y <= viewport.max.y {
-          in_view.push((&row, emotes, msg_sizing));
-        }
-        else if in_view.len() == 0 {
-          skipped_rows += 1;
-        }
-        y_pos += size_y + ui.spacing().item_spacing.y;*/
       }
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
@@ -721,9 +717,17 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
           });
         }
         else {
-          //label_text.push(word.to_owned());
-          ui.label(word.to_owned());
-          (&mut label_text).push(word.to_owned());
+          if (word.len() > WORD_LENGTH_MAX) {
+            let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
+            for chunk in chunks.into_iter() {
+              ui.label(chunk.collect::<String>().to_owned());
+            }
+          }
+          else {
+            //label_text.push(word.to_owned());
+            ui.label(word.to_owned());
+            (&mut label_text).push(word.to_owned());
+          }
         }
       }
     }
@@ -785,25 +789,18 @@ fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<Stri
     row_data.insert(row_data.len(), (header_row.rect.size().y, None));
   }
   curr_row_width += header_rows.last().unwrap().rect.size().x;
+  curr_row_height = header_rows.last().unwrap().rect.size().y;
 
   let mut ix = 0;
   for word in row.message.to_owned().split(" ") {
-    ix += 1;
-    let rect = if let Some(emote) = emotes.get(word) {
-      egui::vec2(emote.texture.size_vec2().x * (EMOTE_HEIGHT / emote.texture.size_vec2().y), EMOTE_HEIGHT)
-    } else {
-      get_text_rect(ui, word)
-    };
-    
-    if curr_row_width + rect.x <= ui.available_width() {
-      curr_row_width += rect.x + ui.spacing().item_spacing.x;
-      curr_row_height = curr_row_height.max(rect.y);
+    if (word.len() > WORD_LENGTH_MAX) {
+      let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
+      for chunk in chunks.into_iter() {
+        get_word_size(&mut ix, emotes, &chunk.collect::<String>().to_owned(), ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);  
+      }
     }
     else {
-      row_data.insert(row_data.len(), (curr_row_height, first_word_ix));
-      curr_row_height = rect.y;
-      curr_row_width = rect.x + ui.spacing().item_spacing.x;
-      first_word_ix = Some(ix);
+      get_word_size(&mut ix, emotes, word, ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);  
     }
   }
   if curr_row_width > 0.0 {
@@ -812,7 +809,26 @@ fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<Stri
   row_data
 }
 
-fn get_text_rect(ui: &mut egui::Ui, text: &str) -> emath::Vec2 {
+fn get_word_size(ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, ui: &mut egui::Ui, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, Option<usize>)>, first_word_ix: &mut Option<usize>) {
+    *ix += 1;
+    let rect = if let Some(emote) = emotes.get(word) {
+      egui::vec2(emote.texture.size_vec2().x * (EMOTE_HEIGHT / emote.texture.size_vec2().y), EMOTE_HEIGHT)
+    } else {
+      get_text_rect(ui, word)
+    };
+    if *curr_row_width + rect.x <= ui.available_width() {
+      *curr_row_width += rect.x + ui.spacing().item_spacing.x;
+      *curr_row_height = curr_row_height.max(rect.y);
+    }
+    else {
+      row_data.insert(row_data.len(), (*curr_row_height, *first_word_ix));
+      *curr_row_height = rect.y;
+      *curr_row_width = rect.x + ui.spacing().item_spacing.x;
+      *first_word_ix = Some(*ix);
+    }
+}
+
+fn get_text_rect(ui: &mut egui::Ui, word: &str) -> emath::Vec2 {
   let mut job = LayoutJob {
     wrap: TextWrapping { 
       break_anywhere: false,
@@ -821,10 +837,12 @@ fn get_text_rect(ui: &mut egui::Ui, text: &str) -> emath::Vec2 {
     },
     ..Default::default()
   };
-  job.append(text, 0., egui::TextFormat { 
+
+  job.append(word, 0., egui::TextFormat { 
     font_id: FontId::new(26.0, FontFamily::Proportional), 
     ..Default::default() 
   });
+  
   let galley = ui.fonts().layout_job(job.clone());
   galley.rect.size()
 }
