@@ -5,6 +5,7 @@
  */
 
 use std::{collections::{HashMap, HashSet, VecDeque}, borrow::BorrowMut, vec::IntoIter, ops::{Add, Index}, time::Duration};
+use curl::easy::Auth;
 use image::DynamicImage;
 use irc::proto::chan;
 use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
@@ -34,28 +35,57 @@ impl Default for AddChannelMenu {
     }
 }
 
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+pub struct AuthTokens {
+  pub twitch_auth_token: String,
+  pub youtube_auth_token: String
+}
+
+impl Default for AuthTokens {
+  fn default() -> Self {
+    Self {
+      twitch_auth_token: Default::default(),
+      youtube_auth_token: Default::default()
+    }
+  }
+}
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "persistence", serde(default))] // if we add new fields, give them default values when deserializing old state
+#[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: tokio::runtime::Runtime,
   providers: HashMap<ProviderName, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   chat_history: VecDeque<ChatMessage>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   draft_message: String,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   add_channel_menu_show: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   add_channel_menu: AddChannelMenu,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_emotes: HashMap<String, Emote>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub emote_loader: EmoteLoader,
-  pub selected_emote: Option<String>
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_emote: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  show_auth_ui: bool,
+  pub auth_tokens: AuthTokens
 }
 
 impl TemplateApp {
   pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
       cc.egui_ctx.set_visuals(egui::Visuals::dark());
       let mut r = Self::default();
+      #[cfg(feature = "persistence")]
+      if let Some(storage) = cc.storage {
+          r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
+      }
       r.emote_loader.transparent_img = Some(crate::emotes::load_image_into_texture_handle(&cc.egui_ctx, &DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([0, 0, 0, 0]) ))));
       r
   }
@@ -76,7 +106,9 @@ impl Default for TemplateApp {
       emote_loader: loader,
       add_channel_menu_show: Default::default(), 
       add_channel_menu: Default::default(),
-      selected_emote: None
+      selected_emote: None,
+      show_auth_ui: false,
+      auth_tokens: Default::default()
     }
   } 
 }
@@ -86,6 +118,11 @@ impl epi::App for TemplateApp {
   /// Note that you must enable the `persistence` feature for this to work.
   #[cfg(feature = "persistence")]
   fn save(&mut self, storage: &mut dyn epi::Storage) {
+
+    //storage.set_string("twitch_auth_token", self.auth_tokens.twitch_auth_token.to_owned());
+    //storage.set_string("youtube_auth_token", self.auth_tokens.youtube_auth_token.to_owned());
+    //storage.flush();
+
     epi::set_value(storage, epi::APP_KEY, self);
   }
 
@@ -107,7 +144,7 @@ impl epi::App for TemplateApp {
           }
         },
         EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data } => {
-          if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.channel_emotes.get_mut(&name) {
+          if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut().and_then(|t| t.channel_emotes.get_mut(&name)) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
               Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
@@ -156,6 +193,7 @@ impl epi::App for TemplateApp {
     ctx.set_style(styles);
 
     let mut add_channel = |
+        auth_tokens: &mut AuthTokens,
         channel_options: &mut AddChannelMenu| -> () {
       let c = match channel_options.provider {
         ProviderName::Twitch => { 
@@ -166,7 +204,7 @@ impl epi::App for TemplateApp {
                 emotes: Default::default(),
             });
           }
-          twitch::open_channel(channel_options.channel_name.to_owned(), &self.runtime, &mut self.emote_loader, &mut self.providers.get_mut(&ProviderName::Twitch).unwrap())
+          twitch::init_channel(channel_options.channel_name.to_owned(), &self.runtime, &mut self.emote_loader, &mut self.providers.get_mut(&ProviderName::Twitch).unwrap())
         },
         ProviderName::YouTube => {
           if self.providers.contains_key(&ProviderName::Twitch) == false {
@@ -176,18 +214,7 @@ impl epi::App for TemplateApp {
                 emotes: Default::default(),
             });
           }
-          youtube::open_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), channel_options.auth_token.to_owned(), &self.runtime)
-        }
-        ProviderName::Null => Channel {
-            channel_name: "null".to_owned(),
-            provider: ProviderName::Null,
-            history: Vec::default(),
-            tx: mpsc::channel::<OutgoingMessage>(32).0,
-            rx: mpsc::channel(32).1,
-            channel_emotes: Default::default(),
-            roomid: "".to_owned(),
-            task_handle: None,
-            is_live: false
+          youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), &self.runtime)
         },
         _ => panic!("invalid provider")
       };
@@ -196,6 +223,22 @@ impl epi::App for TemplateApp {
       *(&mut self.selected_channel) = Some(channel_options.channel_name.to_owned());
       channel_options.channel_name = Default::default();
     };
+
+    if self.show_auth_ui {
+      egui::Window::new("Auth Tokens").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+          ui.label("Twitch");
+          ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
+        });
+        ui.horizontal(|ui| {
+          ui.label("YouTube");
+          ui.text_edit_singleline(&mut self.auth_tokens.youtube_auth_token);
+        });
+        if ui.button("Ok").clicked() {
+          self.show_auth_ui = false;
+        }
+      });
+    }
 
     if self.add_channel_menu_show {
       egui::Window::new("Add Channel").show(ctx, |ui| {
@@ -211,7 +254,7 @@ impl epi::App for TemplateApp {
           let name_input = ui.text_edit_singleline(&mut self.add_channel_menu.channel_name);
           //name_input.request_focus();
           if name_input.has_focus() && ui.input().key_pressed(egui::Key::Enter) {
-            add_channel(&mut self.add_channel_menu); 
+            add_channel(&mut self.auth_tokens, &mut self.add_channel_menu); 
             self.add_channel_menu_show = false;
           }
         });
@@ -220,14 +263,10 @@ impl epi::App for TemplateApp {
             ui.label("Channel ID:");
             ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
           });
-          ui.horizontal(|ui| {
-            ui.label("Auth Token:");
-            ui.text_edit_singleline(&mut self.add_channel_menu.auth_token);
-          });
         }
         
         if ui.button("Add channel").clicked() {
-          add_channel(&mut self.add_channel_menu);
+          add_channel(&mut self.auth_tokens, &mut self.add_channel_menu);
           self.add_channel_menu_show = false;
         }
       });
@@ -239,7 +278,8 @@ impl epi::App for TemplateApp {
           ui.menu_button("File", |ui| {
             ui.set_width(ui.available_width());
             if ui.button("Configure Tokens").clicked() {
-
+              *(&mut self.show_auth_ui) = true;
+              ui.close_menu();
             }
             if ui.button("Add a channel").clicked() {
               *(&mut self.add_channel_menu_show) = true;
@@ -263,42 +303,50 @@ impl epi::App for TemplateApp {
         }
 
         for (channel, sco) in (&mut self.channels).iter_mut() {
-          while let Ok(x) = sco.rx.try_recv() {
-            match x {
-              InternalMessage::PrivMsg { message } => {
-                //sco.history.insert(sco.history.len(), message)
-                self.chat_history.push_back(message);
-              },
-              InternalMessage::StreamingStatus { is_live } => {
-                sco.is_live = is_live;
-              },
-              InternalMessage::MsgEmotes { emote_ids } => {
-                if let Some(provider) = (&mut self.providers).get_mut(&sco.provider) {
-                  for (id, name) in emote_ids {
-                    if provider.emotes.contains_key(&name) == false {
-                      provider.emotes.insert(name.to_owned(), self.emote_loader.get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
+          if let Some(t) = sco.transient.as_mut() {
+            while let Ok(x) = t.rx.try_recv() {
+              match x {
+                InternalMessage::PrivMsg { message } => {
+                  //sco.history.insert(sco.history.len(), message)
+                  self.chat_history.push_back(message);
+                },
+                InternalMessage::StreamingStatus { is_live } => {
+                  t.is_live = is_live;
+                },
+                InternalMessage::MsgEmotes { emote_ids } => {
+                  if let Some(provider) = (&mut self.providers).get_mut(&sco.provider) {
+                    for (id, name) in emote_ids {
+                      if provider.emotes.contains_key(&name) == false {
+                        provider.emotes.insert(name.to_owned(), self.emote_loader.get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
+                      }
                     }
                   }
-                }
-              },
-              _ => ()
-            };
-          }
-          while self.chat_history.len() > 2000 {
-            self.chat_history.pop_front();
-          }
+                },
+                _ => ()
+              };
+            }
+            while self.chat_history.len() > 2000 {
+              self.chat_history.pop_front();
+            }
 
-          let label = RichText::new(format!("{} {}", channel, match sco.is_live { true => "🔴", false => ""}))
-          .size(24.0);
-          let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), label);
-          if clbl.clicked() {
-            channel_swap = true;
+            let label = RichText::new(format!("{} {}", channel, match t.is_live { true => "🔴", false => ""}))
+            .size(24.0);
+            let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), label);
+            if clbl.clicked() {
+              channel_swap = true;
+            }
+            else if clbl.middle_clicked() { //TODO: custom widget that adds close button?
+              self.runtime.block_on(async {
+                sco.close().await;
+              });
+              channel_removed = true;
+            }
           }
-          else if clbl.middle_clicked() { //TODO: custom widget that adds close button?
-            self.runtime.block_on(async {
-              sco.close().await;
-            });
-            channel_removed = true;
+          else {
+            // channel has not been opened yet
+            if let Some(provider) = self.providers.get_mut(&sco.provider) {
+              twitch::open_channel(sco, &self.runtime, &mut self.emote_loader, provider);
+            }
           }
         }
       });
@@ -332,8 +380,8 @@ impl epi::App for TemplateApp {
               .show(ui);
             ui.separator();
             if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
-              if let Some(sco) = (&mut self.channels).get_mut(sc) {
-                match sco.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
+              if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() {
+                match t.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
                   Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
                   _ => ()
                 } 
@@ -420,10 +468,6 @@ impl epi::App for TemplateApp {
     ctx.request_repaint();
   }
 
-  fn save(&mut self, _storage: &mut dyn epi::Storage) {
-    
-  }
-
   fn on_exit_event(&mut self) -> bool {
     true
   }
@@ -482,7 +526,7 @@ impl TemplateApp {
 
         let provider_emotes = self.providers.get_mut(&ProviderName::Twitch).and_then(|p| Some(&mut p.emotes));
         //let channel_emotes = &mut channel.channel_emotes;
-        let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| Some(&mut c.channel_emotes));
+        let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| c.transient.as_mut()).and_then(|t| Some(&mut t.channel_emotes));
 
         let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader, &self.runtime);
         let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
@@ -541,8 +585,8 @@ impl TemplateApp {
 
       let mut emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
-      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
-        for (name, emote) in &mut channel.channel_emotes { // Channel emotes
+      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) && let Some(transient) = channel.transient.as_mut() {
+        for (name, emote) in &mut transient.channel_emotes { // Channel emotes
           if name == word {
             return None;
           }
@@ -653,7 +697,7 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
       if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && next_row_ix == ix {
         let row_skipped = should_include_row.is_some_and(|include_row| !include_row);
         if row_skipped {
-          println!("skipping row: {}", (&label_text).into_iter().join(" "));
+          //println!("skipping row: {}", (&label_text).into_iter().join(" "));
           label_text.clear();
         }
 

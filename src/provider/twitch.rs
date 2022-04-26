@@ -12,7 +12,7 @@ use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider};
+use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider, ChannelTransient};
 
 pub fn load_token() -> String {
   let mut result : String = Default::default();
@@ -20,10 +20,21 @@ pub fn load_token() -> String {
   result
 }
 
-pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
+pub fn init_channel(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
+  let mut channel = Channel {  
+    provider: ProviderName::Twitch, 
+    channel_name: name.to_string(),
+    roomid: Default::default(),
+    transient: None
+  };
+  open_channel(&mut channel, runtime, emote_loader, provider);
+  channel
+}
+
+pub fn open_channel<'a>(channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) {
   let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(256);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
-  let name2 = name.to_owned();
+  let name2 = channel.channel_name.to_owned();
 
   let task = runtime.spawn(async move { 
     match spawn_irc(name2, out_tx, in_rx).await {
@@ -60,18 +71,14 @@ pub fn open_channel<'a>(name : String, runtime : &Runtime, emote_loader: &mut Em
     }
   };
 
-  let channel = Channel {  
-    provider: ProviderName::Twitch, 
-    channel_name: name.to_string(),
-    roomid: rid,
+  channel.roomid = rid;
+  channel.transient = Some(ChannelTransient {
     tx: in_tx,
     rx: out_rx,
-    history: Vec::default(),
     channel_emotes: channel_emotes,
-    task_handle: Some(task),
+    task_handle: task,
     is_live: false
-  };
-  channel
+  });
 }
 
 async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) -> Result<(), failure::Error> {

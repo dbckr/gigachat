@@ -4,14 +4,15 @@ use chrono::{Utc, TimeZone};
 use curl::easy::{Easy};
 use imageproc::stats::ChannelHistogram;
 use itertools::Itertools;
+use regex::Regex;
 use serde_json::Value;
 use tokio::{runtime::Runtime, sync::mpsc};
 
 use crate::emotes::EmoteLoader;
 
-use super::{Channel, OutgoingMessage, InternalMessage, Provider, ProviderName, ChatMessage, UserProfile};
+use super::{Channel, OutgoingMessage, InternalMessage, Provider, ProviderName, ChatMessage, UserProfile, ChannelTransient};
 
-pub fn open_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime) -> Channel {
+pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime) -> Channel {
   let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name_copy = name.to_owned();
@@ -26,10 +27,10 @@ pub fn open_channel<'a>(name: String, channel_id: String, token: String, runtime
     loop {
 
       // If channel is streaming get chat messages until no messages found and wait 15 seconds before trying again
-      if let Some(activelivechat_id) = activelivechat_id {
+      if let Some(activelivechat_id) = &activelivechat_id {
         let (page_token, msgs) = get_chat_messages(
           &token, 
-          &activelivechat_id, 
+          activelivechat_id, 
           &name_copy, 
           match next_page_token { Some(x) => { println!("using page token {}", x); x}, None => "".to_owned() }, 
           &mut easy);
@@ -43,19 +44,26 @@ pub fn open_channel<'a>(name: String, channel_id: String, token: String, runtime
         }
         else { 
           println!("no new messages");
+          tokio::time::sleep(Duration::from_millis(10000)).await;
         }
-        tokio::time::sleep(Duration::from_millis(15000)).await;
-      }
-
-      // Check if channel is live streaming
-      // If not wait a minute before checking again
-      if let Some(video_id) = check_channel(&token, &channel_id_copy, &mut easy) {
-        activelivechat_id = get_active_livestreamchat_id(&token, &video_id, &mut easy);
+        tokio::time::sleep(Duration::from_millis(20000)).await;
       }
       else {
-        activelivechat_id = None;
-        tokio::time::sleep(Duration::from_millis(60000)).await;
-        continue;
+        // Check if channel is live streaming
+        // If not wait a minute before checking again
+        if let Some(video_id) = check_channel(&token, &channel_id_copy, &mut easy) {
+          out_tx.try_send(InternalMessage::StreamingStatus { is_live: true });
+          activelivechat_id = get_active_livestreamchat_id(&token, &video_id, &mut easy);
+          if activelivechat_id.is_none() {
+            tokio::time::sleep(Duration::from_millis(60000)).await;  
+          }
+        }
+        else {
+          activelivechat_id = None;
+          out_tx.try_send(InternalMessage::StreamingStatus { is_live: false });
+          tokio::time::sleep(Duration::from_millis(60000)).await;
+          continue;
+        }
       }
     }
   });
@@ -64,12 +72,13 @@ pub fn open_channel<'a>(name: String, channel_id: String, token: String, runtime
     provider: ProviderName::YouTube,  
     channel_name: name.to_owned(),
     roomid: channel_id.to_owned(),
-    tx: in_tx,
-    rx: out_rx,
-    history: Vec::default(),
-    channel_emotes: Default::default(),
-    task_handle: Some(task),
-    is_live: false
+    transient: Some(ChannelTransient {
+      tx: in_tx,
+      rx: out_rx,
+      channel_emotes: Default::default(),
+      task_handle: task,
+      is_live: false
+    })
   };
   channel
 }

@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, format::InternalFixed};
 use eframe::epaint::Color32;
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -24,21 +24,32 @@ pub enum InternalMessage {
   StreamingStatus { is_live: bool}
 }
 
+impl Default for InternalMessage {
+    fn default() -> Self {
+        Self::PrivMsg { message: Default::default() }
+    }
+}
+
 pub enum OutgoingMessage {
   Chat { message: String },
   Leave {},
 }
 
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 pub struct Provider {
   pub name: String,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub emotes: HashMap<String, Emote>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub emote_sets: HashMap<String,HashMap<String,Emote>>
 }
 
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+#[derive(Default)]
 #[derive(Eq, Hash, PartialEq)]
 #[derive(Clone)]
 pub enum ProviderName {
-  Twitch,
+  #[default] Twitch,
   YouTube,
   Null
 }
@@ -48,16 +59,22 @@ pub struct Tab {
   history: Vec<ChatMessage>
 }
 
+pub struct ChannelTransient {
+  pub rx: mpsc::Receiver<InternalMessage>,
+  pub tx: mpsc::Sender<OutgoingMessage>,
+  pub channel_emotes: HashMap<String, Emote>,
+  pub task_handle: JoinHandle<()>,
+  pub is_live: bool
+}
+
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 pub struct Channel {
   pub channel_name: String,
   pub roomid: String,
   pub provider: ProviderName,
-  pub history: Vec<ChatMessage>,
-  pub rx: mpsc::Receiver<InternalMessage>,
-  pub tx: mpsc::Sender<OutgoingMessage>,
-  pub channel_emotes: HashMap<String, Emote>,
-  pub task_handle: Option<JoinHandle<()>>,
-  pub is_live: bool
+  //pub history: Vec<ChatMessage>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub transient: Option<ChannelTransient>
 }
 
 impl Channel {
@@ -66,17 +83,12 @@ impl Channel {
         channel_name : _,
         roomid : _,
         provider : _,
-        history : _,
-        tx,
-        rx : _,
-        channel_emotes : _,
-        task_handle,
-        is_live
+        transient
     } = self;
 
-    if let Some(handle) = task_handle {
-      if tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
-        match handle.await {
+    if let Some(transient) = transient {
+      if transient.tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
+        match (&mut transient.task_handle).await {
           Ok(_) => (),
           Err(e) => println!("{:?}", e)
         }
@@ -93,6 +105,19 @@ pub struct ChatMessage {
   pub timestamp: DateTime<Utc>,
   pub message: String,
   pub profile: UserProfile 
+}
+
+impl Default for ChatMessage {
+  fn default() -> Self {
+    Self { 
+      provider: Default::default(), 
+      channel: Default::default(), 
+      username: Default::default(), 
+      timestamp: Utc::now(), 
+      message: Default::default(), 
+      profile: Default::default() 
+    }
+  }
 }
 
 #[derive(Clone)]

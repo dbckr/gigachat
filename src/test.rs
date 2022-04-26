@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod test {
+    use regex::Regex;
+
   #[test]
   fn gachihyper() {
     let buf = crate::emotes::load_file_into_buffer("generated/7tv/60420a8b77137b000de9e66e.gif");

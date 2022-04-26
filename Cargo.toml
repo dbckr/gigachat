@@ -4,12 +4,16 @@ version = "0.1.0"
 edition = "2021"
 license = "MPL-2.0"
 
+[features]
+default = ["persistence"]
+persistence = ["eframe/persistence"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 futures = "0.3.0"
 tokio = { version = "1.17.0", features = ["full"] }
-egui = { version = "0.17.0", features = ["persistence"] }
+egui = { version = "0.17.0" }
 eframe = "0.17.0"
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = "1.0.0"
@@ -32,6 +36,7 @@ open = "2.1.1"
 gif-dispose = "3.1.1"
 regex = "1.5.5"
 async-channel = "1.6.1"
+serde = "1.0.136"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
