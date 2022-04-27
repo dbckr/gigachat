@@ -6,6 +6,7 @@
 
 use std::{collections::{HashMap, HashSet, VecDeque}, borrow::BorrowMut, vec::IntoIter, ops::{Add, Index}, time::Duration};
 use curl::easy::Auth;
+use egui::Vec2;
 use image::DynamicImage;
 use irc::proto::chan;
 use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
@@ -63,7 +64,7 @@ pub struct TemplateApp {
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  chat_history: VecDeque<ChatMessage>,
+  chat_history: VecDeque<(ChatMessage, Option<f32>)>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   draft_message: String,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -78,7 +79,9 @@ pub struct TemplateApp {
   pub selected_emote: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   show_auth_ui: bool,
-  pub auth_tokens: AuthTokens
+  pub auth_tokens: AuthTokens,
+  chat_frame: Option<Rect>,
+  chat_scroll: Option<Vec2>
 }
 
 impl TemplateApp {
@@ -111,7 +114,9 @@ impl Default for TemplateApp {
       add_channel_menu: Default::default(),
       selected_emote: None,
       show_auth_ui: false,
-      auth_tokens: Default::default()
+      auth_tokens: Default::default(),
+      chat_frame: None,
+      chat_scroll: None
     }
   } 
 }
@@ -140,7 +145,7 @@ impl epi::App for TemplateApp {
           if let Some(emote) = self.global_emotes.get_mut(&name) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
-              Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
               _ => 0,
             };
             emote.loaded = EmoteStatus::Loaded;
@@ -150,7 +155,7 @@ impl epi::App for TemplateApp {
           if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut().and_then(|t| t.channel_emotes.get_mut(&name)) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
-              Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
               _ => 0,
             };
             emote.loaded = EmoteStatus::Loaded;
@@ -162,7 +167,7 @@ impl epi::App for TemplateApp {
             && let Some(emote) = set.get_mut(&name) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
-              Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
               _ => 0,
             };
             emote.loaded = EmoteStatus::Loaded;
@@ -173,7 +178,7 @@ impl epi::App for TemplateApp {
             && let Some(emote) = provider.emotes.get_mut(&name) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
-              Some(framedata) => framedata.into_iter().map(|(_, delay)| delay).sum(),
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
               _ => 0,
             };
             emote.loaded = EmoteStatus::Loaded;
@@ -311,7 +316,7 @@ impl epi::App for TemplateApp {
               match x {
                 InternalMessage::PrivMsg { message } => {
                   //sco.history.insert(sco.history.len(), message)
-                  self.chat_history.push_back(message);
+                  self.chat_history.push_back((message, None));
                 },
                 InternalMessage::StreamingStatus { is_live } => {
                   t.is_live = is_live;
@@ -327,11 +332,6 @@ impl epi::App for TemplateApp {
                 },
                 _ => ()
               };
-            }
-            if self.chat_history.len() > 4000 {
-              for i in 1..1000 {
-                self.chat_history.pop_front();
-              }
             }
 
             let label = RichText::new(format!("{} {}", channel, match t.is_live { true => "🔴", false => ""}))
@@ -460,12 +460,23 @@ impl epi::App for TemplateApp {
               }
             }
           }
-          let area = egui::ScrollArea::vertical()
+
+          let mut popped_height = 0.;
+          while self.chat_history.len() > 200 {
+            if let Some(popped) = self.chat_history.pop_front() && let Some(height) = popped.1 {
+              popped_height += height + ui.spacing().item_spacing.y;
+            }
+          }
+
+          let mut chat_area = egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom()
-            .show_viewport(ui, |ui, viewport| {
-              self.show_variable_height_rows(ctx, ui, viewport, &self.selected_channel.to_owned());
-            });
+            .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
+          let area = chat_area.show_viewport(ui, |ui, viewport| {
+            self.show_variable_height_rows(ctx, ui, viewport, &self.selected_channel.to_owned());
+          });
+          // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
+          self.chat_scroll = Some(area.state.offset);
       });
     });
 
@@ -509,6 +520,7 @@ impl epi::App for TemplateApp {
     false
   }
 }
+
 impl TemplateApp {
   fn show_variable_height_rows(&mut self, ctx: &egui::Context, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
@@ -521,21 +533,23 @@ impl TemplateApp {
       let mut y_pos = 0.0;
       let mut excess_top_space : f32 = 0.0;
       let mut skipped_rows = 0;
-      //let channel = self.channels.get_mut(channel_name).expect("missing channel name");
 
-      //for row in &channel.history {
-      for row in &self.chat_history {
+      for (row, cached_y) in self.chat_history.iter_mut() {
         if let Some(channel) = channel_name && &row.channel != channel {
           continue;
         }
+        // Skip processing if row size is accurately cached and not in view
+        else if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
+          && (y_pos < viewport.min.y || y_pos + size_y > viewport.max.y + excess_top_space) {
+            y_pos += size_y + ui.spacing().item_spacing.y;
+            continue;
+        }
 
         let provider_emotes = self.providers.get_mut(&ProviderName::Twitch).and_then(|p| Some(&mut p.emotes));
-        //let channel_emotes = &mut channel.channel_emotes;
         let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| c.transient.as_mut()).and_then(|t| Some(&mut t.channel_emotes));
-
         let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader, &self.runtime);
         let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
-
+        *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum());
         
         let mut lines_to_include : Vec<bool> = Default::default();
         for line in &msg_sizing {
@@ -553,10 +567,11 @@ impl TemplateApp {
           y_pos += size_y;
         }
         y_pos += ui.spacing().item_spacing.y;
-        if (&lines_to_include).into_iter().any(|x| *x) {
-          in_view.push((&row, emotes, msg_sizing, lines_to_include));
+        if (&lines_to_include).iter().any(|x| *x) {
+          in_view.push((row, emotes, msg_sizing, lines_to_include));
         }
       }
+      self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
@@ -665,12 +680,12 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
 
   let ui_row = ui.horizontal_wrapped(|ui| {
     let tex = emote_loader.transparent_img.as_ref().unwrap();
-    let mut row_sizes_iter = row_sizes.into_iter();
+    let mut row_sizes_iter = row_sizes.iter();
     let mut next_row_size = row_sizes_iter.next();
-    let mut row_include_iter = row_include.into_iter();
+    let mut row_include_iter = row_include.iter();
     let mut should_include_row = row_include_iter.next();
 
-    if let Some(include_row) = should_include_row && include_row { // showing first row
+    if let Some(include_row) = should_include_row && *include_row { // showing first row
       ui.image(tex, emath::Vec2 { x: 1.0, y: next_row_size.unwrap().0 });
       ui.label(job);
     } 
@@ -691,14 +706,14 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
       ix += 1;
 
       if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && next_row_ix == ix {
-        let row_skipped = should_include_row.is_some_and(|include_row| !include_row);
+        let row_skipped = should_include_row.is_some_and(|include_row| !*include_row);
         if row_skipped {
           //println!("skipping row: {}", (&label_text).into_iter().join(" "));
           label_text.clear();
         }
 
         should_include_row = row_include_iter.next();
-        if let Some(include_row) = should_include_row && include_row {
+        if let Some(include_row) = should_include_row && *include_row {
           if !row_skipped {
             ui.label("\n");
           } 
@@ -707,7 +722,7 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
         next_row_size = row_sizes_iter.next();
       }
 
-      if let Some(include_row) = should_include_row && include_row {
+      if let Some(include_row) = should_include_row && *include_row {
         let emote = emotes.get(word);
         if let Some(EmoteFrame { id, name: _, texture, path, extension }) = emote {
           //flush_text(ui, &mut label_text);
@@ -731,7 +746,7 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
         }
       }
     }
-    if let Some(include_row) = should_include_row && !include_row {
+    if let Some(include_row) = should_include_row && !*include_row {
       println!("skipping row: {}", (&label_text).into_iter().join(" "));
       label_text.clear();
     }
@@ -785,7 +800,7 @@ fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<Stri
 
   let mut job = get_chat_msg_header_layoutjob(ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile);
   let header_rows = &ui.fonts().layout_job(job.clone()).rows;
-  for header_row in header_rows.into_iter().take(header_rows.len() - 1) {
+  for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y, None));
   }
   curr_row_width += header_rows.last().unwrap().rect.size().x;
