@@ -1,20 +1,16 @@
-use std::{error, time::Duration};
-
+use std::{time::Duration};
+ 
 use chrono::{Utc, TimeZone};
 use curl::easy::{Easy};
-use imageproc::stats::ChannelHistogram;
 use itertools::Itertools;
-use regex::Regex;
 use serde_json::Value;
 use tokio::{runtime::Runtime, sync::mpsc};
 
-use crate::emotes::EmoteLoader;
-
-use super::{Channel, OutgoingMessage, InternalMessage, Provider, ProviderName, ChatMessage, UserProfile, ChannelTransient};
+use super::{Channel, OutgoingMessage, InternalMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient};
 
 pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime) -> Channel {
-  let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(32);
-  let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
+  let (out_tx, out_rx) = mpsc::channel::<InternalMessage>(32);
+  let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name_copy = name.to_owned();
   let channel_id_copy = channel_id.to_owned();
 
@@ -25,6 +21,7 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
     let mut next_page_token : Option<String> = None;
 
     loop {
+      while let Ok(_) = in_rx.try_recv() { }
 
       // If channel is streaming get chat messages until no messages found and wait 15 seconds before trying again
       if let Some(activelivechat_id) = &activelivechat_id {
@@ -39,7 +36,9 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
         if let Some(messages) = msgs && messages.len() > 0 {
           println!("got {} messages", &messages.len());
           for message in messages {
-            out_tx.try_send(InternalMessage::PrivMsg { message: message });
+            if let Err(e) = out_tx.try_send(InternalMessage::PrivMsg { message: message }) {
+              println!("Error sending PrivMsg: {}", e);
+            }
           }
         }
         else { 
@@ -52,7 +51,7 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
         // Check if channel is live streaming
         // If not wait a minute before checking again
         if let Some(video_id) = check_channel(&token, &channel_id_copy, &mut easy) {
-          out_tx.try_send(InternalMessage::StreamingStatus { is_live: true });
+          _ = out_tx.try_send(InternalMessage::StreamingStatus { is_live: true });
           activelivechat_id = get_active_livestreamchat_id(&token, &video_id, &mut easy);
           if activelivechat_id.is_none() {
             tokio::time::sleep(Duration::from_millis(60000)).await;  
@@ -60,7 +59,7 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
         }
         else {
           activelivechat_id = None;
-          out_tx.try_send(InternalMessage::StreamingStatus { is_live: false });
+          _ = out_tx.try_send(InternalMessage::StreamingStatus { is_live: false });
           tokio::time::sleep(Duration::from_millis(60000)).await;
           continue;
         }
@@ -89,7 +88,7 @@ fn check_channel(token: &String, channel_id: &String, easy : &mut Easy) -> Optio
   match make_request(&url, headers, easy) {
     Ok(data) => {
       match serde_json::from_str::<Value>(&data){
-        Ok(mut v) => v["items"][0]["id"]["videoId"].as_str().and_then(|x| Some(x.to_owned())),
+        Ok(v) => v["items"][0]["id"]["videoId"].as_str().and_then(|x| Some(x.to_owned())),
         Err(e) => { println!("JSON Error: {}", e); None }
       }
     }
@@ -103,7 +102,7 @@ fn get_active_livestreamchat_id(token: &String, video_id: &String, easy : &mut E
   match make_request(&url, headers, easy) {
     Ok(data) => {
       match serde_json::from_str::<Value>(&data){
-        Ok(mut v) => v["items"][0]["liveStreamingDetails"]["activeLiveChatId"].as_str().and_then(|x| Some(x.to_owned())),
+        Ok(v) => v["items"][0]["liveStreamingDetails"]["activeLiveChatId"].as_str().and_then(|x| Some(x.to_owned())),
         Err(e) => { println!("JSON Error: {}", e); None }
       }
     }
@@ -118,7 +117,7 @@ fn get_chat_messages(token: &String, livestreamchat_id: &String, channel_name: &
     Ok(data) => {
       println!("{}", data);
       match serde_json::from_str::<Value>(&data){
-        Ok(mut v) => {
+        Ok(v) => {
           let token = v["nextPageToken"].as_str().and_then(|x| Some(x.to_owned()));
           (token, Some(v["items"].as_array().unwrap().into_iter().filter_map(|item| { Some(ChatMessage { 
             provider: ProviderName::YouTube, 
@@ -152,7 +151,7 @@ fn make_request(url: &String, headers: Option<Vec<(&str, String)>>, easy : &mut 
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).and_then(|x| Ok((&mut result).push_str(&x)));
+      String::from_utf8(data.to_vec()).and_then(|x| Ok((&mut result).push_str(&x))).expect("failed to build string from http response body");
       Ok(data.len())
     })?;
     transfer.perform()?;

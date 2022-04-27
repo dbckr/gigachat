@@ -6,7 +6,7 @@
 
 use curl::easy::Easy;
 use eframe::{
-  egui::{self, plot::Text},
+  egui::{self},
   epaint::{ColorImage, TextureHandle},
 };
 use failure;
@@ -14,8 +14,8 @@ use glob::glob;
 use image::{DynamicImage};
 use itertools::Itertools;
 use serde_json::Value;
-use tokio::{runtime::Runtime, sync::mpsc::{Receiver, Sender}, task::JoinHandle};
-use std::{collections::HashMap, net::Shutdown, time::Duration};
+use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
+use std::{collections::HashMap, time::Duration};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
@@ -129,8 +129,8 @@ impl EmoteLoader {
                 println!("{n} loading set emote {} for set {}", name, set_id);
                 let data = get_image_data(&url, &path, &id, &extension, &mut easy);
                 let data_copy = data.clone();
-                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name.to_owned(), id: id, data: data });
-                out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data_copy })
+                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name.to_owned(), id: id, data: data })
+                  .or(out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data_copy }))
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 println!("{n} loading twitch emote {}", name);
@@ -262,31 +262,6 @@ impl EmoteLoader {
         Some(HashMap::new())
       }
     }
-  }
-
-  fn load_list_file(filename: &str) -> std::result::Result<Vec<String>, failure::Error> {
-    let file = File::open(filename).expect("no such file");
-    Ok(BufReader::new(file)
-      .lines()
-      .map(|l| l.expect("Could not parse line"))
-      .collect())
-  }
-
-  fn process_emote_list(filename: &str) -> std::result::Result<(), failure::Error> {
-    //println!("processing emote list {}", filename);
-    let mut f = OpenOptions::new()
-      .append(true)
-      .create(true) // Optionally create the file if it doesn't already exist
-      .open("generated/emotes")
-      .expect("Unable to open file");
-
-    let file = File::open(filename).expect("no such file");
-    for l in BufReader::new(file).lines() {
-      let line = l.expect("Could not parse line");
-      writeln!(f, "{}", line)?;
-    }
-
-    Ok(())
   }
 
   fn process_emote_json(

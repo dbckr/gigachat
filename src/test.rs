@@ -2,8 +2,6 @@
 
 #[cfg(test)]
 mod test {
-    use regex::Regex;
-
   #[test]
   fn gachihyper() {
     let buf = crate::emotes::load_file_into_buffer("generated/7tv/60420a8b77137b000de9e66e.gif");
@@ -44,5 +42,12 @@ mod test {
     let ix : usize = 1;
     let x = ix.saturating_sub(2);
     assert_eq!(x, 0);
+  }
+
+  #[test]
+  fn test234234() {
+    let mut x = 20;
+    x -= 10 + 5;
+    assert_eq!(x, 5);
   }
 }

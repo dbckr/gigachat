@@ -4,9 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 
-use chrono::{DateTime, Utc, format::InternalFixed};
+use chrono::{DateTime, Utc};
 use eframe::epaint::Color32;
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -52,11 +52,6 @@ pub enum ProviderName {
   #[default] Twitch,
   YouTube,
   Null
-}
-
-pub struct Tab {
-  channels: Vec<String>,
-  history: Vec<ChatMessage>
 }
 
 pub struct ChannelTransient {

@@ -4,15 +4,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, HashSet, VecDeque}, borrow::BorrowMut, vec::IntoIter, ops::{Add, Index}, time::Duration};
-use curl::easy::Auth;
+use std::{collections::{HashMap, VecDeque}};
 use egui::Vec2;
 use image::DynamicImage;
-use irc::proto::chan;
-use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
 
 use chrono::{self, Timelike, DateTime, Utc};
-use eframe::{egui::{self, emath, RichText, FontSelection, Key, Modifiers}, epi, epaint::{Color32, Stroke, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect, Pos2}};
+use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect}};
 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, ProviderName, youtube}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
 use itertools::Itertools;
@@ -25,7 +22,6 @@ const EMOTE_HEIGHT : f32 = 42.0;
 pub struct AddChannelMenu {
   channel_name: String,
   channel_id: String,
-  auth_token: String,
   provider: ProviderName,
 }
 
@@ -34,7 +30,6 @@ impl Default for AddChannelMenu {
         Self { 
           channel_name: Default::default(), 
           channel_id: Default::default(), 
-          auth_token: Default::default(), 
           provider: ProviderName::Twitch }
     }
 }
@@ -173,7 +168,7 @@ impl epi::App for TemplateApp {
             emote.loaded = EmoteStatus::Loaded;
           }
         },
-        EmoteResponse::TwitchMsgEmoteLoaded { name, id, data } => {
+        EmoteResponse::TwitchMsgEmoteLoaded { name, id: _, data } => {
           if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) 
             && let Some(emote) = provider.emotes.get_mut(&name) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
@@ -435,13 +430,9 @@ impl epi::App for TemplateApp {
                               self.selected_emote = Some(emote.0.to_owned());
                             }
                           }
-                          else if let Some(trnsp) = &self.emote_loader.transparent_img {
+                          //else if let Some(trnsp) = &self.emote_loader.transparent_img {
+                          else {
                             ui.add_space(EMOTE_HEIGHT);
-                            /*if ui.image(trnsp, egui::vec2(1., EMOTE_HEIGHT * 2.))
-                                .interact(egui::Sense::click())
-                                .clicked() {
-                              self.selected_emote = Some(emote.0.to_owned());
-                            }*/
                           }
 
                           ui.style_mut().wrap = Some(false);
@@ -468,12 +459,12 @@ impl epi::App for TemplateApp {
             }
           }
 
-          let mut chat_area = egui::ScrollArea::vertical()
+          let chat_area = egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom()
             .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
           let area = chat_area.show_viewport(ui, |ui, viewport| {
-            self.show_variable_height_rows(ctx, ui, viewport, &self.selected_channel.to_owned());
+            self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
           });
           // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
           self.chat_scroll = Some(area.state.offset);
@@ -492,7 +483,9 @@ impl epi::App for TemplateApp {
     //self.emote_loader.tx.try_send(EmoteRequest::Shutdown);
     self.emote_loader.close();
     for channel in self.channels.values_mut() {
-      channel.close();
+      self.runtime.block_on(async move {
+        channel.close().await;
+      });
     }
   }
 
@@ -522,7 +515,7 @@ impl epi::App for TemplateApp {
 }
 
 impl TemplateApp {
-  fn show_variable_height_rows(&mut self, ctx: &egui::Context, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
+  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.style_mut().spacing.item_spacing.x = 5.0;
       let y_min = ui.max_rect().top() + viewport.min.y;
@@ -542,12 +535,13 @@ impl TemplateApp {
         else if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y || y_pos + size_y > viewport.max.y + excess_top_space) {
             y_pos += size_y + ui.spacing().item_spacing.y;
+            skipped_rows += 1;
             continue;
         }
 
         let provider_emotes = self.providers.get_mut(&ProviderName::Twitch).and_then(|p| Some(&mut p.emotes));
         let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| c.transient.as_mut()).and_then(|t| Some(&mut t.channel_emotes));
-        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader, &self.runtime);
+        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader);
         let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
         *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum());
         
@@ -576,7 +570,7 @@ impl TemplateApp {
       ui.skip_ahead_auto_ids(skipped_rows);
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
           for (row, emotes, sizing, row_include) in in_view {
-            create_chat_message(ctx, viewport_ui, row, &emotes, &mut self.emote_loader, sizing, row_include);
+            create_chat_message(viewport_ui, row, &emotes, &mut self.emote_loader, sizing, row_include);
           }
       });
     });
@@ -602,8 +596,8 @@ impl TemplateApp {
             return None;
           }
           else if name.starts_with(word) || name.contains(word) {
-            let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_channel_request(&emote, &channel_name), &self.runtime);
-            emotes.try_insert(name.to_owned(), tex);
+            let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_channel_request(&emote, &channel_name));
+            _ = emotes.try_insert(name.to_owned(), tex);
           }
         }
         if let Some(provider) = self.providers.get_mut(&channel.provider) { // Provider emotes
@@ -613,8 +607,8 @@ impl TemplateApp {
                 return None;
               }
               else if name.starts_with(word) || name.contains(word) {
-                let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_emoteset_request(&emote, &channel.provider, set_id), &self.runtime);
-                emotes.try_insert(name.to_owned(), tex);
+                let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_emoteset_request(&emote, &channel.provider, set_id));
+                _ = emotes.try_insert(name.to_owned(), tex);
               }
             }
           }
@@ -625,8 +619,8 @@ impl TemplateApp {
           return None;
         }
         else if name.starts_with(word) || name.contains(word) {
-          let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_global_request(&emote), &self.runtime);
-          emotes.try_insert(name.to_owned(), tex);
+          let tex = get_texture(&mut self.emote_loader, emote, EmoteRequest::new_global_request(&emote));
+          _ = emotes.try_insert(name.to_owned(), tex);
         }
       }
       Some((word.to_owned(), emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec()))
@@ -637,18 +631,18 @@ impl TemplateApp {
   }
 }
 
-fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader, runtime: &Runtime) -> HashMap<String, EmoteFrame> {
+fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(" ") {
     let emote = 
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name), runtime)
+        get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name))
       }
       else if let Some(emote) = global_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote), runtime)
+        get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote))
       }
       else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote), runtime)
+        get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
       }
       /*else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
         get_texture(emote_loader, emote, EmoteRequest::new_emoteset_request(emote, &provider.provider, &set_id))
@@ -673,7 +667,7 @@ fn get_provider_color(provider : &ProviderName) -> Color32 {
   }
 }
 
-fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)>, row_include: Vec<bool> ) -> emath::Rect {
+fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)>, row_include: Vec<bool> ) -> emath::Rect {
   let channel_color = get_provider_color(&row.provider);
 
   let job = get_chat_msg_header_layoutjob(ui, &row.channel, channel_color, &row.username, &row.timestamp, &row.profile);
@@ -691,15 +685,7 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
     } 
     next_row_size = row_sizes_iter.next();  
 
-    let mut label_text : Vec<String> = Vec::default();
-    /*let flush_text = |ui : &mut egui::Ui, vec : &mut Vec<String>| {
-      let text = vec.into_iter().join(" ");
-      if text.len() > 0 {
-        let lbl = egui::Label::new(RichText::new(text).size(26.0));
-        ui.add(lbl);
-      }
-      vec.clear();
-    };*/
+    //let mut label_text : Vec<String> = Vec::default();
     
     let mut ix : usize = 0;
     for word in row.message.to_owned().split(" ") {
@@ -707,10 +693,9 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
 
       if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && next_row_ix == ix {
         let row_skipped = should_include_row.is_some_and(|include_row| !*include_row);
-        if row_skipped {
-          //println!("skipping row: {}", (&label_text).into_iter().join(" "));
+        /*if row_skipped {
           label_text.clear();
-        }
+        }*/
 
         should_include_row = row_include_iter.next();
         if let Some(include_row) = should_include_row && *include_row {
@@ -725,32 +710,29 @@ fn create_chat_message(ctx: &egui::Context, ui: &mut egui::Ui, row: &ChatMessage
       if let Some(include_row) = should_include_row && *include_row {
         let emote = emotes.get(word);
         if let Some(EmoteFrame { id, name: _, texture, path, extension }) = emote {
-          //flush_text(ui, &mut label_text);
           ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT)).on_hover_ui_at_pointer(|ui| {
             ui.label(format!("{}\n{}\n{}\n{:?}", word, id, path, extension));
             ui.image(texture, texture.size_vec2());
           });
         }
         else {
-          if (word.len() > WORD_LENGTH_MAX) {
+          if word.len() > WORD_LENGTH_MAX {
             let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
             for chunk in chunks.into_iter() {
               ui.label(chunk.collect::<String>().to_owned());
             }
           }
           else {
-            //label_text.push(word.to_owned());
             ui.label(word.to_owned());
-            (&mut label_text).push(word.to_owned());
+            //(&mut label_text).push(word.to_owned());
           }
         }
       }
     }
-    if let Some(include_row) = should_include_row && !*include_row {
+    /*if let Some(include_row) = should_include_row && !*include_row {
       println!("skipping row: {}", (&label_text).into_iter().join(" "));
       label_text.clear();
-    }
-    //flush_text(ui, &mut label_text);
+    }*/
   });
 
   ui_row.response.rect
@@ -792,23 +774,21 @@ fn get_chat_msg_header_layoutjob(ui: &mut egui::Ui, channel_name: &str, channel_
 
 fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>) -> Vec<(f32, Option<usize>)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
-  let max_width = ui.available_width();
   let mut first_word_ix : Option<usize> = None;
   let mut curr_row_width : f32 = 0.0;
-  let mut curr_row_height : f32 = 0.0;
   let mut row_data : Vec<(f32, Option<usize>)> = Default::default();
 
-  let mut job = get_chat_msg_header_layoutjob(ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile);
+  let job = get_chat_msg_header_layoutjob(ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile);
   let header_rows = &ui.fonts().layout_job(job.clone()).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y, None));
   }
   curr_row_width += header_rows.last().unwrap().rect.size().x;
-  curr_row_height = header_rows.last().unwrap().rect.size().y;
+  let mut curr_row_height = header_rows.last().unwrap().rect.size().y;
 
   let mut ix = 0;
   for word in row.message.to_owned().split(" ") {
-    if (word.len() > WORD_LENGTH_MAX) {
+    if word.len() > WORD_LENGTH_MAX {
       let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
       for chunk in chunks.into_iter() {
         get_word_size(&mut ix, emotes, &chunk.collect::<String>().to_owned(), ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);  
@@ -870,13 +850,12 @@ pub struct EmoteFrame {
   texture: TextureHandle
 }
 
-fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest, runtime: &Runtime) -> Option<EmoteFrame>{
+fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest) -> Option<EmoteFrame>{
   match emote.loaded {
     EmoteStatus::NotLoaded => {
-      /*runtime.block_on(async move {
-        emote_loader.tx.send(request).await
-      });*/
-      emote_loader.tx.try_send(request);
+      if let Err(e) = emote_loader.tx.try_send(request) {
+        println!("Error sending emote load request: {}", e);
+      }
       emote.loaded = EmoteStatus::Loading;
       None
     },

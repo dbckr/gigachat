@@ -9,8 +9,6 @@ use gigachat::TemplateApp;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use gigachat::app::AuthTokens;
-
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
@@ -19,10 +17,6 @@ fn main() {
 
   eframe::run_native("Gigachat 0.0", native_options, Box::new(|cc| { 
     let mut app = TemplateApp::new(cc);
-    /*app.auth_tokens = AuthTokens {
-        twitch_auth_token: cc.storage.and_then(|x| x.get_string("twitch_auth_token")).or_else(|| Some("".to_owned()) ).unwrap(),
-        youtube_auth_token: cc.storage.and_then(|x| x.get_string("youtube_auth_token")).or_else(|| Some("".to_owned()) ).unwrap(),
-    };*/
     let loader = &mut app.emote_loader;
     let emotes = &mut app.global_emotes;
     match loader.load_global_emotes() {
