@@ -57,7 +57,7 @@ pub enum ProviderName {
 pub struct ChannelTransient {
   pub rx: mpsc::Receiver<InternalMessage>,
   pub tx: mpsc::Sender<OutgoingMessage>,
-  pub channel_emotes: HashMap<String, Emote>,
+  pub channel_emotes: Option<HashMap<String, Emote>>,
   pub task_handle: JoinHandle<()>,
   pub is_live: bool
 }

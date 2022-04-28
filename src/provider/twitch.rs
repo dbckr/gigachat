@@ -20,80 +20,57 @@ pub fn load_token() -> String {
   result
 }
 
-pub fn init_channel(name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
+pub fn init_channel(username : &String, token: &String, channel_name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
   let mut channel = Channel {  
     provider: ProviderName::Twitch, 
-    channel_name: name.to_string(),
+    channel_name: channel_name.to_string(),
     roomid: Default::default(),
     transient: None
   };
-  open_channel(&mut channel, runtime, emote_loader, provider);
+  open_channel(username, token, &mut channel, runtime, emote_loader, provider);
   channel
 }
 
-pub fn open_channel<'a>(channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) {
+pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) {
   let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(256);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = channel.channel_name.to_owned();
 
+  let username = username.to_owned();
+  let token = token.to_owned();
   let task = runtime.spawn(async move { 
-    spawn_irc(name2, out_tx, in_rx).await
+    spawn_irc(username, token, name2, out_tx, in_rx).await
   });
-  let rid;
-
-  loop {
-    if let Ok(msg) = out_rx.try_recv() {
-      match msg {
-        InternalMessage::RoomId { room_id } => {
-          rid = room_id;
-          break;
-        },
-        InternalMessage::EmoteSets { emote_sets } => {
-          for set in emote_sets {
-            if provider.emote_sets.contains_key(&set) == false && let Some(set_list) = emote_loader.twitch_get_emote_set(&set) {
-              provider.emote_sets.insert(set.to_owned(), set_list);
-            }
-          }
-        },
-        _ => ()
-      }
-    }
-  }
-
-  let channel_emotes = match emote_loader.load_channel_emotes(&rid) {
-    Ok(x) => x,
-    Err(x) => { 
-      println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
-      Default::default()
-    }
-  };
-
-  channel.roomid = rid;
+  
   channel.transient = Some(ChannelTransient {
     tx: in_tx,
     rx: out_rx,
-    channel_emotes: channel_emotes,
+    channel_emotes: None,
     task_handle: task,
     is_live: false
   });
 }
 
-async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
-  let config_path = match std::env::var("IRC_Config_File") {
-    Ok(val) => val,
-    Err(_e) => "config/irc.toml".to_owned()
-  };
-
+async fn spawn_irc(user_name : String, token: String, channel_name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
   let mut profile = UserProfile::default();
 
-  let mut config = Config::load(config_path).expect("failed to load irc config");
-  let name = name.to_owned();
-  config.channels.push(format!("#{}", name.to_owned()));
-  let mut client = Client::from_config(config).await.expect("failed to create irc client");
+  let name = channel_name.to_owned();
+  let channels = [format!("#{}", name.to_owned())].to_vec();
+  let mut client = Client::from_config(Config { 
+      username: Some(user_name.to_owned()),
+      nickname: Some(user_name),  
+      server: Some("irc.chat.twitch.tv".to_owned()), 
+      port: Some(6697), 
+      password: Some(format!("oauth:{}", token)), 
+      use_tls: Some(true),
+      channels: channels,
+      ..Default::default()
+    }).await.expect("failed to create irc client");
   client.identify().expect("failed to identify");
   let mut stream = client.stream().expect("failed to get stream");
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect("failed to send cap req");
+  //sender.send_join(format!("#{}", name.to_owned())).expect("failed to join channel");
   loop {
     tokio::select! {
       Some(result) = stream.next()  => {
@@ -141,7 +118,7 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
               Command::PING(ref target, ref _msg) => {
                   sender.send_pong(target).expect("failed to send pong");
               },
-              Command::Raw(ref command, ref _str_vec) => {
+              Command::Raw(ref command, ref str_vec) => {
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {
@@ -153,7 +130,26 @@ async fn spawn_irc(name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mp
                       tx.try_send(InternalMessage::RoomId { 
                         room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() })
                     },
-                    _ => Ok(())
+                    "NOTICE" => {
+                      if str_vec.contains(&"Login unsuccessful".to_string()) {
+                        //panic!("Failed to login to IRC");
+                        tx.try_send(InternalMessage::PrivMsg { message: ChatMessage { 
+                          provider: ProviderName::Twitch, 
+                          channel: name.to_owned(), 
+                          username: "SYSTEM_MSG".to_owned(), 
+                          timestamp: chrono::Utc::now(), 
+                          message: format!("{}", str_vec.join(", ")), 
+                          profile: UserProfile { 
+                            color: (255, 0, 0),
+                            ..Default::default() 
+                          }
+                        }})
+                      }
+                      else {
+                        Ok(())
+                      }
+                    },
+                    _ => { println!("{} {}", command, str_vec.join(", ")); Ok(())}
                   };
                   if let Err(e) = result {
                     println!("{}", e);
@@ -222,7 +218,7 @@ impl std::fmt::Display for TwitchToken {
 
 pub fn authenticate(runtime : &Runtime) {
   let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
-  let scope = "";
+  let scope = "chat:read chat:edit";
   let state = format!("{}", rand::random::<u128>());
   let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
 
