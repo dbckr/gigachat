@@ -9,6 +9,8 @@ use gigachat::TemplateApp;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    use gigachat::provider::ProviderName;
+
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
@@ -19,6 +21,9 @@ fn main() {
     let mut app = TemplateApp::new(cc);
     let loader = &mut app.emote_loader;
     let emotes = &mut app.global_emotes;
+    if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
+      twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)
+    }
     match loader.load_global_emotes() {
       Ok(x) => {
         for (name, emote) in x {

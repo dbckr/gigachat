@@ -20,32 +20,33 @@ pub fn load_token() -> String {
   result
 }
 
-pub fn init_channel(username : &String, token: &String, channel_name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) -> Channel {
+pub fn init_channel(username : &String, token: &String, channel_name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
   let mut channel = Channel {  
     provider: ProviderName::Twitch, 
     channel_name: channel_name.to_string(),
     roomid: Default::default(),
     transient: None
   };
-  open_channel(username, token, &mut channel, runtime, emote_loader, provider);
+  open_channel(username, token, &mut channel, runtime, emote_loader);
   channel
 }
 
-pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader, provider: &mut Provider) {
-  let (out_tx, mut out_rx) = mpsc::channel::<InternalMessage>(256);
+pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader) {
+  let (out_tx, out_rx) = mpsc::channel::<InternalMessage>(256);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = channel.channel_name.to_owned();
 
   let username = username.to_owned();
-  let token = token.to_owned();
+  let token2 = token.to_owned();
   let task = runtime.spawn(async move { 
-    spawn_irc(username, token, name2, out_tx, in_rx).await
+    spawn_irc(username, token2, name2, out_tx, in_rx).await
   });
   
   channel.transient = Some(ChannelTransient {
     tx: in_tx,
     rx: out_rx,
     channel_emotes: None,
+    badge_emotes: emote_loader.twitch_get_global_badges(token),
     task_handle: task,
     is_live: false
   });
@@ -76,7 +77,7 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //println!("{}", message);
+            println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -105,7 +106,10 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                         let range = pair[1].split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(_x) => None } ).collect_vec();
                         match range.len() {
                           //2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
-                          2 => Some((pair[0].to_owned(), msg.to_owned().chars().skip(range[0]).take(range[1] - range[0] + 1).collect())),
+                          2 => { 
+                            let x : String = msg.to_owned().chars().collect_vec().iter().skip(range[0]).take(range[1] - range[0] + 1).collect();
+                            Some((pair[0].to_owned(), x))
+                          },
                           _ => None
                         }
                       }).to_owned().collect_vec();
@@ -149,17 +153,17 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                         Ok(())
                       }
                     },
-                    _ => { println!("{} {}", command, str_vec.join(", ")); Ok(())}
+                    _ => { println!("unknown IRC command: {} {}", command, str_vec.join(", ")); Ok(())}
                   };
                   if let Err(e) = result {
-                    println!("{}", e);
+                    println!("IRC Raw error: {}", e);
                   }
                 }
               },
               _ => ()
           }
           },
-          Err(e) => println!("{:?}", e)
+          Err(e) => println!("IRC Stream error: {:?}", e)
         }
       },
       Some(out_msg) = rx.recv() => {
@@ -193,6 +197,7 @@ fn get_user_profile(tags: &Vec<irc::proto::message::Tag>) -> UserProfile {
   UserProfile {
     display_name: get_tag_value(&tags, "display-name"),
     color: convert_color_hex(get_tag_value(&tags, "color").as_ref()),
+    badges: get_tag_value(&tags, "badges").and_then(|b| Some(b.split(",").filter_map(|x| if x.len() > 0 { Some(x.to_owned()) } else { None }).collect_vec())),
     ..Default::default()
   }
 }

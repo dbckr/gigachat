@@ -41,7 +41,9 @@ pub struct Provider {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub emotes: HashMap<String, Emote>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub emote_sets: HashMap<String,HashMap<String,Emote>>
+  pub emote_sets: HashMap<String,HashMap<String,Emote>>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub global_badges: Option<HashMap<String, Emote>>
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -58,6 +60,7 @@ pub struct ChannelTransient {
   pub rx: mpsc::Receiver<InternalMessage>,
   pub tx: mpsc::Sender<OutgoingMessage>,
   pub channel_emotes: Option<HashMap<String, Emote>>,
+  pub badge_emotes: Option<HashMap<String, Emote>>,
   pub task_handle: JoinHandle<()>,
   pub is_live: bool
 }
@@ -85,7 +88,7 @@ impl Channel {
       if transient.tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
         match (&mut transient.task_handle).await {
           Ok(_) => (),
-          Err(e) => println!("{:?}", e)
+          Err(e) => println!("channel close send error: {:?}", e)
         }
       }
     }
@@ -117,7 +120,7 @@ impl Default for ChatMessage {
 
 #[derive(Clone)]
 pub struct UserProfile {
-  pub badges: Vec<UserBadge>,
+  pub badges: Option<Vec<String>>,
   pub display_name: Option<String>,
   pub color: (u8, u8, u8)
 }
@@ -127,14 +130,9 @@ impl Default for UserProfile {
     Self {
       color: (255, 255, 255),
       display_name: Default::default(),
-      badges: Vec::new()
+      badges: None
     }
   }
-}
-
-#[derive(Clone)]
-pub struct UserBadge {
-  pub image_data: Vec<u8>
 }
 
 pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {

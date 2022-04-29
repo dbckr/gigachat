@@ -10,7 +10,6 @@ use image::DynamicImage;
 
 use chrono::{self, Timelike, DateTime, Utc};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{Color32, text::{LayoutJob, TextWrapping}, FontFamily, FontId, TextureHandle}, emath::{Align, Rect}};
-use regex::Regex;
 
 use crate::{provider::{twitch, convert_color, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, UserProfile, ProviderName, youtube}, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse}};
 use itertools::Itertools;
@@ -21,7 +20,8 @@ const SMALL_TEXT_SIZE : f32 = 13.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 40;
 /// Emotes in chat messages will be scaled to this height
-const EMOTE_HEIGHT : f32 = 24.0;
+const EMOTE_HEIGHT : f32 = 26.0;
+const BADGE_HEIGHT : f32 = 18.0;
 
 pub struct AddChannelMenu {
   channel_name: String,
@@ -52,7 +52,7 @@ pub struct AuthTokens {
 pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: tokio::runtime::Runtime,
-  providers: HashMap<ProviderName, Provider>,
+  pub providers: HashMap<ProviderName, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -84,7 +84,7 @@ impl TemplateApp {
       if let Some(storage) = cc.storage {
           r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
       }
-      r.emote_loader.transparent_img = Some(crate::emotes::load_image_into_texture_handle(&cc.egui_ctx, &DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([0, 0, 0, 0]) ))));
+      r.emote_loader.transparent_img = Some(crate::emotes::load_image_into_texture_handle(&cc.egui_ctx, &DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) ))));
       r
   }
 }
@@ -145,8 +145,30 @@ impl epi::App for TemplateApp {
             emote.loaded = EmoteStatus::Loaded;
           }
         },
+        EmoteResponse::GlobalBadgeImageLoaded { name, data } => {
+          if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) 
+              && let Some(global_badges) = &mut provider.global_badges 
+              && let Some(emote) = global_badges.get_mut(&name) {
+            emote.data = crate::emotes::load_to_texture_handles(ctx, data);
+            emote.duration_msec = match emote.data.as_ref() {
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+              _ => 0,
+            };
+            emote.loaded = EmoteStatus::Loaded;
+          }
+        },
         EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data } => {
           if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut().and_then(|t| t.channel_emotes.as_mut().and_then(|f| { f.get_mut(&name)})) {
+            emote.data = crate::emotes::load_to_texture_handles(ctx, data);
+            emote.duration_msec = match emote.data.as_ref() {
+              Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+              _ => 0,
+            };
+            emote.loaded = EmoteStatus::Loaded;
+          }
+        },
+        EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data } => {
+          if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut().and_then(|t| t.badge_emotes.as_mut().and_then(|f| { f.get_mut(&name)})) {
             emote.data = crate::emotes::load_to_texture_handles(ctx, data);
             emote.duration_msec = match emote.data.as_ref() {
               Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
@@ -204,9 +226,10 @@ impl epi::App for TemplateApp {
                 name: "twitch".to_owned(),
                 emote_sets: Default::default(),
                 emotes: Default::default(),
+                global_badges: (&mut self.emote_loader).twitch_get_global_badges(&auth_tokens.twitch_auth_token)
             });
           }
-          twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), &self.runtime, &mut self.emote_loader, &mut self.providers.get_mut(&ProviderName::Twitch).unwrap())
+          twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), &self.runtime, &mut self.emote_loader)
         },
         ProviderName::YouTube => {
           if self.providers.contains_key(&ProviderName::Twitch) == false {
@@ -214,6 +237,7 @@ impl epi::App for TemplateApp {
                 name: "youtube".to_owned(),
                 emote_sets: Default::default(),
                 emotes: Default::default(),
+                global_badges: Default::default()
             });
           }
           youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), &self.runtime)
@@ -350,18 +374,18 @@ impl epi::App for TemplateApp {
                       Default::default()
                     }
                   };
+                  t.badge_emotes = self.emote_loader.twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
                   break;
                 },
                 InternalMessage::EmoteSets { emote_sets } => {
                   if let Some(provider) = self.providers.get_mut(&sco.provider) {
                     for set in emote_sets {
-                      if provider.emote_sets.contains_key(&set) == false && let Some(set_list) = self.emote_loader.twitch_get_emote_set(&set) {
+                      if provider.emote_sets.contains_key(&set) == false && let Some(set_list) = self.emote_loader.twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
                         provider.emote_sets.insert(set.to_owned(), set_list);
                       }
                     }
                   }
-                },
-                _ => ()
+                }
               };
             }
 
@@ -380,9 +404,7 @@ impl epi::App for TemplateApp {
           }
           else {
             // channel has not been opened yet
-            if let Some(provider) = self.providers.get_mut(&sco.provider) {
-              twitch::open_channel(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, sco, &self.runtime, &mut self.emote_loader, provider);
-            }
+            twitch::open_channel(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, sco, &self.runtime, &mut self.emote_loader);
           }
         }
       });
@@ -400,111 +422,118 @@ impl epi::App for TemplateApp {
       ..Default::default() 
     };
     
-    egui::CentralPanel::default().frame(cframe)
-    .show(ctx, |ui| {
+    egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
       ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
         if let Some(sc) = &self.selected_channel.to_owned() {
-          let goto_next_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
-          let goto_prev_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
-          let enter_emote = ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
+          let goto_next_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
+          let goto_prev_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
+          let enter_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
 
-            let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
-              .desired_rows(2)
-              .desired_width(ui.available_width())
-              .hint_text("Type a message to send")
-              .font(egui::TextStyle::Body)
-              .show(ui);
-            ui.separator();
-            if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
-              if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() {
-                match t.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
-                  Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
-                  _ => ()
-                } 
-                *(&mut self.draft_message) = String::new();
-              }
+          let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
+            .desired_rows(2)
+            .desired_width(ui.available_width())
+            .hint_text("Type a message to send")
+            .font(egui::TextStyle::Body)
+            .show(ui);
+          if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
+            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() {
+              match t.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
+                Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                _ => ()
+              } 
+              *(&mut self.draft_message) = String::new();
             }
-            else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
-              let emotes = self.get_possible_emotes(cursor_pos.primary.index);
-              if let Some((word, emotes)) = emotes && emotes.len() > 0 {
-                if enter_emote && let Some(emote_text) = &self.selected_emote {
-                  let msg = (&mut self.draft_message).to_owned();
-                  self.draft_message = msg.replace(&word, emote_text.as_str());
-                  self.selected_emote = None;
-                  outgoing_msg.response.request_focus();
-                  outgoing_msg.state.set_ccursor_range(
-                    Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message.len())))
-                  );
-                  outgoing_msg.state.store(ctx, outgoing_msg.response.id);
+          }
+          else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+            let cursor = cursor_pos.primary.index;
+            let emotes = self.get_possible_emotes(cursor);
+            if let Some((word, pos, emotes)) = emotes && emotes.len() > 0 {
+              if enter_emote && let Some(emote_text) = &self.selected_emote {
+                let msg = if self.draft_message.len() <= pos + &word.len() || &self.draft_message[pos + &word.len()..pos + &word.len() + 1] != " " {
+                  format!("{}{} {}",&self.draft_message[..pos], emote_text, &self.draft_message[pos + &word.len()..])
+                } else {
+                  format!("{}{}{}",&self.draft_message[..pos], emote_text, &self.draft_message[pos + &word.len()..])
+                };
+                self.draft_message = msg;
+                outgoing_msg.response.request_focus();
+                outgoing_msg.state.set_ccursor_range(
+                  Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(&self.draft_message[..pos].len() + emote_text.len() + 1)))
+                );
+                outgoing_msg.state.store(ctx, outgoing_msg.response.id);
+                self.selected_emote = None;
+              }
+              else {
+                if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix + 1 < emotes.len() {
+                  self.selected_emote = emotes.get(ix + 1).and_then(|x| Some(x.0.to_owned()));
                 }
-                else {
-                  if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix + 1 < emotes.len() {
-                    self.selected_emote = emotes.get(ix + 1).and_then(|x| Some(x.0.to_owned()));
-                  }
-                  else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix > 0 {
-                    self.selected_emote = emotes.get(ix - 1).and_then(|x| Some(x.0.to_owned()));
-                  }
-                  else if self.selected_emote.is_none() || emotes.iter().any(|x| Some(&x.0) == self.selected_emote.as_ref()) == false {
-                    self.selected_emote = emotes.first().and_then(|x| Some(x.0.to_owned()));
-                  }
+                else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix > 0 {
+                  self.selected_emote = emotes.get(ix - 1).and_then(|x| Some(x.0.to_owned()));
+                }
+                else if self.selected_emote.is_none() || emotes.iter().any(|x| Some(&x.0) == self.selected_emote.as_ref()) == false {
+                  self.selected_emote = emotes.first().and_then(|x| Some(x.0.to_owned()));
+                }
 
-                  ui.allocate_ui_with_layout(emath::Vec2::new(ui.available_width(), 130.0), 
-                      egui::Layout::from_main_dir_and_cross_align( egui::Direction::LeftToRight, Align::BOTTOM), |ui| {
-                  egui::ScrollArea::horizontal()
-                  .id_source("emote_selector_scrollarea")
-                  .always_show_scroll(true)
-                  .show(ui, |ui|{
-                      for emote in emotes {
-                        if goto_prev_emote && self.selected_emote.as_ref() == Some(&emote.0) {
-                          ui.scroll_to_cursor(None)
-                        }
-                        ui.vertical(|ui| {
-                          if let Some(img) = emote.1 {
-                            if ui.image(&img.texture, egui::vec2(&img.texture.size_vec2().x * (EMOTE_HEIGHT * 2. / &img.texture.size_vec2().y), EMOTE_HEIGHT * 2.))
-                                .interact(egui::Sense::click())
-                                .clicked() {
-                              self.selected_emote = Some(emote.0.to_owned());
-                            }
-                          }
-                          //else if let Some(trnsp) = &self.emote_loader.transparent_img {
-                          else {
-                            ui.add_space(EMOTE_HEIGHT);
-                          }
-
-                          ui.style_mut().wrap = Some(false);
-                          let mut disp_text = emote.0.to_owned();
-                          disp_text.truncate(12);
-                          ui.selectable_value(&mut self.selected_emote, Some(emote.0.to_owned()), RichText::new(disp_text).size(BODY_TEXT_SIZE))
-                            .on_hover_text_at_pointer(emote.0.to_owned());
-                        });
-                        if goto_next_emote && self.selected_emote.as_ref() == Some(&emote.0) {
-                          ui.scroll_to_cursor(None)
-                        }
+                ui.allocate_ui_with_layout(emath::Vec2::new(ui.available_width(), 35. + EMOTE_HEIGHT * 2.), 
+                    egui::Layout::from_main_dir_and_cross_align( egui::Direction::LeftToRight, Align::BOTTOM), |ui| {
+                egui::ScrollArea::horizontal()
+                .id_source("emote_selector_scrollarea")
+                .always_show_scroll(true)
+                .show(ui, |ui|{
+                    for emote in emotes {
+                      if goto_prev_emote && self.selected_emote.as_ref() == Some(&emote.0) {
+                        ui.scroll_to_cursor(None)
                       }
-                    });
+                      ui.vertical(|ui| {
+                        if let Some(img) = emote.1 {
+                          if ui.image(&img.texture, egui::vec2(&img.texture.size_vec2().x * (EMOTE_HEIGHT * 2. / &img.texture.size_vec2().y), EMOTE_HEIGHT * 2.))
+                              .interact(egui::Sense::click())
+                              .clicked() {
+                            self.selected_emote = Some(emote.0.to_owned());
+                          }
+                        }
+                        //else if let Some(trnsp) = &self.emote_loader.transparent_img {
+                        else {
+                          ui.add_space(EMOTE_HEIGHT);
+                        }
+
+                        ui.style_mut().wrap = Some(false);
+                        let mut disp_text = emote.0.to_owned();
+                        disp_text.truncate(12);
+                        ui.selectable_value(&mut self.selected_emote, Some(emote.0.to_owned()), RichText::new(disp_text).size(BODY_TEXT_SIZE))
+                          .on_hover_text_at_pointer(emote.0.to_owned());
+                      });
+                      if goto_next_emote && self.selected_emote.as_ref() == Some(&emote.0) {
+                        ui.scroll_to_cursor(None)
+                      }
+                    }
                   });
-                }
+                });
+                ui.label("Alt+Left/Right to select, Alt+Down to confirm");
               }
             }
           }
-
-          let mut popped_height = 0.;
-          while self.chat_history.len() > 200 {
-            if let Some(popped) = self.chat_history.pop_front() && let Some(height) = popped.1 {
+          ui.separator();
+        }
+        
+        let mut popped_height = 0.;
+        while self.chat_history.len() > 2000 {
+          if let Some(popped) = self.chat_history.pop_front() && let Some(height) = popped.1 {
+            if self.selected_channel.is_none() || self.selected_channel == Some(popped.0.channel) {
               popped_height += height + ui.spacing().item_spacing.y;
             }
           }
+        }
 
-          let chat_area = egui::ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .stick_to_bottom()
-            .always_show_scroll(true)
-            .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
-          let area = chat_area.show_viewport(ui, |ui, viewport| {
-            self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
-          });
-          // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
-          self.chat_scroll = Some(area.state.offset);
+        let chat_area = egui::ScrollArea::vertical()
+          .auto_shrink([false; 2])
+          .stick_to_bottom()
+          .always_show_scroll(true)
+          .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
+        let area = chat_area.show_viewport(ui, |ui, viewport| {
+          self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
+        });
+        // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
+        self.chat_scroll = Some(area.state.offset);
       });
     });
 
@@ -553,16 +582,17 @@ impl epi::App for TemplateApp {
 
 impl TemplateApp {
   fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
-    //println!("{:?}", viewport.size());
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
-      ui.style_mut().spacing.item_spacing.x = 5.0;
+      ui.spacing_mut().item_spacing.x = 4.0;
+      //ui.spacing_mut().item_spacing.y = 1.;
+
       let y_min = ui.max_rect().top() + viewport.min.y;
       let y_max = ui.max_rect().top() + viewport.max.y;
       let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
   
-      let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Vec<(f32, Option<usize>)>, Vec<bool>, f32)> = Vec::default();
+      let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Option<HashMap<String, EmoteFrame>>, Vec<(f32, Option<usize>)>, Vec<bool>, f32)> = Vec::default();
       let mut y_pos = 0.0;
-      let mut excess_top_space : f32 = 0.0;
+      let mut excess_top_space : Option<f32> = None;
       let mut skipped_rows = 0;
 
       for (row, cached_y) in self.chat_history.iter_mut() {
@@ -571,7 +601,7 @@ impl TemplateApp {
         }
         // Skip processing if row size is accurately cached and not in view
         else if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
-          && (y_pos < viewport.min.y - 200. || y_pos + size_y > viewport.max.y + excess_top_space + 200.) {
+          && (y_pos < viewport.min.y - 200. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 200.) {
             y_pos += size_y + ui.spacing().item_spacing.y;
             if y_pos < viewport.min.y - 200. {
               skipped_rows += 1;
@@ -579,19 +609,23 @@ impl TemplateApp {
             continue;
         }
 
-        let provider_emotes = self.providers.get_mut(&ProviderName::Twitch).and_then(|p| Some(&mut p.emotes));
-        let channel_emotes = self.channels.get_mut(&row.channel).and_then(|c| c.transient.as_mut()).and_then(|t| t.channel_emotes.as_mut());
+        let (provider_emotes, provider_badges) = self.providers.get_mut(&ProviderName::Twitch)
+          .and_then(|p| Some((Some(&mut p.emotes), p.global_badges.as_mut()))).unwrap_or((None, None));
+        let (channel_emotes, channel_badges) = self.channels.get_mut(&row.channel)
+          .and_then(|c| c.transient.as_mut())
+          .and_then(|t| Some((t.channel_emotes.as_mut(), t.badge_emotes.as_mut()))).unwrap_or((None, None));
         let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, &mut self.emote_loader);
-        let msg_sizing = get_chat_msg_size(ui, &row, &emotes);
+        let badges = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, &mut self.emote_loader);
+        let msg_sizing = get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
         *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum::<f32>());
         
         let mut lines_to_include : Vec<bool> = Default::default();
         let mut row_y = 0.;
         for line in &msg_sizing {
           let size_y = line.0;
-          if y_pos >= viewport.min.y && y_pos + size_y <= viewport.max.y + excess_top_space {
-            if excess_top_space == 0.0 {
-              excess_top_space = y_pos - viewport.min.y;
+          if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
+            if excess_top_space.is_none() {
+              excess_top_space = Some(y_pos + row_y - viewport.min.y);
             }
 
             lines_to_include.insert(lines_to_include.len(), true);
@@ -599,34 +633,33 @@ impl TemplateApp {
           else {
             lines_to_include.insert(lines_to_include.len(), false);
           }
-          row_y += size_y;
+          row_y += size_y + ui.spacing().item_spacing.y;
         }
-        y_pos += row_y + ui.spacing().item_spacing.y;
+        y_pos += row_y;
         if (&lines_to_include).iter().any(|x| *x) {
-          in_view.push((row, emotes, msg_sizing, lines_to_include, row_y));
+          in_view.push((row, emotes, badges, msg_sizing, lines_to_include, row_y));
         }
       }
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
-          for (row, emotes, sizing, row_include, row_expected_y) in in_view {
-            let actual = create_chat_message(viewport_ui, row, &emotes, &mut self.emote_loader, sizing, row_include);
-            println!("expected {} actual {} for {}", row_expected_y, actual.size().y, &row.username);
-          }
+        for (row, emotes, badges, sizing, row_include, _row_expected_y) in in_view {
+          let _actual = create_chat_message(viewport_ui, row, &emotes, badges.as_ref(), &mut self.emote_loader, sizing, row_include);
+          //println!("expected {} actual {} for {}", _row_expected_y, _actual.size().y, &row.username);
+        }
       });
-      //println!("POS {}", y_pos);
     });
   }
 
-  fn get_possible_emotes(&mut self, cursor_position: usize) -> Option<(String, Vec<(String, Option<EmoteFrame>)>)> {
+  fn get_possible_emotes(&mut self, cursor_position: usize) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     let msg = &self.draft_message;
-    let word : Option<&str> = msg.split_whitespace()
+    let word : Option<(usize, &str)> = msg.split_whitespace()
       .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some(p.1) } else { None })
+      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
       .next();
 
-    if let Some(word) = word {
+    if let Some((pos, word)) = word {
       if word.len() < 2 {
         return None;
       }
@@ -666,7 +699,7 @@ impl TemplateApp {
           _ = emotes.try_insert(name.to_owned(), tex);
         }
       }
-      Some((word.to_owned(), emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec()))
+      Some((word.to_owned(), pos, emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec()))
     }
     else {
       None
@@ -701,6 +734,28 @@ fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes
   result
 }
 
+fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&mut HashMap<String, Emote>>, channel_badges: Option<&mut HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> Option<HashMap<String, EmoteFrame>> {
+  let mut result : HashMap<String, EmoteFrame> = Default::default();
+  if badges.is_none() { return None; }
+  for badge in badges.unwrap() {
+    let emote = 
+      if let Some(&mut ref mut channel_badges) = channel_badges && let Some(emote) = channel_badges.get_mut(badge) {
+        get_texture(emote_loader, emote, EmoteRequest::new_channel_badge_request(emote, channel_name))
+      }
+      else if let Some(&mut ref mut global_badges) = global_badges && let Some(emote) = global_badges.get_mut(badge) {
+        get_texture(emote_loader, emote, EmoteRequest::new_global_badge_request(emote))
+      }
+      else {
+        None
+      };
+    if let Some(frame) = emote {
+      result.insert(frame.name.to_owned(), frame);
+    }
+  }
+
+  Some(result)
+}
+
 fn get_provider_color(provider : &ProviderName) -> Color32 {
   match provider {
     //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
@@ -710,10 +765,11 @@ fn get_provider_color(provider : &ProviderName) -> Color32 {
   }
 }
 
-fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)>, row_include: Vec<bool> ) -> emath::Rect {
+fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)>, row_include: Vec<bool> ) -> emath::Rect {
   let channel_color = get_provider_color(&row.provider);
+  let mut row_shown = false;
 
-  let job = get_chat_msg_header_layoutjob(ui, &row.channel, channel_color, &row.username, &row.timestamp, &row.profile);
+  let job = get_chat_msg_header_layoutjob(true, ui, &row.channel, channel_color, &row.username, &row.timestamp, &row.profile, badges);
 
   let ui_row = ui.horizontal_wrapped(|ui| {
     let tex = emote_loader.transparent_img.as_ref().unwrap();
@@ -723,9 +779,27 @@ fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<St
     let mut should_include_row = row_include_iter.next();
 
     if let Some(include_row) = should_include_row && *include_row { // showing first row
-      let r = ui.image(tex, emath::Vec2 { x: 1.0, y: next_row_size.unwrap().0 });
-      //println!("img {}", r.rect.size().y);
+      ui.image(tex, emath::Vec2 { x: 1.0, y: next_row_size.unwrap().0 });
       ui.label(job);
+
+      if let Some(user_badges) = &row.profile.badges {
+        for badge in user_badges {
+          let tex = badges.and_then(|f| f.get(badge).and_then(|g| Some(&g.texture)));
+          if let Some(tex) = tex {
+            ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+              ui.image(tex, tex.size_vec2());
+            });
+          }
+          else {
+            ui.add_space(BADGE_HEIGHT + ui.spacing().item_spacing.x);
+          }
+        }
+      }
+
+      let uname = egui::Label::new(RichText::new(&format!("{}:", &row.profile.display_name.as_ref().unwrap_or(&row.username))).color(convert_color(&row.profile.color)));
+      ui.add(uname);
+
+      row_shown = true;
     } 
     next_row_size = row_sizes_iter.next();  
 
@@ -733,61 +807,69 @@ fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<St
     
     let mut ix : usize = 0;
     for word in row.message.to_owned().split(" ") {
-      ix += 1;
-
-      if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && next_row_ix == ix {
-        let row_skipped = should_include_row.is_some_and(|include_row| !*include_row);
-        /*if row_skipped {
-          label_text.clear();
-        }*/
-
-        should_include_row = row_include_iter.next();
-        if let Some(include_row) = should_include_row && *include_row {
-          if !row_skipped {
-            ui.label("\n");
-          } 
-          ui.image(tex, emath::Vec2 { x: 1.0, y: next_row.0 });
-        }
-        next_row_size = row_sizes_iter.next();
-      }
-
-      if let Some(include_row) = should_include_row && *include_row {
-        let emote = emotes.get(word);
-        if let Some(EmoteFrame { id, name: _, texture, path, extension : _ }) = emote {
-          ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT)).on_hover_ui(|ui| {
-            ui.label(format!("{}\n{}\n{}", word, id, path.replace("generated/", "").replace("/","")));
-            ui.image(texture, texture.size_vec2());
-          });
-        }
-        else {
-          if word.len() > WORD_LENGTH_MAX {
-            let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
-            for chunk in chunks.into_iter() {
-              ui.label(chunk.collect::<String>().to_owned());
+      
+      let subwords = 
+        if word.len() > WORD_LENGTH_MAX && let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && ix + word.len() >= next_row_ix {
+          let orig_ix = &ix; 
+          let mut ix = ix.to_owned();
+          let mut peeker = row_sizes_iter.clone();
+          let subword : String = word.char_indices().map(|(_i, x)| x).take(next_row_ix - orig_ix).collect();
+          ix += subword.chars().count();
+          let mut words : Vec<String> = [subword].to_vec();
+          while let Some(next_row) = peeker.next() 
+            && let Some(next_row_ix) = next_row.1 {
+            if orig_ix + word.len() >= next_row_ix {
+              let subword = word.char_indices().map(|(_i, x)| x).skip(ix - orig_ix).take(next_row_ix - ix).collect::<String>();
+              ix += subword.chars().count();
+              words.insert(words.len(), subword);
             }
           }
+          if orig_ix + word.len() > ix {
+            words.insert(words.len(), word.char_indices().map(|(_i, x)| x).skip(ix - orig_ix).collect());
+          }
+          words
+        } else { 
+          [word.char_indices().map(|(_i, x)| x).collect()].to_vec() 
+        };
+        
+      for word in subwords {
+        if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 {
+          if ix >= next_row_ix {
+            should_include_row = row_include_iter.next();
+            if let Some(include_row) = should_include_row && *include_row {
+              if row_shown { ui.end_row(); ui.set_row_height(next_row.0); }
+              ui.image(tex, emath::Vec2 { x: 1.0, y: next_row.0 });
+              row_shown = true;
+            }
+            next_row_size = row_sizes_iter.next();
+          }
+        }
+        ix += word.chars().count();
+
+        if let Some(include_row) = should_include_row && *include_row {
+          let emote = emotes.get(&word);
+          if let Some(EmoteFrame { id, name: _, texture, path }) = emote {
+            ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT)).on_hover_ui(|ui| {
+              ui.label(format!("{}\n{}\n{}", word, id, path.replace("generated/", "").replace("/","")));
+              ui.image(texture, texture.size_vec2());
+            });
+          }
           else {
-            ui.label(word.to_owned());
-            //(&mut label_text).push(word.to_owned());
+              ui.label(RichText::new(word).size(BODY_TEXT_SIZE));
           }
         }
       }
     }
-    /*if let Some(include_row) = should_include_row && !*include_row {
-      println!("skipping row: {}", (&label_text).into_iter().join(" "));
-      label_text.clear();
-    }*/
   });
-  //println!("rect {}", ui_row.response.rect.size().y);
   ui_row.response.rect
 }
 
-fn get_chat_msg_header_layoutjob(ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: &String, timestamp: &DateTime<Utc>, profile: &UserProfile) -> LayoutJob {
+fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: &String, timestamp: &DateTime<Utc>, profile: &UserProfile, badges : Option<&HashMap<String, EmoteFrame>>) -> LayoutJob {
     let mut job = LayoutJob {
-    wrap: TextWrapping { 
-      break_anywhere: false,
-      max_width: ui.available_width(),
-      ..Default::default()
+      wrap: TextWrapping { 
+        break_anywhere: false,
+        max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
+        ..Default::default()
       },
       first_row_min_height: ui.spacing().interact_size.y,
       ..Default::default()
@@ -798,18 +880,19 @@ fn get_chat_msg_header_layoutjob(ui: &mut egui::Ui, channel_name: &str, channel_
       valign: Align::Center,
       ..Default::default()
     });
-    job.append(&format!("[{}]", timestamp.format("%H:%M")), 4.0, egui::TextFormat { 
+    job.append(&format!("[{}]", timestamp.format("%H:%M")), 3.0, egui::TextFormat { 
       font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
       color: Color32::DARK_GRAY, 
       valign: Align::Center,
       ..Default::default()
     });
-    let user = match &profile.display_name {
-      Some(x) => x,
-      None => username
-    };
-    job.append(&format!("{}:", user), 8.0, egui::TextFormat { 
-      font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional), 
+    if for_display { return job; }
+
+    let badge_count = profile.badges.as_ref().and_then(|f| Some(f.len())).unwrap_or(0) as f32;
+    let spacing = 3.0 + badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
+
+    job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), spacing, egui::TextFormat {
+      font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
       color: convert_color(&profile.color),
       valign: Align::Center,
       ..Default::default()
@@ -817,81 +900,81 @@ fn get_chat_msg_header_layoutjob(ui: &mut egui::Ui, channel_name: &str, channel_
     job
 }
 
-fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>) -> Vec<(f32, Option<usize>)> {
+fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>) -> Vec<(f32, Option<usize>)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut first_word_ix : Option<usize> = None;
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, Option<usize>)> = Default::default();
 
-  let job = get_chat_msg_header_layoutjob(ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile);
+  let job = get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile, badges);
   let header_rows = &ui.fonts().layout_job(job.clone()).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
-    row_data.insert(row_data.len(), (header_row.rect.size().y, None));
+    row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y), None));
   }
-  curr_row_width += header_rows.last().unwrap().rect.size().x;
-  let mut curr_row_height = header_rows.last().unwrap().rect.size().y;
+  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().unwrap().rect.size().x;
+  let mut curr_row_height = header_rows.last().unwrap().rect.size().y.max(ui.spacing().interact_size.y);
 
   let mut ix = 0;
   for word in row.message.to_owned().split(" ") {
-    if word.len() > WORD_LENGTH_MAX {
-      let chunks = &mut word.chars().chunks(WORD_LENGTH_MAX);
-      for chunk in chunks.into_iter() {
-        get_word_size(&mut ix, emotes, &chunk.collect::<String>().to_owned(), ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);  
-      }
-    }
-    else {
-      get_word_size(&mut ix, emotes, word, ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);  
-    }
+      get_word_size(&mut ix, emotes, word, ui, &mut curr_row_width, &mut curr_row_height, &mut row_data, &mut first_word_ix);
   }
   if curr_row_width > 0.0 {
-    row_data.insert(row_data.len(), (curr_row_height, first_word_ix));
+    row_data.insert(row_data.len(), (curr_row_height.max(ui.spacing().interact_size.y), first_word_ix));
   }
   row_data
 }
 
 fn get_word_size(ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, ui: &mut egui::Ui, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, Option<usize>)>, first_word_ix: &mut Option<usize>) {
-    *ix += 1;
-    let rect = if let Some(emote) = emotes.get(word) {
-      egui::vec2(emote.texture.size_vec2().x * (EMOTE_HEIGHT / emote.texture.size_vec2().y), EMOTE_HEIGHT)
+    let rows : Vec<(usize, Vec2)> = if let Some(emote) = emotes.get(word) {
+      [(word.len(), egui::vec2(emote.texture.size_vec2().x * (EMOTE_HEIGHT / emote.texture.size_vec2().y), EMOTE_HEIGHT))].to_vec()
     } else {
-      get_text_rect(ui, word)
+      get_text_rect(ui, word, &curr_row_width).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
     };
-    if *curr_row_width + rect.x + ui.spacing().item_spacing.x <= ui.available_width() * 0.95 {
+    for (char_len, row) in rows {    
+      process_word_result(ui, row, curr_row_width, curr_row_height, row_data, first_word_ix, ix);
+      *ix += char_len;
+    }
+}
+
+fn process_word_result(ui: &mut egui::Ui, rect: Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, Option<usize>)>, line_start_ix: &mut Option<usize>, ix: &mut usize) {
+    let curr_width = *curr_row_width + rect.x + ui.spacing().item_spacing.x;
+    let max_width = ui.available_width();
+    if curr_width <= max_width {
       *curr_row_width += rect.x + ui.spacing().item_spacing.x;
       *curr_row_height = curr_row_height.max(rect.y);
     }
     else {
-      row_data.insert(row_data.len(), (*curr_row_height, *first_word_ix));
-      *curr_row_height = rect.y;
-      *curr_row_width = rect.x + ui.spacing().item_spacing.x;
-      *first_word_ix = Some(*ix);
+      row_data.insert(row_data.len(), (*curr_row_height, *line_start_ix));
+      *curr_row_height = rect.y.max(ui.spacing().interact_size.y);
+      *curr_row_width = 1. + ui.spacing().item_spacing.x + rect.x + ui.spacing().item_spacing.x;
+      *line_start_ix = Some(*ix);
     }
 }
 
-fn get_text_rect(ui: &mut egui::Ui, word: &str) -> emath::Vec2 {
+fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32) -> Vec<egui::epaint::text::Row> {
   let mut job = LayoutJob {
     wrap: TextWrapping { 
-      break_anywhere: false,
-      max_width: ui.available_width(),
+      break_anywhere: if word.len() > WORD_LENGTH_MAX { true } else { false },
+      max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
       ..Default::default()
     },
     ..Default::default()
   };
 
-  job.append(word, 0., egui::TextFormat { 
+  job.append(word, curr_row_width.to_owned(), egui::TextFormat { 
     font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional), 
     ..Default::default() 
   });
   
-  let galley = ui.fonts().layout_job(job.clone());
-  galley.rect.size()
+  let galley = ui.fonts().layout_job(job);
+  galley.rows.clone()
 }
 
 pub struct EmoteFrame {
   id: String,
   name: String,
   path: String,
-  extension: Option<String>,
+  //extension: Option<String>,
   texture: TextureHandle
 }
 
@@ -917,7 +1000,7 @@ fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, reque
             for (frame, msec) in frames {
               progress_msec += msec; 
               if progress_msec >= target_progress {
-                result = Some(EmoteFrame { texture: frame.to_owned(), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), extension: emote.extension.to_owned() });
+                result = Some(EmoteFrame { texture: frame.to_owned(), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned() });
                 break;
               }
             }
@@ -925,7 +1008,7 @@ fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, reque
           }
           else {
             let (frame, _delay) = frames.get(0).unwrap();
-            Some(EmoteFrame { texture: frame.to_owned(), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), extension: emote.extension.to_owned() })
+            Some(EmoteFrame { texture: frame.to_owned(), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned() })
           }
         },
         None => None

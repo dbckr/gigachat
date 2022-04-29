@@ -25,7 +25,9 @@ use crate::provider::ProviderName;
 
 pub enum EmoteRequest {
   GlobalEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String> },
+  GlobalBadgeImage { name: String, id : String, url: String, path: String, extension: Option<String> },
   ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
+  ChannelBadgeImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
   EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: ProviderName },
   TwitchMsgEmoteImage { name: String, id: String }
 }
@@ -41,8 +43,27 @@ impl EmoteRequest {
       channel_name: channel_name.to_owned()
     }
   } 
+  pub fn new_channel_badge_request(emote: &Emote, channel_name: &str) -> Self {
+    EmoteRequest::ChannelBadgeImage { 
+      name: emote.name.to_owned(),
+      id: emote.id.to_owned(), 
+      url: emote.url.to_owned(), 
+      path: emote.path.to_owned(), 
+      extension: emote.extension.to_owned(), 
+      channel_name: channel_name.to_owned()
+    }
+  } 
   pub fn new_global_request(emote: &Emote) -> Self {
     EmoteRequest::GlobalEmoteImage {
+      name: emote.name.to_owned(),
+      id: emote.id.to_owned(), 
+      url: emote.url.to_owned(), 
+      path: emote.path.to_owned(), 
+      extension: emote.extension.to_owned()
+    }
+  }
+  pub fn new_global_badge_request(emote: &Emote) -> Self {
+    EmoteRequest::GlobalBadgeImage {
       name: emote.name.to_owned(),
       id: emote.id.to_owned(), 
       url: emote.url.to_owned(), 
@@ -68,7 +89,9 @@ impl EmoteRequest {
 
 pub enum EmoteResponse {
   GlobalEmoteImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
+  GlobalBadgeImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
   ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
+  ChannelBadgeImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
   EmoteSetImageLoaded { name: String, set_id: String, provider_name: ProviderName, data: Option<Vec<(DynamicImage, u16)>> },
   TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(DynamicImage, u16)>> }
 }
@@ -120,10 +143,20 @@ impl EmoteLoader {
                 let data = get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
               },
+              EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
+                println!("{n} loading channel badge {} for {}", name, channel_name);
+                let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+                out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name: name, channel_name: channel_name, data: data })
+              },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 println!("{n} loading global emote {}", name);
                 let data = get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
+              },
+              EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
+                println!("{n} loading global badge {}", name);
+                let data = get_image_data(&url, &path, &id, &extension, &mut easy);
+                out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name: name, data: data })
               },
               EmoteRequest::EmoteSetImage { name, id, url, path, extension, set_id, provider_name } => {
                 println!("{n} loading set emote {} for set {}", name, set_id);
@@ -235,7 +268,7 @@ impl EmoteLoader {
     Ok(result)
   }
 
-  pub fn twitch_get_emote_set(&mut self, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
+  pub fn twitch_get_emote_set(&mut self, token : &String, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
     if emote_set_id.contains(":") || emote_set_id.contains("-") || emote_set_id.contains("emotesv2") {
       return None;
     }
@@ -244,7 +277,7 @@ impl EmoteLoader {
       &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
       &format!("generated/twitch-emote-set-{}", emote_set_id),
       Some([
-        ("Authorization", &format!("Bearer {}", crate::provider::twitch::load_token())),
+        ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
       ].to_vec())
     );
@@ -262,6 +295,89 @@ impl EmoteLoader {
         Some(HashMap::new())
       }
     }
+  }
+
+  pub fn twitch_get_global_badges(&mut self, token : &String) -> Option<HashMap<String, Emote>> { 
+    let emotes = self.process_badge_json(
+      "global",
+      &format!("https://api.twitch.tv/helix/chat/badges/global"),
+      &format!("generated/twitch-badges-global"),
+      Some([
+        ("Authorization", &format!("Bearer {}", token)),
+        ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
+      ].to_vec())
+    );
+
+    match emotes {
+      Ok(emotes) => {
+        let mut map = HashMap::new();
+        for emote in emotes {
+          map.insert(emote.name.to_owned(), emote);
+        }
+        Some(map)
+      },
+      Err(e) => {
+        println!("Error loading emote set: {}", e);
+        Some(HashMap::new())
+      }
+    }
+  }
+
+  pub fn twitch_get_channel_badges(&mut self, token : &String, room_id : &String) -> Option<HashMap<String, Emote>> { 
+    let emotes = self.process_badge_json(
+      room_id,
+      &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
+      &format!("generated/twitch-badges-channel-{}", room_id),
+      Some([
+        ("Authorization", &format!("Bearer {}", token)),
+        ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
+      ].to_vec())
+    );
+
+    match emotes {
+      Ok(emotes) => {
+        let mut map = HashMap::new();
+        for emote in emotes {
+          map.insert(emote.name.to_owned(), emote);
+        }
+        Some(map)
+      },
+      Err(e) => {
+        println!("Error loading emote set: {}", e);
+        Some(HashMap::new())
+      }
+    }
+  }
+
+  fn process_badge_json(
+    &mut self,
+    room_id: &str,
+    url: &str,
+    filename: &str,
+    headers: Option<Vec<(&str, &String)>>,
+  ) -> std::result::Result<Vec<Emote>, failure::Error> {
+    let data = self.get_emote_json(url, filename, headers)?;
+    let mut v: Value = serde_json::from_str(&data)?;
+    let mut emotes: Vec<Emote> = Vec::default();
+    if v["data"].is_array() { // Twitch Badges
+      for set in v["data"].as_array_mut().unwrap() {
+        let set_id = set["set_id"].as_str().unwrap().to_owned();
+        for v in set["versions"].as_array_mut().unwrap() {
+          let id = v["id"].as_str().unwrap();
+          let name = format!("{}/{}", set_id, id);
+          let id = format!("{}__{}__{}", room_id, &set_id, &id);
+          let imgurl = v["image_url_4x"].as_str().unwrap();
+          emotes.push(self.get_emote(
+            name,
+            id,
+            imgurl.to_owned(),
+            "generated/twitch-badge/".to_owned(),
+            None
+          ));
+        }
+      }
+    }
+    Ok(emotes)
   }
 
   fn process_emote_json(
@@ -476,6 +592,9 @@ fn get_image_data(
                 else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
                   extension = Some("webp".to_owned());
                 }
+                else {
+                  extension = Some("png".to_owned());
+                }
               }
               true
             })?;
@@ -508,7 +627,7 @@ fn get_image_data(
 
   match inner() {
     Ok(x) => x,
-    Err(_) => None,
+    Err(x) => { println!("failed to (down)load emote {} {} {}", id, url, x); None },
   }
 }
 
