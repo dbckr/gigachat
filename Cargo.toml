@@ -42,8 +42,8 @@ serde = "1.0.136"
 opt-level = 2 # fast and small wasm
 
 [patch.crates-io]
-egui = { path = "../egui/egui" }
-eframe = { path = "../egui/eframe" }
+egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
+eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
