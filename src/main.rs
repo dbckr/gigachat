@@ -6,18 +6,18 @@
 
 use eframe;
 use gigachat::TemplateApp;
+use gigachat::provider::ProviderName;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    use gigachat::provider::ProviderName;
-
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
     ..Default::default() 
   };
 
-  eframe::run_native("Gigachat 0.0", native_options, Box::new(|cc| { 
+  let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
+  eframe::run_native(&title, native_options, Box::new(|cc| { 
     let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
     let loader = app.emote_loader.as_ref().unwrap();

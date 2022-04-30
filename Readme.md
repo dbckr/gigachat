@@ -1,7 +1,8 @@
 # TODO
 
+- Better README
 - Handle CLEARCHAT command
-- Multi-channel tabs
 - Clickable links
-- Unicode text
+- Unicode character support
 - Zero width emotes
+- Multi-channel tabs?

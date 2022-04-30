@@ -230,10 +230,12 @@ impl epi::App for TemplateApp {
             twitch::authenticate(self.runtime.as_ref().unwrap());
           }
         });
+        ui.separator();
         /*ui.horizontal(|ui| {
           ui.label("YouTube");
           ui.text_edit_singleline(&mut self.auth_tokens.youtube_auth_token);
-        });*/
+        });
+        ui.separator();*/
         if ui.button("Ok").clicked() {
           let twitch_token = self.auth_tokens.twitch_auth_token.to_owned();
           if twitch_token.starts_with("#") || twitch_token.starts_with("access") {
@@ -298,20 +300,17 @@ impl epi::App for TemplateApp {
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
-          ui.menu_button("File", |ui| {
-            ui.set_width(ui.available_width());
-            if ui.button("Configure Tokens").clicked() {
-              *(&mut self.show_auth_ui) = true;
-              ui.close_menu();
-            }
-            if ui.button("Add a channel").clicked() {
-              *(&mut self.add_channel_menu_show) = true;
-              ui.close_menu();
-            }
-            if ui.button("Quit").clicked() {
-              frame.quit();
-            }
-          });
+          if ui.menu_button("Add a channel", |ui| { ui.close_menu(); }).response.clicked() {
+            *(&mut self.add_channel_menu_show) = true;
+          }
+          ui.separator();
+          if ui.menu_button("Configure Tokens", |ui| { ui.close_menu(); }).response.clicked() {
+            *(&mut self.show_auth_ui) = true;
+          }
+          ui.separator();
+          if ui.menu_button("View on Github", |ui| { ui.close_menu(); }).response.clicked() {
+            _ = open::that("https://github.com/dbckr/gigachat");
+          }
         });
         egui::warn_if_debug_build(ui);
       });
