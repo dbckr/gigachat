@@ -22,7 +22,7 @@ const SMALL_TEXT_SIZE : f32 = 13.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 40;
 /// Emotes in chat messages will be scaled to this height
-const EMOTE_HEIGHT : f32 = 26.0;
+pub const EMOTE_HEIGHT : f32 = 26.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 21.0;
@@ -92,7 +92,7 @@ impl TemplateApp {
           r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
       }
       let mut loader = EmoteLoader::new(&runtime);
-      loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, &DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) ))));
+      loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) ))));
       r.runtime = Some(runtime);
       r.emote_loader = Some(loader);
       r
@@ -697,9 +697,6 @@ fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes
       else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
         chat::get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
       }
-      /*else if let Some((set_id, set)) = provider.emote_sets.iter_mut().find(|(key, x)| x.contains_key(word)) && let Some(emote) = set.get_mut(word) {
-        get_texture(emote_loader, emote, EmoteRequest::new_emoteset_request(emote, &provider.provider, &set_id))
-      }*/
       else {
         None
       };

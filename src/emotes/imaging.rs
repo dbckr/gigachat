@@ -107,7 +107,7 @@ fn load_image(
 ) -> Option<Vec<(DynamicImage, u16)>> {
   match extension {
     "png" => match image::load_from_memory(&buffer) {
-      Ok(img) => Some([(img, 0)].to_vec()),
+      Ok(img) => Some([(resize_image(img), 0)].to_vec()),
       _ => None,
     },
     "gif" => match load_animated_gif(&buffer) { Some(x) => Some(x), _ => None },
@@ -135,7 +135,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
         let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
           image::ImageBuffer::from_raw(screen.pixels.width() as u32, screen.pixels.height() as u32, x);
         let image = DynamicImage::from(imgbufopt.unwrap());
-        loaded_frames.push((image, frametime));
+        loaded_frames.push((resize_image(image), frametime));
       },
       Err(e) => println!("Error processing gif: {}", e)
     }
@@ -162,7 +162,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(DynamicImage, u16)>> {
     let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, _>> =
       image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
     if let Some(imgbuf) = imgbufopt {
-      let handle = DynamicImage::from(imgbuf);
+      let handle = resize_image(DynamicImage::from(imgbuf));
       loaded_frames.push((handle, frametime));
     } else {
       println!("failed frame load webp");
@@ -184,19 +184,27 @@ pub fn load_file_into_buffer (filepath : &str) -> Vec<u8> {
 
 pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(DynamicImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
   match frames {
-    Some(frames) => Some(frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, &frame), msec) }).collect()),
+    Some(frames) => Some(frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect()),
     None => None
   }
 }
 
 pub fn load_image_into_texture_handle(
   ctx: &egui::Context,
-  image: &image::DynamicImage,
+  image: image::DynamicImage,
 ) -> TextureHandle {
-  let uid = rand::random::<u128>(); //TODO: hash the image to create uid
-  let size = [image.width() as _, image.height() as _];
+  let uid = rand::random::<u64>(); //TODO: hash the image to create uid
+  let size = [image.width() as usize, image.height() as usize];
   let image_buffer = image.to_rgba8();
   let pixels = image_buffer.as_flat_samples();
   let cimg = ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
   ctx.load_texture(uid.to_string(), cimg)
+}
+
+fn resize_image(
+  image: image::DynamicImage
+) -> DynamicImage {
+  //let resize_width = (image.width() as f32 * super::super::ui::EMOTE_HEIGHT * 2. / image.height() as f32).floor() as u32;
+  //let image = image.resize(resize_width, (super::super::ui::EMOTE_HEIGHT * 2.).floor() as u32, FilterType::Lanczos3);
+  image
 }

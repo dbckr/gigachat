@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::io::Read;
+use std::{io::Read, collections::HashSet};
 
 use futures::prelude::*;
 use irc::client::{prelude::*};
@@ -54,7 +54,6 @@ pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel
 
 async fn spawn_irc(user_name : String, token: String, channel_name : String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
   let mut profile = UserProfile::default();
-
   let name = channel_name.to_owned();
   let channels = [format!("#{}", name.to_owned())].to_vec();
   let mut client = Client::from_config(Config { 
@@ -72,12 +71,13 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect("failed to send cap req");
   //sender.send_join(format!("#{}", name.to_owned())).expect("failed to join channel");
+  let mut seen_emote_ids : HashSet<String> = Default::default();
   loop {
     tokio::select! {
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            println!("{}", message);
+            //println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -86,7 +86,7 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                   };
     
                   // Parse out tags
-                  if let Some(tags) = message.tags {
+                  if let Some(tags) = message.tags.as_ref() {
                     let cmsg = ChatMessage { 
                       provider: ProviderName::Twitch,
                       channel: name.to_owned(),
@@ -100,10 +100,18 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                       Err(x) => println!("Send failure: {}", x)
                     };
                     if let Some(emote_ids) = get_tag_value(&tags, "emotes") && emote_ids.len() > 0 {
-                      let ids = emote_ids.split(",").filter_map(|x| {
+                      //println!("{}", message);
+                      let ids = emote_ids.split("/").filter_map(|x| {
                         let pair = x.split(":").collect_vec();
                         if pair.len() < 2 { return None; }
-                        let range = pair[1].split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(_x) => None } ).collect_vec();
+                        if seen_emote_ids.contains(pair[0]) {
+                          return None;
+                        } else {
+                          seen_emote_ids.insert(pair[0].to_owned());
+                        }
+                        let range = pair[1].split(",").next()
+                          .and_then(|r| Some(r.split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(_x) => None } ).collect_vec()))
+                          .unwrap_or_default();
                         match range.len() {
                           //2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
                           2 => { 
@@ -112,7 +120,7 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                           },
                           _ => None
                         }
-                      }).to_owned().collect_vec();
+                      }).sorted_by_key(|(_a, b)| b.to_owned()).dedup().collect_vec();
                       if let Err(e) = tx.try_send(InternalMessage::MsgEmotes { emote_ids: ids }) {
                         println!("Error sending MsgEmotes: {}", e);
                       }

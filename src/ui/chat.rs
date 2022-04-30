@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use chrono::{Timelike, DateTime, Utc};
 use eframe::{emath, epaint::text::TextWrapping};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob};
+use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
 
@@ -36,7 +37,25 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
           let tex = badges.and_then(|f| f.get(badge).and_then(|g| Some(&g.texture)));
           if let Some(tex) = tex {
             ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-              ui.image(tex, tex.size_vec2());
+              ui.set_width(BADGE_HEIGHT + 20.);
+              ui.vertical_centered(|ui| {
+                ui.image(tex, tex.size_vec2());
+                let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                match parts.0 {
+                  "subscriber" => {
+                    let num = parts.1.parse::<usize>().unwrap_or(0);
+                    let tier = match num / 1000 {
+                      3 => "T3",
+                      2 => "T2",
+                      _ => "T1",
+                    };
+                    ui.label(format!("{} Month Sub ({})", num % 1000, tier))
+                  }, 
+                  "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
+                  "bits" => ui.label(format!("{} Bits", parts.1)),
+                  _ => ui.label(format!("{}", parts.0))
+                };
+              });
             });
           }
           else {
