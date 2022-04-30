@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::collections::{HashMap};
+use std::collections::{HashMap, VecDeque};
 
 use chrono::{DateTime, Utc};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -69,7 +69,9 @@ pub struct Channel {
   pub channel_name: String,
   pub roomid: String,
   pub provider: ProviderName,
-  //pub history: Vec<ChatMessage>,
+  pub send_history: VecDeque<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub send_history_ix: Option<usize>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>
 }
@@ -80,6 +82,8 @@ impl Channel {
         channel_name : _,
         roomid : _,
         provider : _,
+        send_history: _,
+        send_history_ix: _,
         transient
     } = self;
 

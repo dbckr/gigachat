@@ -25,6 +25,8 @@ pub fn init_channel(username : &String, token: &String, channel_name : String, r
     provider: ProviderName::Twitch, 
     channel_name: channel_name.to_string(),
     roomid: Default::default(),
+    send_history: Default::default(),
+    send_history_ix: None,
     transient: None
   };
   open_channel(username, token, &mut channel, runtime, emote_loader);
@@ -177,10 +179,10 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
       Some(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { message } => { 
-            /*match &message.chars().next() {
-              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&name, format!(" {}", &message))?,
-              _ => sender.send_privmsg(&format!("#{name}"), &message)?,
-            };*/
+            _ = match &message.chars().next() {
+              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&name, format!(" {}", &message)),
+              _ => sender.send_privmsg(&format!("#{name}"), &message),
+            }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});
             let cmsg = ChatMessage { 
               provider: ProviderName::Twitch,
               channel: name.to_owned(),
@@ -229,11 +231,11 @@ impl std::fmt::Display for TwitchToken {
     }
 }
 
-pub fn authenticate(_runtime : &Runtime) {
+pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
   let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
   let scope = "chat:read chat:edit";
   let state = format!("{}", rand::random::<u128>());
   let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
 
-  _ = open::that(authorize_url);
+  ctx.output().open_url(&authorize_url);
 }

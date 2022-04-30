@@ -77,6 +77,8 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
     provider: ProviderName::YouTube,  
     channel_name: name.to_owned(),
     roomid: channel_id.to_owned(),
+    send_history: Default::default(),
+    send_history_ix: None,
     transient: Some(ChannelTransient {
       tx: in_tx,
       rx: out_rx,

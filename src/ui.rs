@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}};
+use std::{collections::{HashMap, VecDeque}, ops::Add};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
 use egui::Vec2;
 use image::DynamicImage;
@@ -227,7 +227,7 @@ impl epi::App for TemplateApp {
           if ui.button("Log In").clicked() {
             self.auth_tokens.twitch_auth_token = "".to_owned();
             self.auth_tokens.show_twitch_auth_token = true;
-            twitch::authenticate(self.runtime.as_ref().unwrap());
+            twitch::authenticate(ctx, self.runtime.as_ref().unwrap());
           }
         });
         ui.separator();
@@ -300,16 +300,16 @@ impl epi::App for TemplateApp {
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
-          if ui.menu_button("Add a channel", |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("Add a channel").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
             *(&mut self.add_channel_menu_show) = true;
           }
           ui.separator();
-          if ui.menu_button("Configure Tokens", |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("Configure Tokens").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
             *(&mut self.show_auth_ui) = true;
           }
           ui.separator();
-          if ui.menu_button("View on Github", |ui| { ui.close_menu(); }).response.clicked() {
-            _ = open::that("https://github.com/dbckr/gigachat");
+          if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
+            _ = ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
         });
         egui::warn_if_debug_build(ui);
@@ -404,7 +404,7 @@ impl epi::App for TemplateApp {
 
     let cframe = egui::Frame { 
       inner_margin: egui::style::Margin::same(5.0), 
-      fill: egui::Color32::from(egui::Color32::TRANSPARENT),
+      fill: egui::Color32::from(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 50)),
       ..Default::default() 
     };
     
@@ -414,20 +414,47 @@ impl epi::App for TemplateApp {
           let goto_next_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
           let goto_prev_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
           let enter_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
+          let prev_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
+          let next_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
 
           let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
             .desired_rows(2)
             .desired_width(ui.available_width())
             .hint_text("Type a message to send")
             .font(egui::TextStyle::Body)
-            .show(ui);
+            .show(ui);  
+
+          if prev_history || next_history {
+            if let Some(sco) = (&mut self.channels).get_mut(sc) {
+              let mut ix = match sco.send_history_ix {
+                Some(x) => x,
+                None => 0
+              };
+              let msg = sco.send_history.get(ix);
+              if prev_history {
+                ix = ix.add(1).min(sco.send_history.len() - 1);
+              } else {
+                ix = ix.saturating_sub(1);
+              };
+              if let Some(msg) = msg {
+                self.draft_message = msg.to_owned();
+                outgoing_msg.state.set_ccursor_range(
+                  Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message.len())))
+                );
+              }
+              sco.send_history_ix = Some(ix);
+            }
+          }
+
           if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
             if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() {
               match t.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
                 Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
-                _ => ()
+                _ => {
+                  sco.send_history.push_front(self.draft_message.to_owned());
+                  *(&mut self.draft_message) = String::new();
+                }
               } 
-              *(&mut self.draft_message) = String::new();
             }
           }
           else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
@@ -445,7 +472,6 @@ impl epi::App for TemplateApp {
                 outgoing_msg.state.set_ccursor_range(
                   Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(&self.draft_message[..pos].len() + emote_text.len() + 1)))
                 );
-                outgoing_msg.state.store(ctx, outgoing_msg.response.id);
                 self.selected_emote = None;
               }
               else {
@@ -470,8 +496,8 @@ impl epi::App for TemplateApp {
                         ui.scroll_to_cursor(None)
                       }
                       ui.vertical(|ui| {
-                        if let Some(img) = emote.1 {
-                          if ui.image(&img.texture, egui::vec2(&img.texture.size_vec2().x * (EMOTE_HEIGHT * 2. / &img.texture.size_vec2().y), EMOTE_HEIGHT * 2.))
+                        if let Some(img) = emote.1 && let Some(texture) = img.texture.as_ref().or(self.emote_loader.as_ref().unwrap().transparent_img.as_ref()) {
+                          if ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT * 2. / texture.size_vec2().y), EMOTE_HEIGHT * 2.))
                               .interact(egui::Sense::click())
                               .clicked() {
                             self.selected_emote = Some(emote.0.to_owned());
@@ -500,6 +526,7 @@ impl epi::App for TemplateApp {
               }
             }
           }
+          outgoing_msg.state.store(ctx, outgoing_msg.response.id);
           ui.separator();
         }
         
@@ -512,6 +539,7 @@ impl epi::App for TemplateApp {
           }
         }
 
+        ui.style_mut().visuals.override_text_color = Some(egui::Color32::LIGHT_GRAY);
         let chat_area = egui::ScrollArea::vertical()
           .auto_shrink([false; 2])
           .stick_to_bottom()
@@ -665,8 +693,8 @@ impl TemplateApp {
           if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
             let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_channel_request(&emote, &channel_name));
             _ = match name_l.starts_with(word_lower) {
-              true => starts_with_emotes.try_insert(name.to_owned(), tex),
-              false => contains_emotes.try_insert(name.to_owned(), tex),
+              true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
+              false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
             };
           }
         }
@@ -680,8 +708,8 @@ impl TemplateApp {
               if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
                 let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_emoteset_request(&emote, &channel.provider, set_id));
                 _ = match name_l.starts_with(word_lower) {
-                  true => starts_with_emotes.try_insert(name.to_owned(), tex),
-                  false => contains_emotes.try_insert(name.to_owned(), tex),
+                  true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
+                  false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
                 };
               }
             }
@@ -696,8 +724,8 @@ impl TemplateApp {
         if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
           let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_global_request(&emote));
           _ = match name_l.starts_with(word_lower) {
-            true => starts_with_emotes.try_insert(name.to_owned(), tex),
-            false => contains_emotes.try_insert(name.to_owned(), tex),
+            true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
+            false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
           };
         }
       }
@@ -717,19 +745,19 @@ fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes
   for word in row.message.to_owned().split(" ") {
     let emote = 
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
-        chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name))
+        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name)))
       }
       else if let Some(emote) = global_emotes.get_mut(word) {
-        chat::get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote))
+        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote)))
       }
       else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
-        chat::get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote))
+        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_twitch_msg_emote_request(emote)))
       }
       else {
         None
       };
     if let Some(frame) = emote {
-      result.insert(frame.name.to_owned(), frame);
+      result.insert(word.to_owned(), frame);
     }
   }
 
@@ -748,11 +776,9 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
         chat::get_texture(emote_loader, emote, EmoteRequest::new_global_badge_request(emote))
       }
       else {
-        None
+        EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), path: badge.to_owned(), texture: None }
       };
-    if let Some(frame) = emote {
-      result.insert(frame.name.to_owned(), frame);
-    }
+    result.insert(emote.name.to_owned(), emote);
   }
 
   Some(result)

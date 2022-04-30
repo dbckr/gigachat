@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{fs::{File, OpenOptions}, path::Path, io::{Write, BufRead}};
+use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead}};
 
 use curl::easy::Easy;
 use std::io::BufReader;
@@ -133,7 +133,10 @@ fn get_emote_json(
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<String, failure::Error> {
-  if Path::new(filename).exists() == false {
+  let path = Path::new(filename);
+  if path.exists() == false && let Some(parent_path) = path.parent() {
+    DirBuilder::new().recursive(true).create(parent_path)?;
+
     let mut f =
       OpenOptions::new().create_new(true).write(true).open(filename).expect("Unable to open file");
 

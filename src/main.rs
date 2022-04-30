@@ -13,6 +13,7 @@ fn main() {
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
+    vsync: true,
     ..Default::default() 
   };
 

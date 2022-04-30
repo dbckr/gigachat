@@ -3,6 +3,7 @@
 #![feature(let_chains)]
 #![feature(is_some_with)]
 #![feature(map_try_insert)]
+#![feature(result_option_inspect)]
 
 pub mod ui;
 pub mod provider;
