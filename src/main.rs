@@ -18,8 +18,9 @@ fn main() {
   };
 
   eframe::run_native("Gigachat 0.0", native_options, Box::new(|cc| { 
-    let mut app = TemplateApp::new(cc);
-    let loader = &mut app.emote_loader;
+    let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
+    let mut app = TemplateApp::new(cc, runtime);
+    let loader = app.emote_loader.as_ref().unwrap();
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
       twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)

@@ -12,7 +12,7 @@ use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, Provider, ChannelTransient};
+use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, ChannelTransient};
 
 pub fn load_token() -> String {
   let mut result : String = Default::default();
@@ -20,7 +20,7 @@ pub fn load_token() -> String {
   result
 }
 
-pub fn init_channel(username : &String, token: &String, channel_name : String, runtime : &Runtime, emote_loader: &mut EmoteLoader) -> Channel {
+pub fn init_channel(username : &String, token: &String, channel_name : String, runtime : &Runtime, emote_loader: &EmoteLoader) -> Channel {
   let mut channel = Channel {  
     provider: ProviderName::Twitch, 
     channel_name: channel_name.to_string(),
@@ -31,7 +31,7 @@ pub fn init_channel(username : &String, token: &String, channel_name : String, r
   channel
 }
 
-pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &mut EmoteLoader) {
+pub fn open_channel<'a>(username: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &EmoteLoader) {
   let (out_tx, out_rx) = mpsc::channel::<InternalMessage>(256);
   let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name2 = channel.channel_name.to_owned();
@@ -221,11 +221,11 @@ impl std::fmt::Display for TwitchToken {
     }
 }
 
-pub fn authenticate(runtime : &Runtime) {
+pub fn authenticate(_runtime : &Runtime) {
   let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
   let scope = "chat:read chat:edit";
   let state = format!("{}", rand::random::<u128>());
   let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
 
-  open::that(authorize_url);
+  _ = open::that(authorize_url);
 }
