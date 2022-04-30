@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}, sync::Arc};
+use std::{collections::{HashMap, VecDeque}};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
 use egui::Vec2;
 use image::DynamicImage;
@@ -106,7 +106,7 @@ impl epi::App for TemplateApp {
     epi::set_value(storage, epi::APP_KEY, self);
   }
 
-  fn update(&mut self, ctx: &egui::Context, frame: &mut epi::Frame) {
+  fn update(&mut self, ctx: &egui::Context, _frame: &mut epi::Frame) {
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }
