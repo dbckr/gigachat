@@ -164,7 +164,7 @@ impl EmoteLoader {
                   .or(out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data_copy }))
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
-                println!("{n} loading twitch emote {}", name);
+                println!("{n} loading twitch emote {} '{}'", name, id);
                 let data = if let Some(x) = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
                   Some(x)
                 } else {

@@ -44,6 +44,7 @@ pub fn get_image_data(
             Some(ref ext) => Some(ext.to_owned()),
             None => None
           };
+          let mut success = false;
           let mut buffer: Vec<u8> = Default::default();
 
           easy.url(url)?;
@@ -52,6 +53,9 @@ pub fn get_image_data(
             transfer.header_function(|data| {
               let result = std::str::from_utf8(data);
               //println!("result {:?}", result);
+              if let Ok(header) = result && header.contains("200 OK") {
+                success = true;
+              }
               if let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
                 //TODO: extract extension using regex
                 if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
@@ -78,6 +82,10 @@ pub fn get_image_data(
           })?;
           transfer.perform()?;
           drop(transfer);
+
+          if !success {
+            return Ok(None);
+          }
 
           match extension { 
             Some(ext) => {
