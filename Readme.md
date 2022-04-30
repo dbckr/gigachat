@@ -1,7 +1,7 @@
 # TODO
 
+- Handle CLEARCHAT command
 - Multi-channel tabs
 - Clickable links
 - Unicode text
-- Badges
 - Zero width emotes

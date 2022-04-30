@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}};
+use std::{collections::{HashMap, VecDeque}, sync::Arc};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
 use egui::Vec2;
 use image::DynamicImage;
@@ -47,6 +47,7 @@ impl Default for AddChannelMenu {
 pub struct AuthTokens {
   pub twitch_username: String,
   pub twitch_auth_token: String,
+  pub show_twitch_auth_token: bool,
   pub youtube_auth_token: String
 }
 
@@ -206,7 +207,7 @@ impl epi::App for TemplateApp {
     };
 
     if self.show_auth_ui {
-      egui::Window::new("Auth Tokens").show(ctx, |ui| {
+      let auth_menu = egui::Window::new("Auth Tokens").show(ctx, |ui| {
         ui.label("Twitch");
         ui.horizontal(|ui| {
           ui.label("Username:");
@@ -214,8 +215,18 @@ impl epi::App for TemplateApp {
         });
         ui.horizontal(|ui| {
           ui.label("Token:");
-          ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
+          if self.auth_tokens.show_twitch_auth_token {
+            ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
+          }
+          else if self.auth_tokens.twitch_auth_token.len() > 0 {
+            ui.label("<Auth token hidden>");
+          }
+          else {
+            ui.label("Not logged in");
+          }
           if ui.button("Log In").clicked() {
+            self.auth_tokens.twitch_auth_token = "".to_owned();
+            self.auth_tokens.show_twitch_auth_token = true;
             twitch::authenticate(self.runtime.as_ref().unwrap());
           }
         });
@@ -229,15 +240,25 @@ impl epi::App for TemplateApp {
             let rgx = regex::Regex::new("access_token=(.*?)&").unwrap();
             let cleaned = rgx.captures(twitch_token.as_str()).unwrap().get(1).map_or("", |x| x.as_str());
             self.auth_tokens.twitch_auth_token = cleaned.to_owned();
+            if cleaned.len() > 0 {
+              self.auth_tokens.show_twitch_auth_token = false;
+            }
           }
-
           self.show_auth_ui = false;
         }
-      });
+      }).unwrap();
+      if ctx.input().pointer.any_click() 
+          && let Some(pos) = ctx.input().pointer.interact_pos() 
+          && auth_menu.response.rect.contains(pos) == false {
+        self.show_auth_ui = false;
+      }
+      else if ctx.input().key_pressed(Key::Escape) {
+        self.show_auth_ui = false;
+      }
     }
 
     if self.add_channel_menu_show {
-      egui::Window::new("Add Channel").show(ctx, |ui| {
+      let add_menu = egui::Window::new("Add Channel").show(ctx, |ui| {
         let mut name_input : Option<egui::Response> = None;
         ui.horizontal(|ui| {
           ui.label("Provider:");
@@ -263,7 +284,15 @@ impl epi::App for TemplateApp {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().unwrap()); 
           self.add_channel_menu_show = false;
         }
-      });
+      }).unwrap();
+      if ctx.input().pointer.any_click() 
+          && let Some(pos) = ctx.input().pointer.interact_pos() 
+          && add_menu.response.rect.contains(pos) == false {
+        self.add_channel_menu_show = false;
+      }
+      else if ctx.input().key_pressed(Key::Escape) {
+        self.add_channel_menu_show = false;
+      }
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
