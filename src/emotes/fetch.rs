@@ -28,13 +28,13 @@ pub fn process_badge_json(
         let name = format!("{}/{}", set_id, id);
         let id = format!("{}__{}__{}", room_id, &set_id, &id);
         let imgurl = v["image_url_4x"].as_str().unwrap();
-        emotes.push(get_emote(
-          name,
-          id,
-          imgurl.to_owned(),
-          "generated/twitch-badge/".to_owned(),
-          None
-        ));
+        emotes.push(Emote {
+          name: name,
+          id: id,
+          url: imgurl.to_owned(),
+          path: "generated/twitch-badge/".to_owned(),
+          ..Default::default()
+        });
       }
     }
   }
@@ -68,7 +68,7 @@ pub fn process_emote_json(
         extension = Some("png".to_owned());
         i["images"]["url_4x"].to_string().trim_matches('"').to_owned()
       };
-      emotes.push(get_emote(name, id, imgurl, "generated/twitch/".to_owned(), extension));
+      emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/twitch/".to_owned(), extension: extension, ..Default::default()});
     }
   } else if v["channelEmotes"].is_null() == false {
     // BTTV
@@ -77,14 +77,14 @@ pub fn process_emote_json(
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
       let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-      emotes.push(get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
+      emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
     for i in v["sharedEmotes"].as_array_mut().unwrap() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
       let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-      emotes.push(get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
+      emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
   } else if v["room"].is_null() == false {
     // FFZ
@@ -96,17 +96,17 @@ pub fn process_emote_json(
         "https:{}",
         i["urls"].as_object_mut().unwrap().values().last().unwrap().to_string().trim_matches('"')
       );
-      emotes.push(get_emote(name, id, imgurl, "generated/ffz/".to_owned(), None));
+      emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/ffz/".to_owned(), ..Default::default()});
     }
   } else if v[0].is_null() == false {
     for i in v.as_array_mut().unwrap() {
-      // BTTV Global
       if i["code"].is_null() == false {
+        // BTTV Global
         let name = i["code"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let ext = i["imageType"].to_string().trim_matches('"').to_owned();
         let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
-        emotes.push(get_emote(name, id, imgurl, "generated/bttv/".to_owned(), Some(ext)));
+        emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/bttv/".to_owned(), extension: Some(ext), ..Default::default()});
       } else if i["name"].is_null() == false {
         // 7TV
         let name = i["name"].to_string().trim_matches('"').to_owned();
@@ -114,13 +114,16 @@ pub fn process_emote_json(
         let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
         let x = i["urls"].as_array().unwrap().last().unwrap().as_array().unwrap().last().unwrap();
         let imgurl = x.as_str().unwrap();
-        emotes.push(get_emote(
-          name,
-          id,
-          imgurl.trim_matches('"').to_owned(),
-          "generated/7tv/".to_owned(),
-          Some(extension),
-        ));
+        let zero_width = i["visibility_simple"].as_array().and_then(|f| Some(f.iter().any(|f| f.as_str().unwrap_or_default() == "ZERO_WIDTH"))).unwrap_or(false);
+        emotes.push(Emote {
+          name: name,
+          id: id,
+          url: imgurl.trim_matches('"').to_owned(),
+          path: "generated/7tv/".to_owned(),
+          extension: Some(extension),
+          zero_width: zero_width,
+          ..Default::default()
+        });
       }
     }
   }
@@ -163,24 +166,4 @@ fn get_emote_json(
     result.push_str(&line);
   }
   Ok(result)
-}
-
-
-pub fn get_emote(
-  name: String,
-  id: String,
-  url: String,
-  path: String,
-  extension: Option<String>,
-) -> Emote {
-  Emote {
-    name: name,
-    id: id,
-    data: None,
-    loaded: EmoteStatus::NotLoaded,
-    url: url,
-    path: path,
-    extension,
-    duration_msec: 0,
-  }
 }

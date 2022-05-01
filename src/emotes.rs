@@ -13,7 +13,7 @@ use failure;
 
 use ::image::DynamicImage;
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration, default};
 use std::str;
 
 use crate::provider::ProviderName;
@@ -94,22 +94,25 @@ pub enum EmoteResponse {
   TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(DynamicImage, u16)>> }
 }
 
+#[derive(Default)]
 pub enum EmoteStatus {
+  #[default]
   NotLoaded,
   Loading,
   Loaded,
 }
 
-//#[derive(Clone)]
+#[derive(Default)]
 pub struct Emote {
   pub name: String,
   pub id: String,
   pub data: Option<Vec<(TextureHandle, u16)>>,
   pub loaded: EmoteStatus,
   pub duration_msec: u16,
-  url: String,
+  pub url: String,
   pub path: String,
   pub extension: Option<String>,
+  pub zero_width: bool
 }
 
 pub struct EmoteLoader {
@@ -137,7 +140,7 @@ impl EmoteLoader {
           if let Ok(msg) = recv_msg {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
-                println!("{n} loading channel emote {} for {}", name, channel_name);
+                println!("{n} loading channel emote {} '{}' for {}", name, id, channel_name);
                 let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
               },

@@ -179,10 +179,10 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
       Some(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { message } => { 
-            _ = match &message.chars().next() {
+            /*_ = match &message.chars().next() {
               Some(x) if x.to_owned() == ':' => sender.send_privmsg(&name, format!(" {}", &message)),
               _ => sender.send_privmsg(&format!("#{name}"), &message),
-            }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});
+            }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});*/
             let cmsg = ChatMessage { 
               provider: ProviderName::Twitch,
               channel: name.to_owned(),

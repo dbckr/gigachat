@@ -344,7 +344,7 @@ impl epi::App for TemplateApp {
                   if let Some(provider) = providers.get_mut(&sco.provider) {
                     for (id, name) in emote_ids {
                       if provider.emotes.contains_key(&name) == false {
-                        provider.emotes.insert(name.to_owned(), emotes::fetch::get_emote(name, id, "".to_owned(), "generated/twitch/".to_owned(), None));
+                        provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "generated/twitch/".to_owned(), ..Default::default() });
                       }
                     }
                   }
@@ -675,10 +675,11 @@ impl TemplateApp {
       .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
       .next();
 
-    if let Some((pos, word)) = word {
-      if word.len() < 3 {
+    if let Some((pos, input_str)) = word {
+      if input_str.len() < 3 || input_str.starts_with(":") == false {
         return None;
       }
+      let word = &input_str[1..];
       let word_lower = &word.to_lowercase();
 
       let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
@@ -732,7 +733,7 @@ impl TemplateApp {
       let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       starts_with.append(&mut contains);
-      Some((word.to_owned(), pos, starts_with))
+      Some((input_str.to_owned(), pos, starts_with))
     }
     else {
       None
@@ -776,7 +777,7 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
         chat::get_texture(emote_loader, emote, EmoteRequest::new_global_badge_request(emote))
       }
       else {
-        EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), path: badge.to_owned(), texture: None }
+        EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), path: badge.to_owned(), texture: None, zero_width: false }
       };
     result.insert(emote.name.to_owned(), emote);
   }

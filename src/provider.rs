@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -41,6 +41,7 @@ pub struct Provider {
   pub emotes: HashMap<String, Emote>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub emote_sets: HashMap<String,HashMap<String,Emote>>,
+  //pub my_emotes: HashSet<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_badges: Option<HashMap<String, Emote>>
 }

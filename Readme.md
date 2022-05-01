@@ -1,8 +1,12 @@
+# FEATURES
+
+All the usual basic features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), an emote selector, etc...
+
 # TODO
 
-- Still row size estimation inaccuracy (mainly occurs with emote spam?)
 - Copying messages into clipboard and/or textbox
-- Zero width emotes
+- ~Zero width emotes~
+- Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
 - Twitch live status
 - Mentions tab
 - Click user to see their recent messages in channel
@@ -17,3 +21,4 @@
 - Prediction status?
 - Poll status?
 - Used emote stats for ordering selector
+- Allow message headers (stuff up to and including username) to split between rows properly

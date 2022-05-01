@@ -25,7 +25,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), None));
   }
-  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().unwrap().rect.size().x;
+  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().unwrap().rect.size().x + ui.spacing().item_spacing.x;
   let mut curr_row_height = header_rows.last().unwrap().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
 
   let mut ix = 0;
@@ -40,7 +40,10 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
 
 fn get_word_size(ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, ui: &mut egui::Ui, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, Option<usize>)>, first_word_ix: &mut Option<usize>) {
   let rows : Vec<(usize, egui::emath::Vec2)> = if let Some(emote) = emotes.get(word) {
-    if let Some(texture) = emote.texture.as_ref() {
+    if emote.zero_width {
+      [(word.len(), egui::vec2(0., 0.))].to_vec()
+    }
+    else if let Some(texture) = emote.texture.as_ref() {
       [(word.len(), egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT))].to_vec()
     }
     else { // "standard" emote size until actual image is loaded

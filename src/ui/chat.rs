@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use chrono::{Timelike, DateTime, Utc};
 use eframe::{emath, epaint::text::TextWrapping};
-use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob};
+use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Vec2, Pos2};
 use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
@@ -73,6 +73,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
 
     //let mut label_text : Vec<String> = Vec::default();
     
+    let mut last_emote_width : Option<(f32, f32)> = None;
     let mut ix : usize = 0;
     for word in row.message.to_owned().split(" ") {
 
@@ -118,14 +119,26 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
 
         if let Some(include_row) = should_include_row && *include_row {
           let emote = emotes.get(&word);
-          if let Some(EmoteFrame { id, name: _, texture, path }) = emote
+          if let Some(EmoteFrame { id, name: _, texture, path, zero_width }) = emote
               && let Some(texture) = texture.as_ref().or(emote_loader.transparent_img.as_ref()) {
-            ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT)).on_hover_ui(|ui| {
-              ui.label(format!("{}\n{}", word, path.replace("generated/", "").replace("/","")));
-              ui.image(texture, texture.size_vec2());
-            });
+            let (x, y) = (texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT);
+            if *zero_width {
+              let (x, y) = last_emote_width.unwrap_or((x, y));
+              let img = egui::Image::new(texture, egui::vec2(x, y));
+              let cursor = ui.cursor().to_owned();
+              let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
+              img.paint_at(ui, rect);
+            }
+            else {
+              ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
+                ui.label(format!("{}\n{}", word, path.replace("generated/", "").replace("/","")));
+                ui.image(texture, texture.size_vec2());
+              });
+              last_emote_width = Some((x, y));
+            }
           }
           else {
+            last_emote_width = None;
             match &link_url {
               Some(url) => {
                 let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
@@ -160,7 +173,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   let mut job = LayoutJob {
     wrap: TextWrapping { 
       break_anywhere: false,
-      max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
+      //max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
       ..Default::default()
     },
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
@@ -238,7 +251,8 @@ pub struct EmoteFrame {
   pub name: String,
   pub path: String,
   //extension: Option<String>,
-  pub texture: Option<egui::TextureHandle>
+  pub texture: Option<egui::TextureHandle>,
+  pub zero_width: bool
 }
 
 pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest) -> EmoteFrame {
@@ -248,9 +262,9 @@ pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, r
         println!("Error sending emote load request: {}", e);
       }
       emote.loaded = EmoteStatus::Loading;
-      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None }
+      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
     },
-    EmoteStatus::Loading => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None },
+    EmoteStatus::Loading => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width},
     EmoteStatus::Loaded => {
       let frames_opt = emote.data.as_ref();
       match frames_opt {
@@ -262,17 +276,17 @@ pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, r
             for (frame, msec) in frames {
               progress_msec += msec; 
               if progress_msec >= target_progress {
-                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned() };
+                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
               }
             }
-            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None }
+            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
           }
           else {
             let (frame, _delay) = frames.get(0).unwrap();
-            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned() }
+            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
           }
         },
-        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None }
+        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
       }
     }
   }
