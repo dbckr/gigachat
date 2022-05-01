@@ -40,8 +40,7 @@ pub struct Provider {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub emotes: HashMap<String, Emote>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub emote_sets: HashMap<String,HashMap<String,Emote>>,
-  //pub my_emotes: HashSet<String>,
+  pub my_sub_emotes: HashSet<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_badges: Option<HashMap<String, Emote>>
 }
@@ -53,7 +52,6 @@ pub struct Provider {
 pub enum ProviderName {
   #[default] Twitch,
   YouTube,
-  Null
 }
 
 pub struct ChannelTransient {

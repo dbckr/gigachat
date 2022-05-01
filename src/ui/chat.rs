@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use chrono::{Timelike, DateTime, Utc};
 use eframe::{emath, epaint::text::TextWrapping};
-use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Vec2, Pos2};
+use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
@@ -119,7 +119,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
 
         if let Some(include_row) = should_include_row && *include_row {
           let emote = emotes.get(&word);
-          if let Some(EmoteFrame { id, name: _, texture, path, zero_width }) = emote
+          if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote
               && let Some(texture) = texture.as_ref().or(emote_loader.transparent_img.as_ref()) {
             let (x, y) = (texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT);
             if *zero_width {
@@ -296,7 +296,6 @@ fn get_provider_color(provider : &ProviderName) -> Color32 {
   match provider {
     //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
     ProviderName::Twitch => Color32::from_rgba_unmultiplied(169, 112, 255, 255),
-    ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
-    _ => Color32::default()
+    ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255)
   }
 }

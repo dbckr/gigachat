@@ -9,7 +9,7 @@ use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead}}
 use curl::easy::Easy;
 use std::io::BufReader;
 
-use super::{Emote, EmoteStatus};
+use super::{Emote};
 
 pub fn process_badge_json(
   room_id: &str,
@@ -35,6 +35,41 @@ pub fn process_badge_json(
           path: "generated/twitch-badge/".to_owned(),
           ..Default::default()
         });
+      }
+    }
+  }
+  Ok(emotes)
+}
+
+pub fn process_twitch_follower_emote_json(
+  url: &str,
+  filename: &str,
+  headers: Option<Vec<(&str, &String)>>,
+) -> std::result::Result<Vec<Emote>, failure::Error> {
+  //println!("processing emote json {}", filename);
+  let data = get_emote_json(url, filename, headers)?;
+  let mut v: serde_json::Value = serde_json::from_str(&data)?;
+  let mut emotes: Vec<Emote> = Vec::default();
+  if v["data"].is_array() {
+    // Twitch Global
+    for i in v["data"].as_array_mut().unwrap() {
+      if let Some(emote_type) = i["emote_type"].as_str() && emote_type == "follower" { 
+        let name = i["name"].to_string().trim_matches('"').to_owned();
+        let id = i["id"].to_string().trim_matches('"').to_owned();
+        let extension;
+        let wtf = i["format"].as_array().unwrap();
+        let imgurl = if wtf.len() == 2 {
+          extension = Some("gif".to_owned());
+          i["images"]["url_4x"]
+            .to_string()
+            .trim_matches('"')
+            .replace("/static/", "/animated/")
+            .to_owned()
+        } else {
+          extension = Some("png".to_owned());
+          i["images"]["url_4x"].to_string().trim_matches('"').to_owned()
+        };
+        emotes.push(Emote {name: name, id: id, url: imgurl, path: "generated/twitch/".to_owned(), extension: extension, ..Default::default()});
       }
     }
   }

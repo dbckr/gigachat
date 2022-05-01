@@ -1,9 +1,11 @@
-# FEATURES
+# Features
 
-All the usual basic features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), an emote selector, etc...
+All the usual basic features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
 
 # TODO
 
+- ~Twitch follower emotes~
+- Twitch tier-exclusive emote logic
 - Copying messages into clipboard and/or textbox
 - ~Zero width emotes~
 - Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)

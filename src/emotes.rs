@@ -5,18 +5,13 @@
  */
 
 use curl::easy::Easy;
-use eframe::{
-  epaint::{TextureHandle},
-};
+use eframe::{epaint::{TextureHandle}};
+use egui::ColorImage;
 use failure;
 
-
-use ::image::DynamicImage;
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
-use std::{collections::HashMap, time::Duration, default};
+use std::{collections::HashMap, time::Duration};
 use std::str;
-
-use crate::provider::ProviderName;
 
 pub mod fetch;
 pub mod imaging;
@@ -26,7 +21,6 @@ pub enum EmoteRequest {
   GlobalBadgeImage { name: String, id : String, url: String, path: String, extension: Option<String> },
   ChannelEmoteImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
   ChannelBadgeImage { name: String, id : String, url: String, path: String, extension: Option<String>, channel_name: String },
-  EmoteSetImage { name: String, id : String, url: String, path: String, extension: Option<String>, set_id: String, provider_name: ProviderName },
   TwitchMsgEmoteImage { name: String, id: String }
 }
 
@@ -69,29 +63,17 @@ impl EmoteRequest {
       extension: emote.extension.to_owned()
     }
   }
-  pub fn new_emoteset_request(emote: &Emote, provider_name: &ProviderName, set_id: &String) -> Self {
-    EmoteRequest::EmoteSetImage {
-      name: emote.name.to_owned(),
-      id: emote.id.to_owned(), 
-      url: emote.url.to_owned(), 
-      path: emote.path.to_owned(), 
-      extension: emote.extension.to_owned(), 
-      provider_name: provider_name.to_owned(),
-      set_id: set_id.to_owned()
-    }
-  }
-  pub fn new_twitch_msg_emote_request(emote: &Emote) -> Self {
+  pub fn new_twitch_emote_request(emote: &Emote) -> Self {
     EmoteRequest::TwitchMsgEmoteImage { name: emote.name.to_owned(), id: emote.id.to_owned() }
   }
 }
 
 pub enum EmoteResponse {
-  GlobalEmoteImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
-  GlobalBadgeImageLoaded { name : String, data: Option<Vec<(DynamicImage, u16)>> },
-  ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
-  ChannelBadgeImageLoaded { name : String, channel_name: String, data: Option<Vec<(DynamicImage, u16)>> },
-  EmoteSetImageLoaded { name: String, set_id: String, provider_name: ProviderName, data: Option<Vec<(DynamicImage, u16)>> },
-  TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(DynamicImage, u16)>> }
+  GlobalEmoteImageLoaded { name : String, data: Option<Vec<(ColorImage, u16)>> },
+  GlobalBadgeImageLoaded { name : String, data: Option<Vec<(ColorImage, u16)>> },
+  ChannelEmoteImageLoaded { name : String, channel_name: String, data: Option<Vec<(ColorImage, u16)>> },
+  ChannelBadgeImageLoaded { name : String, channel_name: String, data: Option<Vec<(ColorImage, u16)>> },
+  TwitchMsgEmoteLoaded { name: String, id: String, data: Option<Vec<(ColorImage, u16)>> }
 }
 
 #[derive(Default)]
@@ -140,17 +122,17 @@ impl EmoteLoader {
           if let Ok(msg) = recv_msg {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
-                println!("{n} loading channel emote {} '{}' for {}", name, id, channel_name);
+                println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
-                println!("{n} loading channel badge {} for {}", name, channel_name);
+                println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
-                println!("{n} loading global emote {}", name);
+                println!("{n} loading global emote {} '{}'", name, url);
                 let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
               },
@@ -158,13 +140,6 @@ impl EmoteLoader {
                 println!("{n} loading global badge {}", name);
                 let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name: name, data: data })
-              },
-              EmoteRequest::EmoteSetImage { name, id, url, path, extension, set_id, provider_name } => {
-                println!("{n} loading set emote {} for set {}", name, set_id);
-                let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
-                let data_copy = data.clone();
-                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name.to_owned(), id: id, data: data })
-                  .or(out_tx.try_send(EmoteResponse::EmoteSetImageLoaded { name: name, provider_name: provider_name, set_id: set_id, data: data_copy }))
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 println!("{n} loading twitch emote {} '{}'", name, id);
@@ -206,6 +181,7 @@ impl EmoteLoader {
   pub fn load_channel_emotes(
     &mut self,
     channel_id: &String,
+    token: &String
   ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
     let ffz_emotes = fetch::process_emote_json(
@@ -228,6 +204,14 @@ impl EmoteLoader {
       &format!("generated/7tv-channel-json-{}", channel_id),
       None
     )?;
+    let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={}", channel_id);
+    let twitch_follower_emotes = fetch::process_twitch_follower_emote_json(
+      &twitch_url,
+      &format!("generated/twitch-{}", channel_id),
+      Some([
+        ("Authorization", &format!("Bearer {}", token)),
+        ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec())
+    )?;
 
     let mut result: HashMap<String, Emote> = HashMap::new();
     for emote in ffz_emotes {
@@ -237,6 +221,9 @@ impl EmoteLoader {
       result.insert(emote.name.to_owned(), emote);
     }
     for emote in seventv_emotes {
+      result.insert(emote.name.to_owned(), emote);
+    }
+    for emote in twitch_follower_emotes {
       result.insert(emote.name.to_owned(), emote);
     }
     Ok(result)

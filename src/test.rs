@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod test {
+    use curl::easy::Easy;
+
   #[test]
   fn gachihyper() {
     let buf = crate::emotes::imaging::load_file_into_buffer("generated/7tv/60420a8b77137b000de9e66e.gif");
@@ -35,6 +37,13 @@ mod test {
     let buf = crate::emotes::imaging::load_file_into_buffer("generated/bttv/5d324913ff6ed36801311fd2.gif");
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 35);
+  }
+
+  #[test]
+  fn load_emote() {
+    let mut easy = Easy::new();
+    let img = crate::emotes::imaging::get_image_data("https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", "generated/bttv/", "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy);
+    assert!(img.is_some());
   }
 
   #[test]
