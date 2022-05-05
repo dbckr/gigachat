@@ -8,34 +8,48 @@ use std::collections::HashMap;
 
 use chrono::{Timelike, DateTime, Utc};
 use eframe::{emath, epaint::text::TextWrapping};
-use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2};
+use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
 
-use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX};
+use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage};
 
-pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>, emote_loader: &mut EmoteLoader, row_sizes: Vec<(f32, Option<usize>)>, row_include: Vec<bool> ) -> emath::Rect {
-  let channel_color = get_provider_color(&row.provider);
+pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
+  let channel_color = get_provider_color(&row.message.provider);
+  let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, row.badges.as_ref());
+  let ui_row = ui.horizontal_wrapped(|ui| {
+    ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row.row_data.iter().next().unwrap().row_height });
+    ui.label(job);
+    //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
+    if let Some(combo) = row.combo.as_ref() && let Some(word) = combo.combo_word.as_ref() {
+      let emote = row.emotes.get(word);
+      if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
+        let texture = texture.as_ref().unwrap_or(transparent_img);
+        add_ui_emote_image(word, &path, texture, zero_width, &mut None, ui);
+      }
+      ui.label(format!("{}x combo", combo.combo_count));
+    }
+  });
+  ui_row.response.rect
+}
+
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
+  let channel_color = get_provider_color(&chat_msg.message.provider);
   let mut row_shown = false;
 
-  let job = get_chat_msg_header_layoutjob(true, ui, &row.channel, channel_color, &row.username, &row.timestamp, &row.profile, badges);
-
+  let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.badges.as_ref());
   let ui_row = ui.horizontal_wrapped(|ui| {
-    let tex = emote_loader.transparent_img.as_ref().unwrap();
-    let mut row_sizes_iter = row_sizes.iter();
-    let mut next_row_size = row_sizes_iter.next();
-    let mut row_include_iter = row_include.iter();
-    let mut should_include_row = row_include_iter.next();
+    let mut row_iter = chat_msg.row_data.iter().peekable();
+    let mut current_row = row_iter.next();
 
-    if let Some(include_row) = should_include_row && *include_row { // showing first row
-      ui.image(tex, emath::Vec2 { x: 1.0, y: next_row_size.unwrap().0 });
+    if let Some(row_info) = current_row && row_info.is_visible { // showing first row
+      ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_info.row_height });
       ui.label(job);
 
-      if let Some(user_badges) = &row.profile.badges {
+      if let Some(user_badges) = &chat_msg.message.profile.badges {
         for badge in user_badges {
-          let tex = badges.and_then(|f| f.get(badge).and_then(|g| g.texture.as_ref())).or(emote_loader.transparent_img.as_ref());
-          if let Some(tex) = tex {
+          let tex = chat_msg.badges.as_ref().and_then(|f| f.get(badge).and_then(|g| g.texture.as_ref())).unwrap_or(&transparent_img);
             ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
               ui.set_width(BADGE_HEIGHT + 20.);
               ui.vertical_centered(|ui| {
@@ -57,38 +71,32 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
                 };
               });
             });
-          }
-          else {
-            ui.add_space(BADGE_HEIGHT + ui.spacing().item_spacing.x);
-          }
         }
       }
 
-      let uname = egui::Label::new(RichText::new(&format!("{}:", &row.profile.display_name.as_ref().unwrap_or(&row.username))).color(convert_color(&row.profile.color)));
+      let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(&chat_msg.message.profile.color)));
       ui.add(uname);
 
       row_shown = true;
     } 
-    next_row_size = row_sizes_iter.next();  
+    //current_row = row_iter.next();  
 
-    //let mut label_text : Vec<String> = Vec::default();
-    
     let mut last_emote_width : Option<(f32, f32)> = None;
     let mut ix : usize = 0;
-    for word in row.message.to_owned().split(" ") {
 
+    for word in chat_msg.message.message.split(" ") {
       let link_url = is_url(word).then(|| word.to_owned());
       
       let subwords = 
-        if word.len() > WORD_LENGTH_MAX && let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 && ix + word.len() >= next_row_ix {
+        if word.len() > WORD_LENGTH_MAX && let Some(next_row) = row_iter.peek() && let Some(next_row_ix) = next_row.start_char_index && ix + word.len() >= next_row_ix {
           let orig_ix = &ix; 
           let mut ix = ix.to_owned();
-          let mut peeker = row_sizes_iter.clone();
+          let mut peeker = row_iter.clone();
           let subword : String = word.char_indices().map(|(_i, x)| x).take(next_row_ix - orig_ix).collect();
           ix += subword.chars().count();
           let mut words : Vec<String> = [subword].to_vec();
           while let Some(next_row) = peeker.next() 
-            && let Some(next_row_ix) = next_row.1 {
+            && let Some(next_row_ix) = next_row.start_char_index {
             if orig_ix + word.len() >= next_row_ix {
               let subword = word.char_indices().map(|(_i, x)| x).skip(ix - orig_ix).take(next_row_ix - ix).collect::<String>();
               ix += subword.chars().count();
@@ -104,38 +112,23 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
         };
         
       for word in subwords {
-        if let Some(next_row) = next_row_size && let Some(next_row_ix) = next_row.1 {
+        if let Some(next_row) = row_iter.peek() && let Some(next_row_ix) = next_row.start_char_index {
           if ix >= next_row_ix {
-            should_include_row = row_include_iter.next();
-            if let Some(include_row) = should_include_row && *include_row {
-              if row_shown { ui.end_row(); ui.set_row_height(next_row.0); }
-              ui.image(tex, emath::Vec2 { x: 1.0, y: next_row.0 });
+            if next_row.is_visible {
+              if row_shown { ui.end_row(); ui.set_row_height(next_row.row_height); }
+              ui.image(transparent_img, emath::Vec2 { x: 1.0, y: next_row.row_height });
               row_shown = true;
             }
-            next_row_size = row_sizes_iter.next();
+            current_row = row_iter.next();
           }
         }
         ix += word.chars().count();
 
-        if let Some(include_row) = should_include_row && *include_row {
-          let emote = emotes.get(&word);
-          if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote
-              && let Some(texture) = texture.as_ref().or(emote_loader.transparent_img.as_ref()) {
-            let (x, y) = (texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT);
-            if *zero_width {
-              let (x, y) = last_emote_width.unwrap_or((x, y));
-              let img = egui::Image::new(texture, egui::vec2(x, y));
-              let cursor = ui.cursor().to_owned();
-              let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
-              img.paint_at(ui, rect);
-            }
-            else {
-              ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
-                ui.label(format!("{}\n{}", word, path.replace("generated/", "").replace("/","")));
-                ui.image(texture, texture.size_vec2());
-              });
-              last_emote_width = Some((x, y));
-            }
+        if let Some(row_info) = current_row && row_info.is_visible {
+          let emote = chat_msg.emotes.get(&word);
+          if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
+            let tex = texture.as_ref().unwrap_or(&transparent_img);
+            add_ui_emote_image(&word, &path, tex, zero_width, &mut last_emote_width, ui);
           }
           else {
             last_emote_width = None;
@@ -161,7 +154,26 @@ pub fn create_chat_message(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMa
       }
     }
   });
+  //println!("expected {} actual {} for {}", chat_msg.msg_height, ui_row.response.rect.size().y, &chat_msg.message.username);
   ui_row.response.rect
+}
+
+fn add_ui_emote_image(word: &String, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui) {
+  let (x, y) = (texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT);
+  if *zero_width {
+    let (x, y) = last_emote_width.unwrap_or((x, y));
+    let img = egui::Image::new(texture, egui::vec2(x, y));
+    let cursor = ui.cursor().to_owned();
+    let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
+    img.paint_at(ui, rect);
+  }
+  else {
+    ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
+      ui.label(format!("{}\n{}", word, path.replace("generated/", "").replace("/","")));
+      ui.image(texture, texture.size_vec2());
+    });
+    *last_emote_width = Some((x, y));
+  }
 }
 
 fn is_url(word: &str) -> bool {
@@ -169,7 +181,7 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http")
 }
 
-pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: &String, timestamp: &DateTime<Utc>, profile: &UserProfile, _badges : Option<&HashMap<String, EmoteFrame>>) -> LayoutJob {
+pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, _badges : Option<&HashMap<String, EmoteFrame>>) -> LayoutJob {
   let mut job = LayoutJob {
     wrap: TextWrapping { 
       break_anywhere: false,
@@ -196,12 +208,14 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   let badge_count = profile.badges.as_ref().and_then(|f| Some(f.len())).unwrap_or(0) as f32;
   let spacing = 3.0 + badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
 
-  job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), spacing, egui::TextFormat {
-    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
-    color: convert_color(&profile.color),
-    valign: Align::Center,
-    ..Default::default()
-  });
+  if let Some(username) = username {
+    job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), spacing, egui::TextFormat {
+      font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+      color: convert_color(&profile.color),
+      valign: Align::Center,
+      ..Default::default()
+    });
+  }
   job
 }
 

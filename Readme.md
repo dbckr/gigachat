@@ -24,3 +24,4 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Poll status?
 - Used emote stats for ordering selector
 - Allow message headers (stuff up to and including username) to split between rows properly
+- Ability to open/navigate browser to a stream

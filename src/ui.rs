@@ -26,6 +26,31 @@ pub const EMOTE_HEIGHT : f32 = 26.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 21.0;
+const COMBO_LINE_HEIGHT : f32 = 42.0;
+
+pub struct UiChatMessageRow {
+  pub row_height: f32,
+  pub start_char_index: Option<usize>,
+  pub is_visible: bool
+}
+
+pub struct UiChatMessage<'a> {
+  pub message : &'a ChatMessage,
+  pub emotes : HashMap<String, EmoteFrame>,
+  pub badges : Option<HashMap<String, EmoteFrame>>,
+  pub row_data : Vec<UiChatMessageRow>,
+  pub msg_height : f32,
+  pub combo: Option<ComboCounter>
+}
+
+#[derive(Clone)]
+pub struct ComboCounter {
+  combo_word: Option<String>,
+  combo_count: usize,
+  is_new_combo: bool,
+  y_size: f32,
+  is_emote: bool
+}
 
 pub struct AddChannelMenu {
   channel_name: String,
@@ -165,8 +190,6 @@ impl epi::App for TemplateApp {
       egui::TextStyle::Button,
       FontId::new(/*24.0*/ BUTTON_TEXT_SIZE, egui::FontFamily::Proportional));
     ctx.set_style(styles);
-
-    
 
     let mut add_channel = |providers: &mut HashMap<ProviderName, Provider>, auth_tokens: &mut AuthTokens, channel_options: &mut AddChannelMenu, emote_loader : &EmoteLoader| {
       let c = match channel_options.provider {
@@ -608,17 +631,22 @@ impl TemplateApp {
       let y_max = ui.max_rect().top() + viewport.max.y;
       let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
   
-      let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Option<HashMap<String, EmoteFrame>>, Vec<(f32, Option<usize>)>, Vec<bool>, f32)> = Vec::default();
+      //let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Option<HashMap<String, EmoteFrame>>, Vec<(f32, Option<usize>)>, Vec<bool>, f32, Option<ComboCounter>)> = Vec::default();
+
+      let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut y_pos = 0.0;
       let mut excess_top_space : Option<f32> = None;
       let mut skipped_rows = 0;
+      let mut combo = ComboCounter { combo_word: None, combo_count: 0, is_new_combo: false, y_size: 0., is_emote: false };
 
       for (row, cached_y) in self.chat_history.iter_mut() {
         if let Some(channel) = channel_name && &row.channel != channel {
           continue;
         }
+        combo_calculator(row, &mut combo);
+
         // Skip processing if row size is accurately cached and not in view
-        else if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
+        if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 200. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 200.) {
             y_pos += size_y + ui.spacing().item_spacing.y;
             if y_pos < viewport.min.y - 200. {
@@ -637,34 +665,78 @@ impl TemplateApp {
         let msg_sizing = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
         *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum::<f32>());
         
-        let mut lines_to_include : Vec<bool> = Default::default();
+        if combo.combo_word.is_some_and(|w| emotes.contains_key(w)) {
+          combo.is_emote = true;
+        }
+
+        //let mut lines_to_include : Vec<bool> = Default::default();
+        let mut lines_to_include : Vec<UiChatMessageRow> = Default::default();
         let mut row_y = 0.;
-        for line in &msg_sizing {
+        for line in msg_sizing {
           let size_y = line.0;
           if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
             if excess_top_space.is_none() {
               excess_top_space = Some(y_pos + row_y - viewport.min.y);
             }
 
-            lines_to_include.insert(lines_to_include.len(), true);
+            //lines_to_include.insert(lines_to_include.len(), true);
+            lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: true });
           } 
           else {
-            lines_to_include.insert(lines_to_include.len(), false);
+            //lines_to_include.insert(lines_to_include.len(), false);
+            lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: false });
           }
           row_y += size_y + ui.spacing().item_spacing.y;
         }
         y_pos += row_y;
-        if (&lines_to_include).iter().any(|x| *x) {
-          in_view.push((row, emotes, badges, msg_sizing, lines_to_include, row_y));
+        combo.y_size = row_y;
+
+        if combo.is_new_combo && combo.is_emote {
+          y_pos += combo.y_size;
+        }
+        if combo.is_emote {
+          y_pos -= combo.y_size;
+        }
+
+        if (&lines_to_include).iter().any(|x| x.is_visible) {
+          //in_view.push((row, emotes, badges, msg_sizing, lines_to_include, row_y, finished_combo.or(Some(combo.clone()))));
+          in_view.push(UiChatMessage {
+            message: row,
+            emotes: emotes,
+            badges: badges,
+            row_data: lines_to_include,
+            msg_height: row_y,
+            combo: Some(combo.clone())
+        });
         }
       }
+      let transparent_texture = self.emote_loader.as_ref().unwrap().transparent_img.as_ref().unwrap();
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
-        for (row, emotes, badges, sizing, row_include, _row_expected_y) in in_view {
-          let _actual = chat::create_chat_message(viewport_ui, row, &emotes, badges.as_ref(), self.emote_loader.as_mut().unwrap(), sizing, row_include);
-          //println!("expected {} actual {} for {}", _row_expected_y, _actual.size().y, &row.username);
+        let mut last_row : Option<&UiChatMessage> = None;
+        for chat_msg in in_view.iter() {
+          if chat_msg.combo.as_ref().is_some_and(|combo| combo.is_new_combo) { 
+            if last_row.is_some_and(|r| r.combo.is_some_and(|c| c.combo_count > 1 && c.is_emote)) {
+              chat::create_combo_message(viewport_ui, last_row.unwrap(), transparent_texture);
+            }
+            else if last_row.is_some_and(|r| r.combo.is_some()){
+              chat::create_chat_message(viewport_ui, last_row.unwrap(), &transparent_texture);  
+            }
+          }
+          else if chat_msg.combo.is_none() || chat_msg.combo.as_ref().is_some_and(|c| c.is_emote == false) {
+            let _actual = chat::create_chat_message(viewport_ui, &chat_msg, transparent_texture);
+          }
+          last_row = Some(chat_msg);
+        }
+ 
+        // Handle the chat_msg still stored in last_row
+        if last_row.is_some_and(|r| r.combo.is_some_and(|c| c.combo_count > 1 && c.is_new_combo == false && c.is_emote)) {
+          chat::create_combo_message(viewport_ui, last_row.unwrap(), transparent_texture);
+        }
+        else if last_row.is_some() {
+          chat::create_chat_message(viewport_ui, last_row.unwrap(), &transparent_texture);  
         }
       });
     });
@@ -740,6 +812,25 @@ impl TemplateApp {
     else {
       None
     }
+  }
+}
+
+fn combo_calculator(row: &ChatMessage, combo: &mut ComboCounter) { 
+  if let Some(word) = &combo.combo_word && row.message.trim() == word {
+    combo.combo_count += 1;
+    combo.is_new_combo = false;
+  }
+  else if row.message.contains(" ") {
+    combo.combo_word = None;
+    combo.combo_count = 0;
+    combo.is_new_combo = true;
+    combo.is_emote = false;
+  }
+  else {
+    combo.combo_word = Some(row.message.trim().to_owned());
+    combo.combo_count = 1;
+    combo.is_new_combo = true;
+    combo.is_emote = false;
   }
 }
 

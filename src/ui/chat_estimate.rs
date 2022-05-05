@@ -20,7 +20,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, Option<usize>)> = Default::default();
 
-  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, &row.username, &row.timestamp, &row.profile, badges);
+  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, badges);
   let header_rows = &ui.fonts().layout_job(job.clone()).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), None));
