@@ -9,7 +9,7 @@ use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId
 use egui::{Vec2, ColorImage};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, youtube}};
+use crate::{provider::{twitch, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, youtube, ComboCounter}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::chat::EmoteFrame;
 
@@ -39,17 +39,7 @@ pub struct UiChatMessage<'a> {
   pub emotes : HashMap<String, EmoteFrame>,
   pub badges : Option<HashMap<String, EmoteFrame>>,
   pub row_data : Vec<UiChatMessageRow>,
-  pub msg_height : f32,
-  pub combo: Option<ComboCounter>
-}
-
-#[derive(Clone)]
-pub struct ComboCounter {
-  combo_word: Option<String>,
-  combo_count: usize,
-  is_new_combo: bool,
-  y_size: f32,
-  is_emote: bool
+  pub msg_height : f32
 }
 
 pub struct AddChannelMenu {
@@ -104,6 +94,7 @@ pub struct TemplateApp {
   pub auth_tokens: AuthTokens,
   chat_frame: Option<Rect>,
   chat_scroll: Option<Vec2>,
+  enable_combos: bool
 }
 
 
@@ -324,6 +315,10 @@ impl epi::App for TemplateApp {
             *(&mut self.show_auth_ui) = true;
           }
           ui.separator();
+          ui.menu_button(RichText::new("Options").size(SMALL_TEXT_SIZE), |ui| {
+            ui.checkbox(&mut self.enable_combos, "Enable Combos");
+          });
+          ui.separator();
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
             _ = ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
@@ -350,8 +345,8 @@ impl epi::App for TemplateApp {
             if let Ok(x) = t.rx.try_recv() {
               match x {
                 InternalMessage::PrivMsg { message } => {
-                  //sco.history.insert(sco.history.len(), message)
-                  self.chat_history.push_back((message, None));
+                  let provider_emotes = providers.get_mut(&sco.provider).and_then(|f| Some(&mut f.emotes));
+                  push_history(&mut self.chat_history, message, provider_emotes, t.channel_emotes.as_mut(), &mut self.global_emotes, emote_loader);
                 },
                 InternalMessage::StreamingStatus { is_live } => {
                   t.is_live = is_live;
@@ -637,18 +632,24 @@ impl TemplateApp {
       let mut y_pos = 0.0;
       let mut excess_top_space : Option<f32> = None;
       let mut skipped_rows = 0;
-      let mut combo = ComboCounter { combo_word: None, combo_count: 0, is_new_combo: false, y_size: 0., is_emote: false };
 
       for (row, cached_y) in self.chat_history.iter_mut() {
         if let Some(channel) = channel_name && &row.channel != channel {
           continue;
         }
-        combo_calculator(row, &mut combo);
+        let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
         if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 200. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 200.) {
-            y_pos += size_y + ui.spacing().item_spacing.y;
+            //y_pos += size_y + ui.spacing().item_spacing.y;
+            if self.enable_combos && combo.is_some_and(|c| c.is_end == false) {
+              // add nothing to y_pos
+            } else if self.enable_combos && combo.is_some_and(|c| c.is_end == true && c.count > 1) {
+              y_pos += COMBO_LINE_HEIGHT;
+            } else {
+              y_pos += size_y + ui.spacing().item_spacing.y;
+            }
             if y_pos < viewport.min.y - 200. {
               skipped_rows += 1;
             }
@@ -660,16 +661,11 @@ impl TemplateApp {
         let (channel_emotes, channel_badges) = self.channels.get_mut(&row.channel)
           .and_then(|c| c.transient.as_mut())
           .and_then(|t| Some((t.channel_emotes.as_mut(), t.badge_emotes.as_mut()))).unwrap_or((None, None));
-        let emotes = get_emotes_for_message(&row, &row.channel, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
+        let emotes = get_emotes_for_message(&row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
         let badges = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
         let msg_sizing = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
         *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum::<f32>());
-        
-        if combo.combo_word.is_some_and(|w| emotes.contains_key(w)) {
-          combo.is_emote = true;
-        }
 
-        //let mut lines_to_include : Vec<bool> = Default::default();
         let mut lines_to_include : Vec<UiChatMessageRow> = Default::default();
         let mut row_y = 0.;
         for line in msg_sizing {
@@ -678,24 +674,20 @@ impl TemplateApp {
             if excess_top_space.is_none() {
               excess_top_space = Some(y_pos + row_y - viewport.min.y);
             }
-
-            //lines_to_include.insert(lines_to_include.len(), true);
             lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: true });
           } 
           else {
-            //lines_to_include.insert(lines_to_include.len(), false);
             lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: false });
           }
           row_y += size_y + ui.spacing().item_spacing.y;
         }
-        y_pos += row_y;
-        combo.y_size = row_y;
-
-        if combo.is_new_combo && combo.is_emote {
-          y_pos += combo.y_size;
-        }
-        if combo.is_emote {
-          y_pos -= combo.y_size;
+        if self.enable_combos && combo.is_some_and(|c| c.is_end == false) {
+          // add nothing to y_pos
+        } else if self.enable_combos && combo.is_some_and(|c| c.is_end == true && c.count > 1) {
+          row_y = COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+          y_pos += row_y;
+        } else {
+          y_pos += row_y;
         }
 
         if (&lines_to_include).iter().any(|x| x.is_visible) {
@@ -705,8 +697,7 @@ impl TemplateApp {
             emotes: emotes,
             badges: badges,
             row_data: lines_to_include,
-            msg_height: row_y,
-            combo: Some(combo.clone())
+            msg_height: row_y
         });
         }
       }
@@ -715,28 +706,13 @@ impl TemplateApp {
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
-        let mut last_row : Option<&UiChatMessage> = None;
         for chat_msg in in_view.iter() {
-          if chat_msg.combo.as_ref().is_some_and(|combo| combo.is_new_combo) { 
-            if last_row.is_some_and(|r| r.combo.is_some_and(|c| c.combo_count > 1 && c.is_emote)) {
-              chat::create_combo_message(viewport_ui, last_row.unwrap(), transparent_texture);
-            }
-            else if last_row.is_some_and(|r| r.combo.is_some()){
-              chat::create_chat_message(viewport_ui, last_row.unwrap(), &transparent_texture);  
-            }
+          if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end == true && c.count == 1) {
+            chat::create_chat_message(viewport_ui, &chat_msg, transparent_texture);
           }
-          else if chat_msg.combo.is_none() || chat_msg.combo.as_ref().is_some_and(|c| c.is_emote == false) {
-            let _actual = chat::create_chat_message(viewport_ui, &chat_msg, transparent_texture);
+          else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
+            chat::create_combo_message(viewport_ui, &chat_msg, transparent_texture);
           }
-          last_row = Some(chat_msg);
-        }
- 
-        // Handle the chat_msg still stored in last_row
-        if last_row.is_some_and(|r| r.combo.is_some_and(|c| c.combo_count > 1 && c.is_new_combo == false && c.is_emote)) {
-          chat::create_combo_message(viewport_ui, last_row.unwrap(), transparent_texture);
-        }
-        else if last_row.is_some() {
-          chat::create_chat_message(viewport_ui, last_row.unwrap(), &transparent_texture);  
         }
       });
     });
@@ -815,31 +791,54 @@ impl TemplateApp {
   }
 }
 
-fn combo_calculator(row: &ChatMessage, combo: &mut ComboCounter) { 
-  if let Some(word) = &combo.combo_word && row.message.trim() == word {
-    combo.combo_count += 1;
-    combo.is_new_combo = false;
+fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut message: ChatMessage, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
+  let is_emote = get_emotes_for_message(&message, provider_emotes, channel_emotes, global_emotes, emote_loader).len() > 0;
+  let last = chat_history.iter_mut().rev().find_or_first(|f| f.0.channel == message.channel);
+  if let Some(last) = last && is_emote {
+    let combo = combo_calculator(&message, last.0.combo_data.as_ref());
+    if combo.is_some_and(|c| c.is_new == false && c.count > 1) && let Some(last_combo) = last.0.combo_data.as_mut() {
+      last_combo.is_end = false; // update last item to reflect the continuing combo
+    }
+    else if last.0.combo_data.as_ref().is_some_and(|c| c.count <= 1) {
+      last.0.combo_data = None;
+    }
+    message.combo_data = combo;
+  } 
+  else if is_emote {
+    let combo = combo_calculator(&message, None);
+    message.combo_data = combo;
   }
-  else if row.message.contains(" ") {
-    combo.combo_word = None;
-    combo.combo_count = 0;
-    combo.is_new_combo = true;
-    combo.is_emote = false;
+  chat_history.push_back((message, None));
+}
+
+fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Option<ComboCounter> { 
+  if let Some(last_combo) = last_combo && last_combo.word == row.message.trim() {
+    Some(ComboCounter {
+        word: last_combo.word.to_owned(),
+        count: last_combo.count + 1,
+        is_new: false,
+        is_end: true
+    })
+  }
+  else if row.message.trim().contains(" ") {
+    None
   }
   else {
-    combo.combo_word = Some(row.message.trim().to_owned());
-    combo.combo_count = 1;
-    combo.is_new_combo = true;
-    combo.is_emote = false;
+    Some(ComboCounter {
+      word: row.message.trim().to_owned(),
+      count: 1,
+      is_new: true,
+      is_end: true
+    })
   }
 }
 
-fn get_emotes_for_message(row: &ChatMessage, channel_name: &str, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
+fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(" ") {
     let emote = 
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
-        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name)))
+        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, &row.channel)))
       }
       else if let Some(emote) = global_emotes.get_mut(word) {
         Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote)))

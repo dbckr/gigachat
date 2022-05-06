@@ -138,7 +138,7 @@ fn get_chat_messages(token: &String, livestreamchat_id: &String, channel_name: &
             message: item["snippet"]["displayMessage"].as_str()
               .and_then(|x| Some(x.to_owned()))
               .or_else(|| Some("".to_owned())).unwrap(), 
-            profile: UserProfile { ..Default::default() } }) }).collect_vec()))
+            ..Default::default() }) }).collect_vec()))
         },
         Err(e) => { println!("JSON Error: {}", e); (None, None) }
       }

@@ -98,13 +98,22 @@ impl Channel {
 }
 
 #[derive(Clone)]
+pub struct ComboCounter {
+  pub word: String,
+  pub count: usize,
+  pub is_new: bool,
+  pub is_end: bool
+}
+
+#[derive(Clone)]
 pub struct ChatMessage {
   pub provider: ProviderName,
   pub channel: String,
   pub username: String,
   pub timestamp: DateTime<Utc>,
   pub message: String,
-  pub profile: UserProfile 
+  pub profile: UserProfile,
+  pub combo_data: Option<ComboCounter>
 }
 
 impl Default for ChatMessage {
@@ -115,7 +124,8 @@ impl Default for ChatMessage {
       username: Default::default(), 
       timestamp: Utc::now(), 
       message: Default::default(), 
-      profile: Default::default() 
+      profile: Default::default(),
+      combo_data: None
     }
   }
 }

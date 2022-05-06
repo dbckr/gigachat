@@ -95,11 +95,8 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                       username: sender_name.to_owned(), 
                       timestamp: chrono::Utc::now(), 
                       message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
-                      profile: get_user_profile(&tags)
-                    };
-                    match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
-                      Ok(_) => (),
-                      Err(x) => println!("Send failure: {}", x)
+                      profile: get_user_profile(&tags),
+                      ..Default::default()
                     };
                     if let Some(emote_ids) = get_tag_value(&tags, "emotes") && emote_ids.len() > 0 {
                       //println!("{}", message);
@@ -127,6 +124,10 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                         println!("Error sending MsgEmotes: {}", e);
                       }
                     }
+                    match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+                      Ok(_) => (),
+                      Err(x) => println!("Send failure: {}", x)
+                    };
                   }
               },
               Command::PING(ref target, ref _msg) => {
@@ -156,7 +157,8 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
                           profile: UserProfile { 
                             color: (255, 0, 0),
                             ..Default::default() 
-                          }
+                          },
+                          ..Default::default()
                         }})
                       }
                       else {
@@ -189,7 +191,8 @@ async fn spawn_irc(user_name : String, token: String, channel_name : String, tx 
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 
               message: message, 
-              profile: profile.to_owned()
+              profile: profile.to_owned(),
+              ..Default::default()
             };
             match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
               Ok(_) => (),

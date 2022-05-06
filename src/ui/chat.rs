@@ -13,22 +13,22 @@ use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
 
-use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage};
+use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage, COMBO_LINE_HEIGHT};
 
 pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
   let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, row.badges.as_ref());
   let ui_row = ui.horizontal_wrapped(|ui| {
-    ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row.row_data.iter().next().unwrap().row_height });
+    ui.image(transparent_img, emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
     ui.label(job);
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
-    if let Some(combo) = row.combo.as_ref() && let Some(word) = combo.combo_word.as_ref() {
-      let emote = row.emotes.get(word);
+    if let Some(combo) = row.message.combo_data.as_ref() {
+      let emote = row.emotes.get(&combo.word);
       if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
         let texture = texture.as_ref().unwrap_or(transparent_img);
-        add_ui_emote_image(word, &path, texture, zero_width, &mut None, ui);
+        add_ui_emote_image(&combo.word, &path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
       }
-      ui.label(format!("{}x combo", combo.combo_count));
+      ui.label(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6));
     }
   });
   ui_row.response.rect
@@ -128,7 +128,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           let emote = chat_msg.emotes.get(&word);
           if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(&transparent_img);
-            add_ui_emote_image(&word, &path, tex, zero_width, &mut last_emote_width, ui);
+            add_ui_emote_image(&word, &path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
           }
           else {
             last_emote_width = None;
@@ -158,8 +158,8 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   ui_row.response.rect
 }
 
-fn add_ui_emote_image(word: &String, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui) {
-  let (x, y) = (texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT);
+fn add_ui_emote_image(word: &String, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+  let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
     let img = egui::Image::new(texture, egui::vec2(x, y));
