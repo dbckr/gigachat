@@ -18,9 +18,9 @@ fn main() {
   };
 
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
-  eframe::run_native(&title, native_options, Box::new(|cc| { 
+  eframe::run_native(&title.to_owned(), native_options, Box::new(|cc| { 
     let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
-    let mut app = TemplateApp::new(cc, runtime);
+    let mut app = TemplateApp::new(cc, title, runtime);
     let loader = app.emote_loader.as_ref().unwrap();
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {

@@ -169,7 +169,7 @@ fn add_ui_emote_image(word: &String, path: &String, texture: &egui::TextureHandl
   }
   else {
     ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
-      ui.label(format!("{}\n{}", word, path.replace("generated/", "").replace("/","")));
+      ui.label(format!("{}\n{}", word, path.replace("cache/", "").replace("/","")));
       ui.image(texture, texture.size_vec2());
     });
     *last_emote_width = Some((x, y));

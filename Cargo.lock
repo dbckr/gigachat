@@ -1109,6 +1109,7 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "curl",
+ "directories-next",
  "eframe",
  "egui",
  "env_logger",

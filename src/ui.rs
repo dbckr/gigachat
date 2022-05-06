@@ -99,7 +99,7 @@ pub struct TemplateApp {
 
 
 impl TemplateApp {
-  pub fn new(cc: &eframe::CreationContext<'_>, runtime: tokio::runtime::Runtime) -> Self {
+  pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
       cc.egui_ctx.set_visuals(egui::Visuals::dark());
       let mut r = TemplateApp {
         ..Default::default()
@@ -108,7 +108,7 @@ impl TemplateApp {
       if let Some(storage) = cc.storage {
           r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
       }
-      let mut loader = EmoteLoader::new(&runtime);
+      let mut loader = EmoteLoader::new(&title, &runtime);
       loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
       r.runtime = Some(runtime);
       r.emote_loader = Some(loader);
@@ -355,7 +355,7 @@ impl epi::App for TemplateApp {
                   if let Some(provider) = providers.get_mut(&sco.provider) {
                     for (id, name) in emote_ids {
                       if provider.emotes.contains_key(&name) == false {
-                        provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "generated/twitch/".to_owned(), ..Default::default() });
+                        provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "cache/twitch/".to_owned(), ..Default::default() });
                       }
                     }
                   }

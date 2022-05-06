@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}};
+use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf};
 
 use curl::easy::Easy;
 use egui::{TextureHandle, ColorImage};
@@ -14,18 +14,18 @@ use glob::glob;
 
 pub fn get_image_data(
   url: &str,
-  path: &str,
+  path: PathBuf,
   id: &str,
   extension: &Option<String>,
   easy: &mut Easy
 ) -> Option<Vec<(ColorImage, u16)>> {
   let mut inner =
     || -> std::result::Result<Option<Vec<(ColorImage, u16)>>, failure::Error> {
-      if path.len() > 0 {
-        DirBuilder::new().recursive(true).create(path)?;
-      }
+      //if path.exists().len() > 0 {
+      DirBuilder::new().recursive(true).create(&path)?;
+      //}
 
-      let paths = match glob(&format!("{}{}.*", path, id)) {
+      let paths = match glob(&format!("{}{}.*", &path.to_str().expect("path to string failed"), id)) {
         Ok(paths) => paths,
         Err(e) => panic!("{}", e)
       };
@@ -93,7 +93,7 @@ pub fn get_image_data(
               let mut f = OpenOptions::new()
               .create_new(true)
               .write(true)
-              .open(format!("{}{}.{}", path, id, ext))?;
+              .open(path.join(format!("{}.{}", id, ext)))?;
 
             f.write(&buffer)?;
             Ok(load_image(&ext, &buffer))

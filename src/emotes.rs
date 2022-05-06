@@ -10,7 +10,7 @@ use egui::ColorImage;
 use failure;
 
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration, path::PathBuf};
 use std::str;
 
 pub mod fetch;
@@ -105,12 +105,14 @@ pub struct EmoteLoader {
 }
 
 impl EmoteLoader {
-  pub fn new(runtime: &Runtime) -> Self {
+  pub fn new(app_name: &String, runtime: &Runtime) -> Self {
+    
     let (in_tx, in_rx) = async_channel::unbounded(); //tokio::sync::mpsc::channel::<EmoteRequest>(128);
     let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(256);
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..5 {
+      let base_path = cache_path_from_app_name(app_name).expect("Failed to locate an appropiate location to store cache files");
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
@@ -123,30 +125,30 @@ impl EmoteLoader {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
                 println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
+                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
+                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 println!("{n} loading global emote {} '{}'", name, url);
-                let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
+                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 println!("{n} loading global badge {}", name);
-                let data = imaging::get_image_data(&url, &path, &id, &extension, &mut easy);
+                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name: name, data: data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 println!("{n} loading twitch emote {} '{}'", name, id);
-                let data = if let Some(x) = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), "generated/twitch/", &id, &None, &mut easy) {
+                let data = if let Some(x) = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy) {
                   Some(x)
                 } else {
-                  imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), "generated/twitch/", &id, &None, &mut easy)
+                  imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy)
                 };
                 out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name, id: id, data: data })
               }
@@ -186,7 +188,7 @@ impl EmoteLoader {
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
     let ffz_emotes = fetch::process_emote_json(
       &ffz_url,
-      &format!("generated/ffz-channel-json-{}", channel_id),
+      &format!("cache/ffz-channel-json-{}", channel_id),
       None
     )?;
     let bttv_url = format!(
@@ -195,19 +197,19 @@ impl EmoteLoader {
     );
     let bttv_emotes = fetch::process_emote_json(
       &bttv_url,
-      &format!("generated/bttv-channel-json-{}", channel_id),
+      &format!("cache/bttv-channel-json-{}", channel_id),
       None
     )?;
     let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
     let seventv_emotes = fetch::process_emote_json(
       &seventv_url,
-      &format!("generated/7tv-channel-json-{}", channel_id),
+      &format!("cache/7tv-channel-json-{}", channel_id),
       None
     )?;
     let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={}", channel_id);
     let twitch_follower_emotes = fetch::process_twitch_follower_emote_json(
       &twitch_url,
-      &format!("generated/twitch-{}", channel_id),
+      &format!("cache/twitch-{}", channel_id),
       Some([
         ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec())
@@ -234,12 +236,12 @@ impl EmoteLoader {
   ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
     let bttv_emotes = fetch::process_emote_json(
       "https://api.betterttv.net/3/cached/emotes/global",
-      "generated/bttv-global-json",
+      "cache/bttv-global-json",
       None
     )?;
     let seventv_emotes = fetch::process_emote_json(
       "https://api.7tv.app/v2/emotes/global",
-      "generated/7tv-global-json",
+      "cache/7tv-global-json",
       None
     )?;
 
@@ -261,7 +263,7 @@ impl EmoteLoader {
 
     let emotes = fetch::process_emote_json(
       &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
-      &format!("generated/twitch-emote-set-{}", emote_set_id),
+      &format!("cache/twitch-emote-set-{}", emote_set_id),
       Some([
         ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -287,7 +289,7 @@ impl EmoteLoader {
     let emotes = fetch::process_badge_json(
       "global",
       &format!("https://api.twitch.tv/helix/chat/badges/global"),
-      &format!("generated/twitch-badges-global"),
+      &format!("cache/twitch-badges-global"),
       Some([
         ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -313,7 +315,7 @@ impl EmoteLoader {
     let emotes = fetch::process_badge_json(
       room_id,
       &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
-      &format!("generated/twitch-badges-channel-{}", room_id),
+      &format!("cache/twitch-badges-channel-{}", room_id),
       Some([
         ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -333,5 +335,25 @@ impl EmoteLoader {
         Some(HashMap::new())
       }
     }
+  }
+}
+
+pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
+  // Lifted from egui
+  if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", app_name) {
+      let data_dir = proj_dirs.data_dir().to_path_buf();
+      if let Err(err) = std::fs::create_dir_all(&data_dir) {
+          println!(
+              "Saving disabled: Failed to create app path at {:?}: {}",
+              data_dir,
+              err
+          );
+          None
+      } else {
+          Some(data_dir)
+      }
+  } else {
+      println!("Saving disabled: Failed to find path to data_dir.");
+      None
   }
 }

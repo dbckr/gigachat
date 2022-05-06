@@ -36,6 +36,7 @@ gif-dispose = "3.1.1"
 regex = "1.5.5"
 async-channel = "1.6.1"
 serde = "1.0.136"
+directories-next = "2.0.0"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
