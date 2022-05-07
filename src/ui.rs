@@ -6,7 +6,7 @@
 
 use std::{collections::{HashMap, VecDeque}, ops::Add};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
-use egui::{Vec2, ColorImage};
+use egui::{Vec2, ColorImage, Pos2};
 use image::DynamicImage;
 use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}};
@@ -300,6 +300,9 @@ impl epi::App for TemplateApp {
         
         if name_input.unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().unwrap()); 
+          self.show_add_channel_menu = false;
+        }
+        if ui.button("Cancel").clicked() {
           self.show_add_channel_menu = false;
         }
       }).unwrap();
@@ -600,7 +603,7 @@ impl epi::App for TemplateApp {
           .always_show_scroll(true)
           .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
         let area = chat_area.show_viewport(ui, |ui, viewport| {
-          self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
+          self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned(), &channel_swap);
         });
         // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
         self.chat_scroll = Some(area.state.offset);
@@ -648,7 +651,7 @@ impl epi::App for TemplateApp {
 }
 
 impl TemplateApp {
-  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
+  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>, is_swap: &bool) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
       //ui.spacing_mut().item_spacing.y = 1.;
@@ -656,9 +659,6 @@ impl TemplateApp {
       let y_min = ui.max_rect().top() + viewport.min.y;
       let y_max = ui.max_rect().top() + viewport.max.y;
       let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-  
-      //let mut in_view : Vec<(&ChatMessage, HashMap<String, EmoteFrame>, Option<HashMap<String, EmoteFrame>>, Vec<(f32, Option<usize>)>, Vec<bool>, f32, Option<ComboCounter>)> = Vec::default();
-
       let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut y_pos = 0.0;
       let mut excess_top_space : Option<f32> = None;
@@ -736,6 +736,9 @@ impl TemplateApp {
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
+      if *is_swap {
+        ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: y_pos }, Vec2 { x: 0., y: 0. }), None);
+      }
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end == true && c.count == 1) {

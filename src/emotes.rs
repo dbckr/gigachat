@@ -101,12 +101,12 @@ pub struct EmoteLoader {
   pub tx: async_channel::Sender<EmoteRequest>,
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
-  pub transparent_img: Option<TextureHandle>
+  pub transparent_img: Option<TextureHandle>,
+  base_path: PathBuf
 }
 
 impl EmoteLoader {
   pub fn new(app_name: &String, runtime: &Runtime) -> Self {
-    
     let (in_tx, in_rx) = async_channel::unbounded(); //tokio::sync::mpsc::channel::<EmoteRequest>(128);
     let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(256);
 
@@ -172,7 +172,8 @@ impl EmoteLoader {
       tx: in_tx,
       rx: out_rx,
       handle: tasks,
-      transparent_img: None
+      transparent_img: None,
+      base_path: cache_path_from_app_name(app_name).expect("Failed to locate an appropiate location to store cache files")
      }
   }
 
@@ -186,7 +187,7 @@ impl EmoteLoader {
     token: &String
   ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
-    let ffz_emotes = fetch::process_emote_json(
+    let ffz_emotes = self.process_emote_json(
       &ffz_url,
       &format!("cache/ffz-channel-json-{}", channel_id),
       None
@@ -195,19 +196,19 @@ impl EmoteLoader {
       "https://api.betterttv.net/3/cached/users/twitch/{}",
       channel_id
     );
-    let bttv_emotes = fetch::process_emote_json(
+    let bttv_emotes = self.process_emote_json(
       &bttv_url,
       &format!("cache/bttv-channel-json-{}", channel_id),
       None
     )?;
     let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
-    let seventv_emotes = fetch::process_emote_json(
+    let seventv_emotes = self.process_emote_json(
       &seventv_url,
       &format!("cache/7tv-channel-json-{}", channel_id),
       None
     )?;
     let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={}", channel_id);
-    let twitch_follower_emotes = fetch::process_twitch_follower_emote_json(
+    let twitch_follower_emotes = self.process_twitch_follower_emote_json(
       &twitch_url,
       &format!("cache/twitch-{}", channel_id),
       Some([
@@ -234,12 +235,12 @@ impl EmoteLoader {
   pub fn load_global_emotes(
     &self,
   ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
-    let bttv_emotes = fetch::process_emote_json(
+    let bttv_emotes = self.process_emote_json(
       "https://api.betterttv.net/3/cached/emotes/global",
       "cache/bttv-global-json",
       None
     )?;
-    let seventv_emotes = fetch::process_emote_json(
+    let seventv_emotes = self.process_emote_json(
       "https://api.7tv.app/v2/emotes/global",
       "cache/7tv-global-json",
       None
@@ -256,12 +257,24 @@ impl EmoteLoader {
     Ok(result)
   }
 
+  fn process_emote_json(&self, url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+    fetch::process_emote_json(url, self.base_path.join(path).to_str().unwrap(), headers)
+  }
+
+  fn process_twitch_follower_emote_json(&self, twitch_url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+    fetch::process_twitch_follower_emote_json(twitch_url, self.base_path.join(path).to_str().unwrap(), headers)
+  }
+
+  fn process_badge_json(&self, room_id: &str, url: &str, filename: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+    fetch::process_badge_json(room_id, url, self.base_path.join(filename).to_str().unwrap(), headers)
+  }
+
   pub fn twitch_get_emote_set(&mut self, token : &String, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
     if emote_set_id.contains(":") || emote_set_id.contains("-") || emote_set_id.contains("emotesv2") {
       return None;
     }
 
-    let emotes = fetch::process_emote_json(
+    let emotes = self.process_emote_json(
       &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
       &format!("cache/twitch-emote-set-{}", emote_set_id),
       Some([
@@ -286,7 +299,7 @@ impl EmoteLoader {
   }
 
   pub fn twitch_get_global_badges(&self, token : &String) -> Option<HashMap<String, Emote>> { 
-    let emotes = fetch::process_badge_json(
+    let emotes = self.process_badge_json(
       "global",
       &format!("https://api.twitch.tv/helix/chat/badges/global"),
       &format!("cache/twitch-badges-global"),
@@ -312,7 +325,7 @@ impl EmoteLoader {
   }
 
   pub fn twitch_get_channel_badges(&self, token : &String, room_id : &String) -> Option<HashMap<String, Emote>> { 
-    let emotes = fetch::process_badge_json(
+    let emotes = self.process_badge_json(
       room_id,
       &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
       &format!("cache/twitch-badges-channel-{}", room_id),

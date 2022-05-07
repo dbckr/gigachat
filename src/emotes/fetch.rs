@@ -171,12 +171,13 @@ fn get_emote_json(
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<String, failure::Error> {
-  let path = Path::new(filename);
+  let filename = format!("{}.json", filename);
+  let path = Path::new(&filename);
   if path.exists() == false && let Some(parent_path) = path.parent() {
     DirBuilder::new().recursive(true).create(parent_path)?;
 
     let mut f =
-      OpenOptions::new().create_new(true).write(true).open(filename).expect("Unable to open file");
+      OpenOptions::new().create_new(true).write(true).open(&filename).expect("Unable to open file");
 
     let mut easy = Easy::new();
     easy.url(url)?;
