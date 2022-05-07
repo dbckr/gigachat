@@ -7,12 +7,12 @@
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
 
-use crate::emotes::Emote;
+use crate::emotes::{Emote, EmoteLoader};
 
 pub mod twitch;
-pub mod youtube;
+//pub mod youtube;
 
 #[derive(Clone)]
 pub enum InternalMessage {
@@ -30,8 +30,10 @@ impl Default for InternalMessage {
 }
 
 pub enum OutgoingMessage {
-  Chat { message: String },
-  Leave {},
+  Chat { channel_name: String, message: String },
+  Leave { channel_name: String },
+  Join { channel_name: String },
+  Quit { }
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -51,15 +53,13 @@ pub struct Provider {
 #[derive(Clone)]
 pub enum ProviderName {
   #[default] Twitch,
-  YouTube,
+  //YouTube,
 }
 
 pub struct ChannelTransient {
-  pub rx: mpsc::Receiver<InternalMessage>,
-  pub tx: mpsc::Sender<OutgoingMessage>,
   pub channel_emotes: Option<HashMap<String, Emote>>,
   pub badge_emotes: Option<HashMap<String, Emote>>,
-  pub task_handle: JoinHandle<()>,
+  //pub task_handle: JoinHandle<()>,
   pub is_live: bool
 }
 
@@ -73,28 +73,6 @@ pub struct Channel {
   pub send_history_ix: Option<usize>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>
-}
-
-impl Channel {
-  pub async fn close(&mut self) {
-    let Self {
-        channel_name : _,
-        roomid : _,
-        provider : _,
-        send_history: _,
-        send_history_ix: _,
-        transient
-    } = self;
-
-    if let Some(transient) = transient {
-      if transient.tx.send(OutgoingMessage::Leave {  }).await.is_ok() {
-        match (&mut transient.task_handle).await {
-          Ok(_) => (),
-          Err(e) => println!("channel close send error: {:?}", e)
-        }
-      }
-    }
-  }
 }
 
 #[derive(Clone)]

@@ -9,7 +9,7 @@ use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId
 use egui::{Vec2, ColorImage};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, youtube, ComboCounter}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::chat::EmoteFrame;
 
@@ -80,7 +80,7 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   draft_message: String,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  add_channel_menu_show: bool,
+  show_add_channel_menu: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
   add_channel_menu: AddChannelMenu,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -91,28 +91,33 @@ pub struct TemplateApp {
   pub selected_emote: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   show_auth_ui: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  show_channel_options: bool,
   pub auth_tokens: AuthTokens,
   chat_frame: Option<Rect>,
   chat_scroll: Option<Vec2>,
-  enable_combos: bool
+  enable_combos: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub twitch_chat_manager: Option<TwitchChatManager>
 }
 
 
 impl TemplateApp {
   pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
-      cc.egui_ctx.set_visuals(egui::Visuals::dark());
-      let mut r = TemplateApp {
-        ..Default::default()
-      };
-      #[cfg(feature = "persistence")]
-      if let Some(storage) = cc.storage {
-          r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
-      }
-      let mut loader = EmoteLoader::new(&title, &runtime);
-      loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
-      r.runtime = Some(runtime);
-      r.emote_loader = Some(loader);
-      r
+    cc.egui_ctx.set_visuals(egui::Visuals::dark());
+    let mut r = TemplateApp {
+      ..Default::default()
+    };
+    #[cfg(feature = "persistence")]
+    if let Some(storage) = cc.storage {
+        r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
+    }
+    let mut loader = EmoteLoader::new(&title, &runtime);
+    loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    r.runtime = Some(runtime);
+    r.emote_loader = Some(loader);
+    println!("{} channels", r.channels.len());
+    r
   }
 }
 
@@ -193,9 +198,13 @@ impl epi::App for TemplateApp {
                 global_badges: emote_loader.twitch_get_global_badges(&auth_tokens.twitch_auth_token)
             });
           }
-          twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().unwrap(), emote_loader)
+          if self.twitch_chat_manager.is_none() {
+            self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
+          }
+          self.twitch_chat_manager.as_mut().unwrap().init_channel(&channel_options.channel_name, emote_loader)
+          //twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().unwrap(), emote_loader)
         },
-        ProviderName::YouTube => {
+        /*ProviderName::YouTube => {
           if providers.contains_key(&ProviderName::Twitch) == false {
             providers.insert(ProviderName::Twitch, Provider {
                 name: "youtube".to_owned(),
@@ -205,7 +214,7 @@ impl epi::App for TemplateApp {
             });
           }
           youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), self.runtime.as_ref().unwrap())
-        }
+        }*/
       };
 
       self.channels.insert(channel_options.channel_name.to_owned(), c);
@@ -214,7 +223,7 @@ impl epi::App for TemplateApp {
     };
 
     if self.show_auth_ui {
-      let auth_menu = egui::Window::new("Auth Tokens").show(ctx, |ui| {
+      let auth_menu = egui::Window::new("Auth Tokens").collapsible(false).show(ctx, |ui| {
         ui.label("Twitch");
         ui.horizontal(|ui| {
           ui.label("Username:");
@@ -266,8 +275,8 @@ impl epi::App for TemplateApp {
       }
     }
 
-    if self.add_channel_menu_show {
-      let add_menu = egui::Window::new("Add Channel").show(ctx, |ui| {
+    if self.show_add_channel_menu {
+      let add_menu = egui::Window::new("Add Channel").collapsible(false).show(ctx, |ui| {
         let mut name_input : Option<egui::Response> = None;
         ui.horizontal(|ui| {
           ui.label("Provider:");
@@ -282,25 +291,46 @@ impl epi::App for TemplateApp {
           //name_input.request_focus();
           
         });
-        if self.add_channel_menu.provider == ProviderName::YouTube {
+        /*if self.add_channel_menu.provider == ProviderName::YouTube {
           ui.horizontal(|ui| {
             ui.label("Channel ID:");
             ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
           });
-        }
+        }*/
         
         if name_input.unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().unwrap()); 
-          self.add_channel_menu_show = false;
+          self.show_add_channel_menu = false;
         }
       }).unwrap();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && add_menu.response.rect.contains(pos) == false {
-        self.add_channel_menu_show = false;
+        self.show_add_channel_menu = false;
       }
       else if ctx.input().key_pressed(Key::Escape) {
-        self.add_channel_menu_show = false;
+        self.show_add_channel_menu = false;
+      }
+    }
+
+    let mut channel_removed = false;
+    if self.show_channel_options && let Some(channel) = self.selected_channel.as_ref() {
+      let add_menu = egui::Window::new(format!("Configure Channel: {}", channel)).collapsible(false).show(ctx, |ui| {
+        if ui.button("Remove channel").clicked() {
+          if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+            chat_mgr.leave_channel(channel);
+            channel_removed = true;
+            self.show_channel_options = false;
+          }
+        }
+      }).unwrap();
+      if ctx.input().pointer.any_click() 
+          && let Some(pos) = ctx.input().pointer.interact_pos() 
+          && add_menu.response.rect.contains(pos) == false {
+        self.show_channel_options = false;
+      }
+      else if ctx.input().key_pressed(Key::Escape) {
+        self.show_channel_options = false;
       }
     }
 
@@ -308,7 +338,7 @@ impl epi::App for TemplateApp {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
           if ui.menu_button(RichText::new("Add a channel").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
-            *(&mut self.add_channel_menu_show) = true;
+            *(&mut self.show_add_channel_menu) = true;
           }
           ui.separator();
           if ui.menu_button(RichText::new("Configure Tokens").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
@@ -327,7 +357,6 @@ impl epi::App for TemplateApp {
       });
       ui.separator();
 
-      let mut channel_removed = false;
       ui.horizontal(|ui| {
         let label = RichText::new("All Channels").size(BUTTON_TEXT_SIZE);
         let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
@@ -337,12 +366,15 @@ impl epi::App for TemplateApp {
 
         let channels = &mut self.channels;
         for (channel, sco) in channels.iter_mut() {  
-          if let Some(t) = sco.transient.as_mut() {
-            
+          if self.twitch_chat_manager.is_none() {
+            self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
+          }
+
+          if let Some(t) = sco.transient.as_mut() {            
             let emote_loader = self.emote_loader.as_mut().unwrap();
             let providers = &mut self.providers;
 
-            if let Ok(x) = t.rx.try_recv() {
+            if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
               match x {
                 InternalMessage::PrivMsg { message } => {
                   let provider_emotes = providers.get_mut(&sco.provider).and_then(|f| Some(&mut f.emotes));
@@ -364,7 +396,7 @@ impl epi::App for TemplateApp {
                   sco.roomid = room_id;
                   match emote_loader.load_channel_emotes(&sco.roomid, match &sco.provider {
                     ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
-                    ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
+                    //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
                   }) {
                     Ok(x) => {
                       t.channel_emotes = Some(x);
@@ -401,26 +433,28 @@ impl epi::App for TemplateApp {
             if clbl.clicked() {
               channel_swap = true;
             }
-            else if clbl.middle_clicked() { //TODO: custom widget that adds close button?
-              //self.runtime.block_on(async {
-                _ = sco.close();
-              //});
+            else if clbl.clicked_by(egui::PointerButton::Secondary) {
+              self.show_channel_options = true;
+            }
+            else if clbl.middle_clicked() && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+              chat_mgr.leave_channel(channel);
               channel_removed = true;
             }
           }
-          else {
+          else if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
             // channel has not been opened yet
-            twitch::open_channel(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, sco, self.runtime.as_ref().unwrap(), self.emote_loader.as_ref().unwrap());
+            chat_mgr.open_channel(sco, self.emote_loader.as_ref().unwrap());
+            //twitch::open_channel(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, sco, self.runtime.as_ref().unwrap(), self.emote_loader.as_ref().unwrap());
           }
         }
       });
-      if channel_removed {
-        if let Some(name) = &self.selected_channel {
-          self.channels.remove(name);
-        }
-        *(&mut self.selected_channel) = None;
-      }
     });
+    if channel_removed {
+      if let Some(name) = &self.selected_channel {
+        self.channels.remove(name);
+      }
+      *(&mut self.selected_channel) = None;
+    }
 
     let cframe = egui::Frame { 
       inner_margin: egui::style::Margin::same(5.0), 
@@ -467,8 +501,8 @@ impl epi::App for TemplateApp {
           }
 
           if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
-            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() {
-              match t.tx.try_send(OutgoingMessage::Chat { message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
+            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
                 Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
                   sco.send_history.push_front(self.draft_message.to_owned());
@@ -582,12 +616,9 @@ impl epi::App for TemplateApp {
   }
 
   fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
-    //self.emote_loader.tx.try_send(EmoteRequest::Shutdown);
     self.emote_loader.as_ref().unwrap().close();
-    for channel in self.channels.values_mut() {
-      //self.runtime.block_on(async move {
-        _ = channel.close();//.await;
-      //});
+    if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+      chat_mgr.close();
     }
   }
 

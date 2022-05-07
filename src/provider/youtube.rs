@@ -80,11 +80,8 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
     send_history: Default::default(),
     send_history_ix: None,
     transient: Some(ChannelTransient {
-      tx: in_tx,
-      rx: out_rx,
       channel_emotes: None,
       badge_emotes: None,
-      task_handle: task,
       is_live: false
     })
   };
