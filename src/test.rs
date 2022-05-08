@@ -2,15 +2,26 @@
 
 #[cfg(test)]
 mod test {
-    use std::path::PathBuf;
+    use std::{path::PathBuf, collections::HashMap, ops::Range};
 
+    use chrono::Utc;
     use curl::easy::Easy;
+    use egui::{LayerId, Id, Order, Rect, Vec2, Pos2, FontDefinitions};
+    use itertools::Itertools;
+
+    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile}};
 
   #[test]
   fn gachihyper() {
     let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/60420a8b77137b000de9e66e.gif");
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 60);
+  }
+
+  #[test]
+  fn cummies() {
+    let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/6129ca7da4d049e179751fe5.webp");
+    let frames = crate::emotes::imaging::load_animated_webp(&buf);
   }
 
   #[test]
@@ -60,5 +71,90 @@ mod test {
     let mut x = 20;
     x -= 10 + 5;
     assert_eq!(x, 5);
+  }
+
+  #[test]
+  fn estimate_test() {
+    let x = estimate_message_test_helper(600., "⠄⠄⠄⠄⠄⠄⠄⢀⣠⣶⣾⣿⣶⣦⣤⣀⠄⢀⣀⣤⣤⣤⣤⣄⠄⠄⠄⠄⠄⠄ ⠄⠄⠄⠄⠄⢀⣴⣿⣿⣿⡿⠿⠿⠿⠿⢿⣷⡹⣿⣿⣿⣿⣿⣿⣷⠄⠄⠄⠄⠄ ⠄⠄⠄⠄⠄⣾⣿⣿⣿⣯⣵⣾⣿⣿⡶⠦⠭⢁⠩⢭⣭⣵⣶⣶⡬⣄⣀⡀⠄⠄ ⠄⠄⠄⡀⠘⠻⣿⣿⣿⣿⡿⠟⠩⠶⠚⠻⠟⠳⢶⣮⢫⣥⠶⠒⠒⠒⠒⠆⠐⠒ ⠄⢠⣾⢇⣿⣿⣶⣦⢠⠰⡕⢤⠆⠄⠰⢠⢠⠄⠰⢠⠠⠄⡀⠄⢊⢯⠄⡅⠂⠄ ⢠⣿⣿⣿⣿⣿⣿⣿⣏⠘⢼⠬⠆⠄⢘⠨⢐⠄⢘⠈⣼⡄⠄⠄⡢⡲⠄⠂⠠⠄ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣥⣀⡁⠄⠘⠘⠘⢀⣠⣾⣿⢿⣦⣁⠙⠃⠄⠃⠐⣀ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣋⣵⣾⣿⣿⣿⣿⣦⣀⣶⣾⣿⣿⡉⠉⠉ ⣿⣿⣿⣿⣿⣿⣿⠟⣫⣥⣬⣭⣛⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⠄ ⣿⣿⣿⣿⣿⣿⣿⠸⣿⣏⣙⠿⣿⣿⣶⣦⣍⣙⠿⠿⠿⠿⠿⠿⠿⠿⣛⣩⣶⠄ ⣛⣛⣛⠿⠿⣿⣿⣿⣮⣙⠿⢿⣶⣶⣭⣭⣛⣛⣛⣛⠛⠛⠻⣛⣛⣛⣛⣋⠁⢀ ⣿⣿⣿⣿⣿⣶⣬⢙⡻⠿⠿⣷⣤⣝⣛⣛⣛⣛⣛⣛⣛⣛⠛⠛⣛⣛⠛⣡⣴⣿ ⣛⣛⠛⠛⠛⣛⡑⡿⢻⢻⠲⢆⢹⣿⣿⣿⣿⣿⣿⠿⠿⠟⡴⢻⢋⠻⣟⠈⠿⠿ ⣿⡿⡿⣿⢷⢤⠄⡔⡘⣃⢃⢰⡦⡤⡤⢤⢤⢤⠒⠞⠳⢸⠃⡆⢸⠄⠟⠸⠛⢿ ⡟⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠁⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⢸".to_owned());
+    let expected_ranges : [Range<usize>; 16] = [(0..0),(0..30),(31..61),(62..92),(93..123),(124..154),(155..185),(186..216),
+      (217..247),(248..278),(279..309),(310..340),(341..371),(372..402),(403..433),(434..464)];
+    let mut expected_iter = expected_ranges.iter();
+    for (range, string) in x {
+      assert_eq!(&range, expected_iter.next().unwrap());
+      println!("{:<10}{}", format!("{:?}", range), string);
+    }
+  }
+
+  
+  #[test]
+  fn estimate_test_2() {
+    let x = estimate_message_test_helper(300., "test".to_owned());
+    let expected_ranges : [Range<usize>; 1] = [(0..4)];
+    let mut expected_iter = expected_ranges.iter();
+    for (range, string) in x {
+      assert_eq!(&range, expected_iter.next().unwrap());
+      println!("{:<10}{}", format!("{:?}", range), string);
+    }
+  }
+
+  #[test]
+  fn estimate_test_3() {
+    let str = "kslajflksadjflksdjlfkjsdlakfjlkasjdflsdjafkljsdalfjksdlakfjsdlakfjldsjflsdakjflksdjflkjsdalfkjasldkfjlsadkjflsakdjflkasjdlfkjasdklfjlsdakfjklsdajflsdakjflsdjaflksdjflsdkajflsakdjflksadjflksdajflksjdlafkjsdklafjlsadkfjsdlfas".to_owned();
+    let x = estimate_message_test_helper(300., str.to_owned());
+    let expected_ranges : [Range<usize>; 5] = [(0..38),(38..99),(99..160),(160..220),(220..223)];
+    let mut expected_iter = expected_ranges.iter();
+    for (range, string) in x {
+      assert_eq!(&range, expected_iter.next().unwrap());
+      println!("{:<10}{}", format!("{:?}", range), string);
+    }
+  }
+
+  #[test]
+  fn estimate_test_4() {
+    let str = "This is a long sentence intended to test that text wraps over to a new line in an appropiate fashion in the user interface.".to_owned();
+    let x = estimate_message_test_helper(300., str.to_owned());
+    let expected_ranges : [Range<usize>; 4] = [(0..24),(24..67),(67..113),(113..123)];
+    let mut expected_iter = expected_ranges.iter();
+    for (range, string) in x {
+      assert_eq!(&range, expected_iter.next().unwrap());
+      println!("{:<10}{}", format!("{:?}", range), string);
+    }
+  }
+
+  fn estimate_message_test_helper(width: f32, message: String) -> Vec<(Range<usize>, String)> {
+    let context : egui::Context = Default::default();
+    context.set_fonts(load_font());
+    context.begin_frame(Default::default());
+    let id = Id::new(123);
+    let layer = LayerId::new(Order::Debug, id);
+    let rect = Rect { min: Pos2 { x: 0., y: 0. }, max: Pos2 { x: width, y: 400. } };
+    let mut ui = egui::Ui::new(context, layer, id, rect, rect);
+    let msg = ChatMessage { 
+      provider: crate::provider::ProviderName::Twitch, 
+      channel: "xqcow".to_owned(), 
+      username: "xqcL".to_owned(), 
+      timestamp: Utc::now(), 
+      message: message.to_owned(), 
+      profile: UserProfile {
+        badges: None,
+        display_name: None,
+        color: (0, 0, 0),
+      }, 
+      combo_data: None };
+    let emotes : HashMap<String, EmoteFrame> = Default::default();
+    let badges : HashMap<String, EmoteFrame> = Default::default();
+    let x = get_chat_msg_size(&mut ui, &msg, &emotes, Some(&badges));
+    
+    x.0.iter().map(|item| {
+      let rng = match &item.1 {
+        TextRange::Range { range } => range,
+        _ => panic!("unexpected")
+      };
+      (
+        rng.to_owned(), 
+        //message[rng.start..rng.end].to_owned() //TODO: make estimator return slice ix instead of char ix (performance?)
+        message.char_indices().map(|(_i, x)| x).skip(rng.start).take(rng.end - rng.start).collect::<String>()
+      )
+    }).collect_vec()
   }
 }

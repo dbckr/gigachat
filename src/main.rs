@@ -19,6 +19,7 @@ fn main() {
 
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
   eframe::run_native(&title.to_owned(), native_options, Box::new(|cc| { 
+    cc.egui_ctx.set_fonts(gigachat::ui::load_font());
     let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
     let mut app = TemplateApp::new(cc, title, runtime);
     let loader = app.emote_loader.as_ref().unwrap();

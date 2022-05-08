@@ -6,21 +6,21 @@
 
 use std::{collections::{HashMap, VecDeque}, ops::Add};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
-use egui::{Vec2, ColorImage, Pos2};
+use egui::{Vec2, ColorImage, Pos2, FontDefinitions, FontData};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
-use self::chat::EmoteFrame;
+use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
 pub mod chat;
 pub mod chat_estimate;
 
-const BUTTON_TEXT_SIZE : f32 = 18.0;
-const BODY_TEXT_SIZE : f32 = 16.0;
-const SMALL_TEXT_SIZE : f32 = 13.0;
+const BUTTON_TEXT_SIZE : f32 = 20.0;
+const BODY_TEXT_SIZE : f32 = 18.0;
+const SMALL_TEXT_SIZE : f32 = 15.0;
 /// Max length before manually splitting up a string without whitespace
-const WORD_LENGTH_MAX : usize = 40;
+const WORD_LENGTH_MAX : usize = 30;
 /// Emotes in chat messages will be scaled to this height
 pub const EMOTE_HEIGHT : f32 = 26.0;
 const BADGE_HEIGHT : f32 = 18.0;
@@ -30,7 +30,7 @@ const COMBO_LINE_HEIGHT : f32 = 42.0;
 
 pub struct UiChatMessageRow {
   pub row_height: f32,
-  pub start_char_index: Option<usize>,
+  pub msg_char_range: TextRange,
   pub is_visible: bool
 }
 
@@ -39,7 +39,8 @@ pub struct UiChatMessage<'a> {
   pub emotes : HashMap<String, EmoteFrame>,
   pub badges : Option<HashMap<String, EmoteFrame>>,
   pub row_data : Vec<UiChatMessageRow>,
-  pub msg_height : f32
+  pub msg_height : f32,
+  pub is_ascii_art: bool
 }
 
 pub struct AddChannelMenu {
@@ -591,7 +592,13 @@ impl epi::App for TemplateApp {
         if self.chat_history.len() > 2000 {
           if let Some(popped) = self.chat_history.pop_front() && let Some(height) = popped.1 {
             if self.selected_channel.is_none() || self.selected_channel == Some(popped.0.channel) {
-              popped_height += height + ui.spacing().item_spacing.y;
+              if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end == false) {
+                // add nothing to y_pos
+              } else if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end == true && c.count > 1) {
+                popped_height += COMBO_LINE_HEIGHT;
+              } else {
+                popped_height += height + ui.spacing().item_spacing.y;
+              }
             }
           }
         }
@@ -672,14 +679,13 @@ impl TemplateApp {
 
         // Skip processing if row size is accurately cached and not in view
         if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
-          && (y_pos < viewport.min.y - 200. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 200.) {
-            //y_pos += size_y + ui.spacing().item_spacing.y;
+          && (y_pos < viewport.min.y - 2000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 2000.) {
             if self.enable_combos && combo.is_some_and(|c| c.is_end == false) {
               // add nothing to y_pos
             } else if self.enable_combos && combo.is_some_and(|c| c.is_end == true && c.count > 1) {
               y_pos += COMBO_LINE_HEIGHT;
             } else {
-              y_pos += size_y + ui.spacing().item_spacing.y;
+              y_pos += size_y;
             }
             if y_pos < viewport.min.y - 200. {
               skipped_rows += 1;
@@ -694,32 +700,32 @@ impl TemplateApp {
           .and_then(|t| Some((t.channel_emotes.as_mut(), t.badge_emotes.as_mut()))).unwrap_or((None, None));
         let emotes = get_emotes_for_message(&row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
         let badges = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
-        let msg_sizing = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
-        *cached_y = Some(msg_sizing.iter().map(|x| x.0).sum::<f32>());
+        let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
 
         let mut lines_to_include : Vec<UiChatMessageRow> = Default::default();
         let mut row_y = 0.;
         for line in msg_sizing {
           let size_y = line.0;
+          println!("{} {}", viewport.min.y, viewport.max.y);
           if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
             if excess_top_space.is_none() {
               excess_top_space = Some(y_pos + row_y - viewport.min.y);
             }
-            lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: true });
+            lines_to_include.push(UiChatMessageRow { row_height: line.0, msg_char_range: line.1, is_visible: true });
           } 
           else {
-            lines_to_include.push(UiChatMessageRow { row_height: line.0, start_char_index: line.1, is_visible: false });
+            lines_to_include.push(UiChatMessageRow { row_height: line.0, msg_char_range: line.1, is_visible: false });
           }
-          row_y += size_y + ui.spacing().item_spacing.y;
+          row_y += size_y + match is_ascii_art { true => 0., false => ui.spacing().item_spacing.y };
         }
         if self.enable_combos && combo.is_some_and(|c| c.is_end == false) {
           // add nothing to y_pos
         } else if self.enable_combos && combo.is_some_and(|c| c.is_end == true && c.count > 1) {
-          row_y = COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-          y_pos += row_y;
+          y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
         } else {
           y_pos += row_y;
         }
+        *cached_y = Some(row_y);
 
         if (&lines_to_include).iter().any(|x| x.is_visible) {
           //in_view.push((row, emotes, badges, msg_sizing, lines_to_include, row_y, finished_combo.or(Some(combo.clone()))));
@@ -728,7 +734,8 @@ impl TemplateApp {
             emotes: emotes,
             badges: badges,
             row_data: lines_to_include,
-            msg_height: row_y
+            msg_height: row_y,
+            is_ascii_art: is_ascii_art
         });
         }
       }
@@ -909,4 +916,27 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
   }
 
   Some(result)
+}
+
+pub fn load_font() -> FontDefinitions {
+  use eframe::egui::{FontFamily, TextStyle};
+
+  let mut fonts = FontDefinitions::default();
+
+  let font_file = load_file_into_buffer("C:\\Windows\\Fonts\\segoeui.ttf");
+  let font = FontData::from_owned(font_file);
+
+  let symbols_font = load_file_into_buffer("C:\\Windows\\Fonts\\seguisym.ttf");
+  let symbols = FontData::from_owned(symbols_font);
+
+  fonts.font_data.insert("def_font".into(), font);
+  fonts.font_data.insert("symbols".into(), symbols);
+
+  fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "def_font".into());
+  fonts.families.entry(FontFamily::Monospace).or_default().push("def_font".into());
+
+  fonts.families.entry(FontFamily::Proportional).or_default().push("symbols".into());
+  fonts.families.entry(FontFamily::Monospace).or_default().push("symbols".into());
+
+  fonts
 }

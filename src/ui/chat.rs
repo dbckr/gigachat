@@ -13,7 +13,7 @@ use itertools::Itertools;
 
 use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
 
-use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage, COMBO_LINE_HEIGHT};
+use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{is_ascii_art, TextRange}};
 
 pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
@@ -36,99 +36,63 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
 
 pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
   let channel_color = get_provider_color(&chat_msg.message.provider);
-  let mut row_shown = false;
-
-  let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.badges.as_ref());
   let ui_row = ui.horizontal_wrapped(|ui| {
-    let mut row_iter = chat_msg.row_data.iter().peekable();
-    let mut current_row = row_iter.next();
+    let mut row_ix = 0;
+    if chat_msg.is_ascii_art {
+      ui.spacing_mut().item_spacing.y = 0.;
+    }
 
-    if let Some(row_info) = current_row && row_info.is_visible { // showing first row
-      ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_info.row_height });
-      ui.label(job);
-
-      if let Some(user_badges) = &chat_msg.message.profile.badges {
-        for badge in user_badges {
-          let tex = chat_msg.badges.as_ref().and_then(|f| f.get(badge).and_then(|g| g.texture.as_ref())).unwrap_or(&transparent_img);
-            ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-              ui.set_width(BADGE_HEIGHT + 20.);
-              ui.vertical_centered(|ui| {
-                ui.image(tex, tex.size_vec2());
-                let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
-                match parts.0 {
-                  "subscriber" => {
-                    let num = parts.1.parse::<usize>().unwrap_or(0);
-                    let tier = match num / 1000 {
-                      3 => "T3",
-                      2 => "T2",
-                      _ => "T1",
-                    };
-                    ui.label(format!("{} Month Sub ({})", num % 1000, tier))
-                  }, 
-                  "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
-                  "bits" => ui.label(format!("{} Bits", parts.1)),
-                  _ => ui.label(format!("{}", parts.0))
-                };
-              });
-            });
-        }
+    let chat_msg_rows = chat_msg.row_data.iter().map(|row| {
+      match &row.msg_char_range {
+        TextRange::Range { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).take(range.end - range.start).collect::<String>(), row.is_visible, row.row_height),
+        TextRange::EndRange { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).collect::<String>(), row.is_visible, row.row_height)
       }
+    });
 
-      let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(&chat_msg.message.profile.color)));
-      ui.add(uname);
-
-      row_shown = true;
-    } 
-    //current_row = row_iter.next();  
-
-    let mut last_emote_width : Option<(f32, f32)> = None;
-    let mut ix : usize = 0;
-
-    for word in chat_msg.message.message.split(" ") {
-      let link_url = is_url(word).then(|| word.to_owned());
-      
-      let subwords = 
-        if word.len() > WORD_LENGTH_MAX && let Some(next_row) = row_iter.peek() && let Some(next_row_ix) = next_row.start_char_index && ix + word.len() >= next_row_ix {
-          let orig_ix = &ix; 
-          let mut ix = ix.to_owned();
-          let mut peeker = row_iter.clone();
-          let subword : String = word.char_indices().map(|(_i, x)| x).take(next_row_ix - orig_ix).collect();
-          ix += subword.chars().count();
-          let mut words : Vec<String> = [subword].to_vec();
-          while let Some(next_row) = peeker.next() 
-            && let Some(next_row_ix) = next_row.start_char_index {
-            if orig_ix + word.len() >= next_row_ix {
-              let subword = word.char_indices().map(|(_i, x)| x).skip(ix - orig_ix).take(next_row_ix - ix).collect::<String>();
-              ix += subword.chars().count();
-              words.insert(words.len(), subword);
+    for (message, is_visible, row_height) in chat_msg_rows {
+      let mut last_emote_width : Option<(f32, f32)> = None;
+      if is_visible {
+        ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
+        ui.set_row_height(row_height);
+        if row_ix == 0 {
+          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.badges.as_ref());
+          ui.label(job);
+          if let Some(user_badges) = &chat_msg.message.profile.badges {
+            for badge in user_badges {
+              let tex = chat_msg.badges.as_ref().and_then(|f| f.get(badge).and_then(|g| g.texture.as_ref())).unwrap_or(&transparent_img);
+                ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+                  ui.set_width(BADGE_HEIGHT + 20.);
+                  ui.vertical_centered(|ui| {
+                    ui.image(tex, tex.size_vec2());
+                    let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                    match parts.0 {
+                      "subscriber" => {
+                        let num = parts.1.parse::<usize>().unwrap_or(0);
+                        let tier = match num / 1000 {
+                          3 => "T3",
+                          2 => "T2",
+                          _ => "T1",
+                        };
+                        ui.label(format!("{} Month Sub ({})", num % 1000, tier))
+                      }, 
+                      "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
+                      "bits" => ui.label(format!("{} Bits", parts.1)),
+                      _ => ui.label(format!("{}", parts.0))
+                    };
+                  });
+                });
             }
           }
-          if orig_ix + word.len() > ix {
-            words.insert(words.len(), word.char_indices().map(|(_i, x)| x).skip(ix - orig_ix).collect());
-          }
-          words
-        } else { 
-          [word.char_indices().map(|(_i, x)| x).collect()].to_vec() 
-        };
-        
-      for word in subwords {
-        if let Some(next_row) = row_iter.peek() && let Some(next_row_ix) = next_row.start_char_index {
-          if ix >= next_row_ix {
-            if next_row.is_visible {
-              if row_shown { ui.end_row(); ui.set_row_height(next_row.row_height); }
-              ui.image(transparent_img, emath::Vec2 { x: 1.0, y: next_row.row_height });
-              row_shown = true;
-            }
-            current_row = row_iter.next();
-          }
+    
+          let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(&chat_msg.message.profile.color)));
+          ui.add(uname);
         }
-        ix += word.chars().count();
-
-        if let Some(row_info) = current_row && row_info.is_visible {
-          let emote = chat_msg.emotes.get(&word);
+        for word in message.split(" ") {
+        let link_url = is_url(word).then(|| word.to_owned());
+          let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(&transparent_img);
-            add_ui_emote_image(&word, &path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
+            add_ui_emote_image(word, &path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
           }
           else {
             last_emote_width = None;
@@ -145,20 +109,30 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                     new_tab: modifiers.any(),
                   });
                 }
-                link
               },
-              None => ui.label(RichText::new(word).size(BODY_TEXT_SIZE))
+              None => {
+                let text = match chat_msg.is_ascii_art {
+                  true => RichText::new(word).family(FontFamily::Monospace),
+                  false => RichText::new(word)
+                }.size(BODY_TEXT_SIZE);
+                let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                if lbl.clicked() {
+                  ui.output().copied_text = chat_msg.message.message.to_owned();
+                }
+              }
             };
           }
         }
+        ui.end_row();
       }
+      row_ix += 1;
     }
   });
-  //println!("expected {} actual {} for {}", chat_msg.msg_height, ui_row.response.rect.size().y, &chat_msg.message.username);
+  println!("expected {} actual {} for {}", chat_msg.msg_height, ui_row.response.rect.size().y, &chat_msg.message.username);
   ui_row.response.rect
 }
 
-fn add_ui_emote_image(word: &String, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
