@@ -10,6 +10,8 @@ use chrono::{DateTime, Utc};
 
 use crate::emotes::{Emote};
 
+use self::twitch::ChannelStatus;
+
 pub mod twitch;
 //pub mod youtube;
 
@@ -19,7 +21,7 @@ pub enum IncomingMessage {
   EmoteSets { provider: ProviderName, emote_sets: Vec<String> },
   MsgEmotes { provider: ProviderName, emote_ids: Vec<(String, String)> },
   RoomId { channel: String, room_id: String },
-  StreamingStatus { channel: String, is_live: bool}
+  StreamingStatus { channel: String, status: Option<ChannelStatus>}
 }
 
 impl Default for IncomingMessage {
@@ -60,7 +62,7 @@ pub struct ChannelTransient {
   pub channel_emotes: Option<HashMap<String, Emote>>,
   pub badge_emotes: Option<HashMap<String, Emote>>,
   //pub task_handle: JoinHandle<()>,
-  pub is_live: bool
+  pub status: Option<ChannelStatus>
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]

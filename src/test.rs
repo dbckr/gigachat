@@ -9,7 +9,7 @@ mod test {
     use egui::{LayerId, Id, Order, Rect, Pos2};
     use itertools::Itertools;
 
-    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile}};
+    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile, twitch::parse_channel_status_json}};
 
   #[test]
   fn gachihyper() {

@@ -17,7 +17,7 @@ pub fn process_badge_json(
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<Vec<Emote>, failure::Error> {
-  let data = get_emote_json(url, filename, headers)?;
+  let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() { // Twitch Badges
@@ -47,7 +47,7 @@ pub fn process_twitch_follower_emote_json(
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<Vec<Emote>, failure::Error> {
   //println!("processing emote json {}", filename);
-  let data = get_emote_json(url, filename, headers)?;
+  let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -82,7 +82,7 @@ pub fn process_emote_json(
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<Vec<Emote>, failure::Error> {
   //println!("processing emote json {}", filename);
-  let data = get_emote_json(url, filename, headers)?;
+  let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -166,19 +166,17 @@ pub fn process_emote_json(
   Ok(emotes)
 }
 
-fn get_emote_json(
+pub fn get_json_from_url(
   url: &str,
-  filename: &str,
+  filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<String, failure::Error> {
-  let filename = format!("{}.json", filename);
-  let path = Path::new(&filename);
-  if path.exists() == false && let Some(parent_path) = path.parent() {
-    DirBuilder::new().recursive(true).create(parent_path)?;
 
-    let mut f =
-      OpenOptions::new().create_new(true).write(true).open(&filename).expect("Unable to open file");
+  let mut buffer: Vec<u8> = Default::default();
+  let mut json: String = Default::default();
+  
 
+  if filename.is_none() || filename.is_some_and(|f| Path::new(&format!("{}.json", f)).exists() == false) {
     let mut easy = Easy::new();
     easy.url(url)?;
     if let Some(headers) = headers {
@@ -190,16 +188,40 @@ fn get_emote_json(
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| {
-      f.write_all(data).expect("Failed to write to file");
+      for byte in data {
+        buffer.push(byte.to_owned());
+      }
       Ok(data.len())
     })?;
     transfer.perform()?;
   }
-
-  let file = File::open(filename).expect("no such file");
-  let mut result = String::new();
-  for line in BufReader::new(file).lines().filter_map(|result| result.ok()) {
-    result.push_str(&line);
+  
+  if buffer.len() > 0 {
+    match std::str::from_utf8(&buffer) {
+      Ok(str) => json.push_str(str),
+      Err(e) => panic!("{}", e)
+    };
   }
-  Ok(result)
+
+  if let Some(filename) = filename {
+    let filename = format!("{}.json", filename);
+    let path = Path::new(&filename);
+    if let Some(parent_path) = path.parent() {
+      DirBuilder::new().recursive(true).create(parent_path)?;
+    }
+
+    if path.exists()
+    {
+      let file = File::open(filename).expect("no such file");
+      for line in BufReader::new(file).lines().filter_map(|result| result.ok()) {
+        json.push_str(&line);
+      }
+    }
+    else {
+      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).expect("Unable to open file");
+      f.write_all(&buffer).expect("Failed to write to file");
+    }
+  }
+
+  Ok(json)
 }

@@ -4,9 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}, ops::Add};
+use std::{collections::{HashMap, VecDeque}, ops::{Add, Sub}};
+use chrono::{DateTime, Utc};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
-use egui::{Vec2, ColorImage, Pos2, FontDefinitions, FontData};
+use egui::{Vec2, ColorImage, Pos2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
@@ -351,9 +352,9 @@ impl epi::App for TemplateApp {
             &mut self.global_emotes, 
             self.emote_loader.as_mut().unwrap());
         },
-        IncomingMessage::StreamingStatus { channel, is_live } => {
+        IncomingMessage::StreamingStatus { channel, status } => {
           if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
-            t.is_live = is_live;
+            t.status = status;
           }
         },
         IncomingMessage::MsgEmotes { provider, emote_ids } => {
@@ -440,9 +441,22 @@ impl epi::App for TemplateApp {
           }
 
           if let Some(t) = sco.transient.as_mut() {            
-            let label = RichText::new(format!("{} {}", channel, match t.is_live { true => "🔴", false => ""}))
-            .size(BUTTON_TEXT_SIZE);
-            let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), label);
+            let mut job = LayoutJob { ..Default::default() };
+            job.append(&format!("{channel}"), 0., egui::TextFormat {
+              font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
+              color: Color32::LIGHT_GRAY,
+              ..Default::default()
+            });
+            if t.status.is_some_and(|s| s.stream_type == "live") {
+              job.append("🔴", 3., egui::TextFormat {
+                font_id: FontId::new(BUTTON_TEXT_SIZE / 2., FontFamily::Proportional), 
+                color: Color32::from_rgb(220, 0, 0),
+                valign: Align::Center,
+                ..Default::default()
+              });
+            }
+            //let label = RichText::new(format!("{} {}", channel, match t.status.is_some_and(|s| s.stream_type == "live") { true => "🔴", false => ""})).size(BUTTON_TEXT_SIZE);
+            let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), job);
             if clbl.clicked() {
               channel_swap = true;
             }
@@ -452,6 +466,18 @@ impl epi::App for TemplateApp {
             else if clbl.middle_clicked() && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
               chat_mgr.leave_channel(channel);
               channel_removed = true;
+            }
+            if let Some(status) = &t.status {
+              clbl.on_hover_ui(|ui| {
+                ui.label(&status.title);
+                ui.label(&status.game_name);
+                ui.label(format!("{} viewers", &status.viewer_count));
+                if let Ok(dt) = DateTime::parse_from_rfc3339(&status.started_at) {
+                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                  let width = 2;
+                  ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                }
+              });
             }
           }
           else if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
@@ -484,6 +510,7 @@ impl epi::App for TemplateApp {
           let prev_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
           let next_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
 
+          ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
           let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
             .desired_rows(2)
             .desired_width(ui.available_width())
@@ -612,6 +639,10 @@ impl epi::App for TemplateApp {
           }
         }
 
+        if channel_swap {
+          self.chat_scroll = None;
+        }
+
         ui.style_mut().visuals.override_text_color = Some(egui::Color32::LIGHT_GRAY);
         let chat_area = egui::ScrollArea::vertical()
           .auto_shrink([false; 2])
@@ -619,7 +650,7 @@ impl epi::App for TemplateApp {
           .always_show_scroll(true)
           .scroll_offset(self.chat_scroll.and_then(|f| Some(egui::Vec2 {x: 0., y: f.y - popped_height }) ).or_else(|| Some(egui::Vec2 {x: 0., y: 0.})).unwrap());
         let area = chat_area.show_viewport(ui, |ui, viewport| {
-          self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned(), &channel_swap);
+          self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
         });
         // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
         self.chat_scroll = Some(area.state.offset);
@@ -667,7 +698,7 @@ impl epi::App for TemplateApp {
 }
 
 impl TemplateApp {
-  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>, is_swap: &bool) {
+  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
       //ui.spacing_mut().item_spacing.y = 1.;
@@ -752,9 +783,9 @@ impl TemplateApp {
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
-      if *is_swap {
-        ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: y_pos }, Vec2 { x: 0., y: 0. }), None);
-      }
+      //if *is_swap {
+      //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
+      //}
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end == true && c.count == 1) {

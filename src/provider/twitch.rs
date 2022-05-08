@@ -4,15 +4,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashSet};
+use std::{collections::{HashSet, HashMap}, ops::Sub};
 
+use chrono::{DateTime, Utc};
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader}};
+use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader, fetch::get_json_from_url}};
 
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
+
+const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
 pub struct TwitchChatManager {
   token: String,
@@ -55,7 +58,7 @@ impl TwitchChatManager {
   pub fn init_channel(&mut self, channel_name : &String, emote_loader: &EmoteLoader) -> Channel {
     let mut channel = Channel {  
       provider: ProviderName::Twitch, 
-      channel_name: channel_name.to_owned(),
+      channel_name: channel_name.to_lowercase().to_owned(),
       roomid: Default::default(),
       send_history: Default::default(),
       send_history_ix: None,
@@ -69,7 +72,7 @@ impl TwitchChatManager {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
       badge_emotes: None,
-      is_live: false
+      status: None,
     });
     self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect("channel failure");
   }
@@ -95,8 +98,26 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect("failed to send cap req");
   //sender.send_join(format!("#{}", name.to_owned())).expect("failed to join channel");
   let mut seen_emote_ids : HashSet<String> = Default::default();
+  let mut active_room_ids : HashMap<String, String> = Default::default();
   let mut quitted = false;
+  let mut last_status_check : Option<DateTime<Utc>> = None;
   while !quitted {
+
+    // check channel statuses
+    if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_seconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC) {
+      let room_ids = active_room_ids.iter().map(|(_k,v)| v.to_owned()).collect_vec();
+      if room_ids.len() > 0 {
+        last_status_check = Some(Utc::now());
+        let status_data = get_channel_statuses(room_ids, &token);
+        for status in status_data {
+          match tx.try_send(IncomingMessage::StreamingStatus { channel: status.user_name.to_lowercase().to_owned(), status: Some(status) }) {
+            Err(e) => println!("error sending status: {}", e),
+            _ => ()
+          }
+        }
+      }
+    }
+
     tokio::select! {
       Some(result) = stream.next()  => {
         match result {
@@ -167,6 +188,9 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                       })
                     },
                     "ROOMSTATE" => {
+                      active_room_ids.insert(str_vec.last().unwrap().trim_start_matches("#").to_owned(), get_tag_value(&tags, "room-id").unwrap().to_owned());
+                      // small delay to not spam twitch API when joining channels at app start
+                      last_status_check = Some(Utc::now() - chrono::Duration::seconds(TWITCH_STATUS_FETCH_INTERVAL_SEC - 2));
                       tx.try_send(IncomingMessage::RoomId { 
                         channel: str_vec.last().unwrap().trim_start_matches("#").to_owned(),
                         room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() })
@@ -227,7 +251,8 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
           },
           OutgoingMessage::Quit {  } => { client.send_quit("Leaving").expect("Error while quitting IRC server"); quitted = true; },
           OutgoingMessage::Leave { channel_name } => {
-            client.send_part(format!("#{}", channel_name)).expect("failed to leave channel");
+            client.send_part(format!("#{}", channel_name.to_owned())).expect("failed to leave channel");
+            active_room_ids.remove(&channel_name);
           },
           OutgoingMessage::Join { channel_name } => {
             client.send_join(format!("#{}", channel_name)).expect("failed to leave channel");
@@ -263,4 +288,47 @@ pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
   let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
 
   ctx.output().open_url(&authorize_url);
+}
+
+fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<ChannelStatus> {
+  if channel_ids.len() == 0 {
+    return Default::default();
+  }
+  let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
+  let json = match get_json_from_url(&url, None, Some([
+    ("Authorization", &format!("Bearer {}", token)),
+    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec())) {
+      Ok(json) => json,
+      Err(e) => { println!("failed getting twitch statuses: {}", e); return Default::default(); }
+    };
+  parse_channel_status_json(channel_ids, json)
+}
+
+pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<ChannelStatus> {
+  let mut result: Result<ChannelStatuses, _> = serde_json::from_str(&json);
+  match result {
+    Ok(result) => {
+      channel_ids.iter().filter_map(|cid| { 
+        result.data.iter().find(|i| &i.user_id == cid).and_then(|i| Some(i.to_owned()))
+      }).collect_vec()
+    },
+    Err(e) => { println!("error deserializing channel statuses: {}", e); Default::default() }
+  }
+}
+#[derive(serde::Deserialize)]
+pub struct ChannelStatuses {
+  data: Vec<ChannelStatus>
+}
+
+#[derive(Clone,Debug)]
+#[derive(serde::Deserialize)]
+pub struct ChannelStatus {
+  pub user_id: String,
+  pub user_name: String,
+  pub game_name: String,
+  #[serde(alias = "type")]
+  pub stream_type: String,
+  pub title: String,
+  pub viewer_count: usize,
+  pub started_at: String
 }
