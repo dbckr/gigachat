@@ -25,7 +25,7 @@ const WORD_LENGTH_MAX : usize = 30;
 pub const EMOTE_HEIGHT : f32 = 26.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
-const MIN_LINE_HEIGHT : f32 = 21.0;
+const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 42.0;
 
 pub struct UiChatMessageRow {
@@ -505,7 +505,7 @@ impl epi::App for TemplateApp {
           }
 
           if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
-            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(t) = sco.transient.as_mut() && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
               match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
                 Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
@@ -595,9 +595,9 @@ impl epi::App for TemplateApp {
               if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end == false) {
                 // add nothing to y_pos
               } else if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end == true && c.count > 1) {
-                popped_height += COMBO_LINE_HEIGHT;
+                popped_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
               } else {
-                popped_height += height + ui.spacing().item_spacing.y;
+                popped_height += height;
               }
             }
           }
@@ -679,11 +679,11 @@ impl TemplateApp {
 
         // Skip processing if row size is accurately cached and not in view
         if let Some(last_viewport) = self.chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
-          && (y_pos < viewport.min.y - 2000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 2000.) {
+          && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
             if self.enable_combos && combo.is_some_and(|c| c.is_end == false) {
               // add nothing to y_pos
             } else if self.enable_combos && combo.is_some_and(|c| c.is_end == true && c.count > 1) {
-              y_pos += COMBO_LINE_HEIGHT;
+              y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
             } else {
               y_pos += size_y;
             }
@@ -706,7 +706,7 @@ impl TemplateApp {
         let mut row_y = 0.;
         for line in msg_sizing {
           let size_y = line.0;
-          println!("{} {}", viewport.min.y, viewport.max.y);
+          //println!("{} {}", viewport.min.y, viewport.max.y);
           if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
             if excess_top_space.is_none() {
               excess_top_space = Some(y_pos + row_y - viewport.min.y);
@@ -919,7 +919,7 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
 }
 
 pub fn load_font() -> FontDefinitions {
-  use eframe::egui::{FontFamily, TextStyle};
+  use eframe::egui::{FontFamily};
 
   let mut fonts = FontDefinitions::default();
 
@@ -929,14 +929,21 @@ pub fn load_font() -> FontDefinitions {
   let symbols_font = load_file_into_buffer("C:\\Windows\\Fonts\\seguisym.ttf");
   let symbols = FontData::from_owned(symbols_font);
 
+  let emojis_font = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf");
+  let emojis = FontData::from_owned(emojis_font);
+
   fonts.font_data.insert("def_font".into(), font);
   fonts.font_data.insert("symbols".into(), symbols);
+  fonts.font_data.insert("emojis".into(), emojis);
 
   fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "def_font".into());
   fonts.families.entry(FontFamily::Monospace).or_default().push("def_font".into());
 
   fonts.families.entry(FontFamily::Proportional).or_default().push("symbols".into());
   fonts.families.entry(FontFamily::Monospace).or_default().push("symbols".into());
+
+  fonts.families.entry(FontFamily::Proportional).or_default().push("emojis".into());
+  fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
 
   fonts
 }

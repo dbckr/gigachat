@@ -4,9 +4,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{io::Read, collections::HashSet, thread::JoinHandle};
+use std::{collections::HashSet};
 
-use async_channel::Receiver;
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
@@ -44,11 +43,13 @@ impl TwitchChatManager {
   }
 
   pub fn leave_channel(&mut self, channel_name : &String) {
-    self.in_tx.try_send(OutgoingMessage::Leave { channel_name: channel_name.to_owned() });
+    self.in_tx.try_send(OutgoingMessage::Leave { channel_name: channel_name.to_owned() }).expect("channel failure");
   }
 
   pub fn close(&mut self) {
-    self.in_tx.try_send(OutgoingMessage::Quit {});
+    self.in_tx.try_send(OutgoingMessage::Quit {}).expect("channel failure");
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    self.handle.abort();
   }
 
   pub fn init_channel(&mut self, channel_name : &String, emote_loader: &EmoteLoader) -> Channel {
@@ -70,7 +71,7 @@ impl TwitchChatManager {
       badge_emotes: emote_loader.twitch_get_global_badges(&self.token),
       is_live: false
     });
-    self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() });
+    self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect("channel failure");
   }
 }
 

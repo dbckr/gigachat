@@ -7,7 +7,7 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 
 use eframe::epaint::text::TextWrapping;
-use egui::{Color32, text::LayoutJob, FontId, FontFamily, plot::Text};
+use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
 
 use crate::provider::*;
@@ -35,7 +35,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, TextRange)> = Default::default();
   let is_ascii_art = is_ascii_art(&row.message);
-  println!("ascii {}", is_ascii_art.is_some());
+  //println!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, badges);
   let header_rows = &ui.fonts().layout_job(job.clone()).rows;
@@ -87,7 +87,7 @@ fn get_word_size(ui: &mut egui::Ui, ix: &mut usize, emotes: &HashMap<String, Emo
   let mut row_iter = rows.iter();
   while let Some((char_len, row)) = row_iter.next() {
     let row_char_range = TextRange::Range { range: (row_start_char_ix..*ix) };
-    let new_row = process_word_result(ui.available_width(), &ui.spacing().item_spacing, &ui.spacing().interact_size, &row, curr_row_width, curr_row_height, row_data, row_char_range, ix, is_ascii_art);
+    let new_row = process_word_result(ui.available_width(), &ui.spacing().item_spacing, &ui.spacing().interact_size, &row, curr_row_width, curr_row_height, row_data, row_char_range);
     if new_row {
       row_start_char_ix = *ix;
     }
@@ -103,7 +103,7 @@ fn get_word_size(ui: &mut egui::Ui, ix: &mut usize, emotes: &HashMap<String, Emo
   TextRange::Range { range: (row_start_char_ix..*ix) }
 }
 
-fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, row_char_range: TextRange, ix: &mut usize, is_ascii_art: Option<usize>) -> bool {
+fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, row_char_range: TextRange) -> bool {
   let curr_width = *curr_row_width + rect.x + item_spacing.x;
   if curr_width <= available_width {
     *curr_row_width += rect.x + item_spacing.x;
@@ -138,7 +138,7 @@ fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_a
 }
 
 pub fn is_ascii_art(msg: &String) -> Option<usize> {
-  let mut words = msg.split_ascii_whitespace().map(|w| w.len()).collect_vec();
+  let words = msg.split_ascii_whitespace().map(|w| w.len()).collect_vec();
   if words.len() > 1 && words.iter().all_equal() && let Some(len) = words.first() && len > &15 {
     Some(len.to_owned())
   }

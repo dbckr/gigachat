@@ -7,9 +7,8 @@
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
-use tokio::{sync::mpsc, task::JoinHandle, runtime::Runtime};
 
-use crate::emotes::{Emote, EmoteLoader};
+use crate::emotes::{Emote};
 
 pub mod twitch;
 //pub mod youtube;
@@ -29,6 +28,7 @@ impl Default for InternalMessage {
     }
 }
 
+#[derive(Debug)]
 pub enum OutgoingMessage {
   Chat { channel_name: String, message: String },
   Leave { channel_name: String },

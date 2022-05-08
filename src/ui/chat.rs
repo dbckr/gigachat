@@ -11,9 +11,9 @@ use eframe::{emath, epaint::text::TextWrapping};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 
-use crate::{emotes::*, provider::{ChatMessage, ProviderName, UserProfile}};
+use crate::{emotes::*, provider::{ProviderName, UserProfile}};
 
-use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, WORD_LENGTH_MAX, ComboCounter, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{is_ascii_art, TextRange}};
+use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
 
 pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
@@ -128,7 +128,11 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
       row_ix += 1;
     }
   });
-  println!("expected {} actual {} for {}", chat_msg.msg_height, ui_row.response.rect.size().y, &chat_msg.message.username);
+  let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
+  let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
+  if actual != expected {
+    println!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
+  }
   ui_row.response.rect
 }
 

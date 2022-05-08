@@ -6,7 +6,7 @@ mod test {
 
     use chrono::Utc;
     use curl::easy::Easy;
-    use egui::{LayerId, Id, Order, Rect, Vec2, Pos2, FontDefinitions};
+    use egui::{LayerId, Id, Order, Rect, Pos2};
     use itertools::Itertools;
 
     use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile}};
@@ -22,6 +22,7 @@ mod test {
   fn cummies() {
     let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/6129ca7da4d049e179751fe5.webp");
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
+    assert_eq!(frames.unwrap().len(), 9);
   }
 
   #[test]
@@ -60,28 +61,14 @@ mod test {
   }
 
   #[test]
-  fn test222() {
-    let ix : usize = 1;
-    let x = ix.saturating_sub(2);
-    assert_eq!(x, 0);
-  }
-
-  #[test]
-  fn test234234() {
-    let mut x = 20;
-    x -= 10 + 5;
-    assert_eq!(x, 5);
-  }
-
-  #[test]
   fn estimate_test() {
     let x = estimate_message_test_helper(600., "⠄⠄⠄⠄⠄⠄⠄⢀⣠⣶⣾⣿⣶⣦⣤⣀⠄⢀⣀⣤⣤⣤⣤⣄⠄⠄⠄⠄⠄⠄ ⠄⠄⠄⠄⠄⢀⣴⣿⣿⣿⡿⠿⠿⠿⠿⢿⣷⡹⣿⣿⣿⣿⣿⣿⣷⠄⠄⠄⠄⠄ ⠄⠄⠄⠄⠄⣾⣿⣿⣿⣯⣵⣾⣿⣿⡶⠦⠭⢁⠩⢭⣭⣵⣶⣶⡬⣄⣀⡀⠄⠄ ⠄⠄⠄⡀⠘⠻⣿⣿⣿⣿⡿⠟⠩⠶⠚⠻⠟⠳⢶⣮⢫⣥⠶⠒⠒⠒⠒⠆⠐⠒ ⠄⢠⣾⢇⣿⣿⣶⣦⢠⠰⡕⢤⠆⠄⠰⢠⢠⠄⠰⢠⠠⠄⡀⠄⢊⢯⠄⡅⠂⠄ ⢠⣿⣿⣿⣿⣿⣿⣿⣏⠘⢼⠬⠆⠄⢘⠨⢐⠄⢘⠈⣼⡄⠄⠄⡢⡲⠄⠂⠠⠄ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣥⣀⡁⠄⠘⠘⠘⢀⣠⣾⣿⢿⣦⣁⠙⠃⠄⠃⠐⣀ ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣋⣵⣾⣿⣿⣿⣿⣦⣀⣶⣾⣿⣿⡉⠉⠉ ⣿⣿⣿⣿⣿⣿⣿⠟⣫⣥⣬⣭⣛⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⠄ ⣿⣿⣿⣿⣿⣿⣿⠸⣿⣏⣙⠿⣿⣿⣶⣦⣍⣙⠿⠿⠿⠿⠿⠿⠿⠿⣛⣩⣶⠄ ⣛⣛⣛⠿⠿⣿⣿⣿⣮⣙⠿⢿⣶⣶⣭⣭⣛⣛⣛⣛⠛⠛⠻⣛⣛⣛⣛⣋⠁⢀ ⣿⣿⣿⣿⣿⣶⣬⢙⡻⠿⠿⣷⣤⣝⣛⣛⣛⣛⣛⣛⣛⣛⠛⠛⣛⣛⠛⣡⣴⣿ ⣛⣛⠛⠛⠛⣛⡑⡿⢻⢻⠲⢆⢹⣿⣿⣿⣿⣿⣿⠿⠿⠟⡴⢻⢋⠻⣟⠈⠿⠿ ⣿⡿⡿⣿⢷⢤⠄⡔⡘⣃⢃⢰⡦⡤⡤⢤⢤⢤⠒⠞⠳⢸⠃⡆⢸⠄⠟⠸⠛⢿ ⡟⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠁⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⠄⢸".to_owned());
     let expected_ranges : [Range<usize>; 16] = [(0..0),(0..30),(31..61),(62..92),(93..123),(124..154),(155..185),(186..216),
       (217..247),(248..278),(279..309),(310..340),(341..371),(372..402),(403..433),(434..464)];
     let mut expected_iter = expected_ranges.iter();
-    for (range, string) in x {
+    for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<10}{}", format!("{:?}", range), string);
+      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -91,9 +78,9 @@ mod test {
     let x = estimate_message_test_helper(300., "test".to_owned());
     let expected_ranges : [Range<usize>; 1] = [(0..4)];
     let mut expected_iter = expected_ranges.iter();
-    for (range, string) in x {
+    for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<10}{}", format!("{:?}", range), string);
+      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -101,11 +88,11 @@ mod test {
   fn estimate_test_3() {
     let str = "kslajflksadjflksdjlfkjsdlakfjlkasjdflsdjafkljsdalfjksdlakfjsdlakfjldsjflsdakjflksdjflkjsdalfkjasldkfjlsadkjflsakdjflkasjdlfkjasdklfjlsdakfjklsdajflsdakjflsdjaflksdjflsdkajflsakdjflksadjflksdajflksjdlafkjsdklafjlsadkfjsdlfas".to_owned();
     let x = estimate_message_test_helper(300., str.to_owned());
-    let expected_ranges : [Range<usize>; 5] = [(0..38),(38..99),(99..160),(160..220),(220..223)];
+    let expected_ranges : [Range<usize>; 5] = [(0..32),(32..88),(88..142),(142..196),(196..223)];
     let mut expected_iter = expected_ranges.iter();
-    for (range, string) in x {
+    for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<10}{}", format!("{:?}", range), string);
+      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -113,15 +100,15 @@ mod test {
   fn estimate_test_4() {
     let str = "This is a long sentence intended to test that text wraps over to a new line in an appropiate fashion in the user interface.".to_owned();
     let x = estimate_message_test_helper(300., str.to_owned());
-    let expected_ranges : [Range<usize>; 4] = [(0..24),(24..67),(67..113),(113..123)];
+    let expected_ranges : [Range<usize>; 4] = [(0..24),(24..67),(67..108),(108..123)];
     let mut expected_iter = expected_ranges.iter();
-    for (range, string) in x {
+    for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<10}{}", format!("{:?}", range), string);
+      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
-  fn estimate_message_test_helper(width: f32, message: String) -> Vec<(Range<usize>, String)> {
+  fn estimate_message_test_helper(width: f32, message: String) -> Vec<(Range<usize>, f32, String)> {
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());
     context.begin_frame(Default::default());
@@ -152,6 +139,7 @@ mod test {
       };
       (
         rng.to_owned(), 
+        item.0,
         //message[rng.start..rng.end].to_owned() //TODO: make estimator return slice ix instead of char ix (performance?)
         message.char_indices().map(|(_i, x)| x).skip(rng.start).take(rng.end - rng.start).collect::<String>()
       )
