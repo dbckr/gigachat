@@ -14,15 +14,15 @@ pub mod twitch;
 //pub mod youtube;
 
 #[derive(Clone)]
-pub enum InternalMessage {
+pub enum IncomingMessage {
   PrivMsg { message: ChatMessage },
-  EmoteSets { emote_sets: Vec<String> },
-  MsgEmotes { emote_ids: Vec<(String, String)> },
-  RoomId { room_id: String },
-  StreamingStatus { is_live: bool}
+  EmoteSets { provider: ProviderName, emote_sets: Vec<String> },
+  MsgEmotes { provider: ProviderName, emote_ids: Vec<(String, String)> },
+  RoomId { channel: String, room_id: String },
+  StreamingStatus { channel: String, is_live: bool}
 }
 
-impl Default for InternalMessage {
+impl Default for IncomingMessage {
     fn default() -> Self {
         Self::PrivMsg { message: Default::default() }
     }

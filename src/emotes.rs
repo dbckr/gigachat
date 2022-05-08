@@ -344,7 +344,7 @@ impl EmoteLoader {
         Some(map)
       },
       Err(e) => {
-        println!("Error loading emote set: {}", e);
+        println!("Error loading channel badge json: {}", e);
         Some(HashMap::new())
       }
     }

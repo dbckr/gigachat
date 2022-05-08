@@ -12,19 +12,19 @@ use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader}};
 
-use super::{ChatMessage, UserProfile, InternalMessage, OutgoingMessage, ChannelTransient};
+use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
 
 pub struct TwitchChatManager {
   token: String,
   handle: tokio::task::JoinHandle<()>,
   pub in_tx: mpsc::Sender<OutgoingMessage>,
-  pub out_rx: mpsc::Receiver<InternalMessage>,
+  pub out_rx: mpsc::Receiver<IncomingMessage>,
 }
 
 impl TwitchChatManager {
 
   pub fn new(username: &String, token: &String, runtime: &Runtime) -> Self {
-    let (out_tx, out_rx) = mpsc::channel::<InternalMessage>(256);
+    let (out_tx, out_rx) = mpsc::channel::<IncomingMessage>(256);
     let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
     let token2 = token.to_owned();
     let name2 = username.to_owned();
@@ -68,14 +68,14 @@ impl TwitchChatManager {
   pub fn open_channel<'a>(&mut self, channel: &mut Channel, emote_loader: &EmoteLoader) {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
-      badge_emotes: emote_loader.twitch_get_global_badges(&self.token),
+      badge_emotes: None,
       is_live: false
     });
     self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect("channel failure");
   }
 }
 
-async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<InternalMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
+async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<IncomingMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
   let mut profile = UserProfile::default();
   //let name = channel_name.to_owned();
   //let channels = [format!("#{}", name.to_owned())].to_vec();
@@ -101,7 +101,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Internal
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //println!("{}", message);
+            println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -142,11 +142,11 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Internal
                         _ => None
                       }
                     }).sorted_by_key(|(_a, b)| b.to_owned()).dedup().collect_vec();
-                    if let Err(e) = tx.try_send(InternalMessage::MsgEmotes { emote_ids: ids }) {
+                    if let Err(e) = tx.try_send(IncomingMessage::MsgEmotes { provider: ProviderName::Twitch, emote_ids: ids }) {
                       println!("Error sending MsgEmotes: {}", e);
                     }
                   }
-                  match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+                  match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
                     Ok(_) => (),
                     Err(x) => println!("Send failure: {}", x)
                   };
@@ -156,21 +156,25 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Internal
                   sender.send_pong(target).expect("failed to send pong");
               },
               Command::Raw(ref command, ref str_vec) => {
+                println!("Recieved Twitch IRC Command: {}", command);
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {
                       profile = get_user_profile(&tags);
-                      tx.try_send(InternalMessage::EmoteSets { 
-                        emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() })
+                      tx.try_send(IncomingMessage::EmoteSets { 
+                        provider: ProviderName::Twitch,
+                        emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() 
+                      })
                     },
                     "ROOMSTATE" => {
-                      tx.try_send(InternalMessage::RoomId { 
+                      tx.try_send(IncomingMessage::RoomId { 
+                        channel: str_vec.last().unwrap().trim_start_matches("#").to_owned(),
                         room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() })
                     },
                     "NOTICE" => {
                       if str_vec.contains(&"Login unsuccessful".to_string()) {
                         //panic!("Failed to login to IRC");
-                        tx.try_send(InternalMessage::PrivMsg { message: ChatMessage { 
+                        tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage { 
                           provider: ProviderName::Twitch, 
                           channel: "".to_owned(), 
                           username: "SYSTEM_MSG".to_owned(), 
@@ -216,7 +220,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Internal
               profile: profile.to_owned(),
               ..Default::default()
             };
-            match tx.try_send(InternalMessage::PrivMsg { message: cmsg }) {
+            match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
               Ok(_) => (),
               Err(x) => println!("Send failure: {}", x)
             };

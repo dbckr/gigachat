@@ -15,7 +15,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Cheer emotes
 - Better README
 - Cache json/images in a db file instead of loose files
-- Handle CLEARCHAT command 
+- Handle Twitch CLEARCHAT, CLEARMSG commands
 - Handle USERNOTICE command
 - ~Unicode character support~
 - Multi-channel tabs?
@@ -27,4 +27,3 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Allow message headers (stuff up to and including username) to split between rows properly
 - Ability to open/navigate browser to a stream
 - ~Detect ASCII art and new line appropiately regardless of width~
-- Twitch sub badge images sometimes do not load

@@ -9,7 +9,7 @@ use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId
 use egui::{Vec2, ColorImage, Pos2, FontDefinitions, FontData};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, InternalMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
@@ -338,6 +338,71 @@ impl epi::App for TemplateApp {
       }
     }
 
+    if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+      match x {
+        IncomingMessage::PrivMsg { message } => {
+          let provider_emotes = self.providers.get_mut(&message.provider).and_then(|f| Some(&mut f.emotes));
+          let channel = message.channel.to_owned();
+          push_history(
+            &mut self.chat_history, 
+            message, 
+            provider_emotes, 
+            self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()).and_then(|f| f.channel_emotes.as_mut()),
+            &mut self.global_emotes, 
+            self.emote_loader.as_mut().unwrap());
+        },
+        IncomingMessage::StreamingStatus { channel, is_live } => {
+          if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
+            t.is_live = is_live;
+          }
+        },
+        IncomingMessage::MsgEmotes { provider, emote_ids } => {
+          if let Some(provider) = self.providers.get_mut(&provider) {
+            for (id, name) in emote_ids {
+              if provider.emotes.contains_key(&name) == false {
+                provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "cache/twitch/".to_owned(), ..Default::default() });
+              }
+            }
+          }
+        },
+        IncomingMessage::RoomId { channel, room_id } => {
+          if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
+            sco.roomid = room_id;
+            match self.emote_loader.as_mut().unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
+              ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
+              //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
+            }) {
+              Ok(x) => {
+                t.channel_emotes = Some(x);
+              },
+              Err(x) => { 
+                println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
+                Default::default()
+              }
+            };
+            t.badge_emotes = self.emote_loader.as_mut().unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
+            println!("loaded channel badges for {}:{}", channel, sco.roomid);
+            //break;
+          }
+        },
+        IncomingMessage::EmoteSets { provider,  emote_sets } => {
+          if let Some(provider) = self.providers.get_mut(&provider) {
+            for set in emote_sets {
+              if let Some(set_list) = self.emote_loader.as_mut().unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
+                for (_id, emote) in set_list {
+                  provider.my_sub_emotes.insert(emote.name.to_owned());
+                  if provider.emotes.contains_key(&emote.name) == false {
+                    provider.emotes.insert(emote.name.to_owned(), emote);
+                  }
+                }
+              }
+            }
+            
+          }
+        }
+      };
+    }
+
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
@@ -375,62 +440,6 @@ impl epi::App for TemplateApp {
           }
 
           if let Some(t) = sco.transient.as_mut() {            
-            let emote_loader = self.emote_loader.as_mut().unwrap();
-            let providers = &mut self.providers;
-
-            if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
-              match x {
-                InternalMessage::PrivMsg { message } => {
-                  let provider_emotes = providers.get_mut(&sco.provider).and_then(|f| Some(&mut f.emotes));
-                  push_history(&mut self.chat_history, message, provider_emotes, t.channel_emotes.as_mut(), &mut self.global_emotes, emote_loader);
-                },
-                InternalMessage::StreamingStatus { is_live } => {
-                  t.is_live = is_live;
-                },
-                InternalMessage::MsgEmotes { emote_ids } => {
-                  if let Some(provider) = providers.get_mut(&sco.provider) {
-                    for (id, name) in emote_ids {
-                      if provider.emotes.contains_key(&name) == false {
-                        provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "cache/twitch/".to_owned(), ..Default::default() });
-                      }
-                    }
-                  }
-                },
-                InternalMessage::RoomId { room_id } => {
-                  sco.roomid = room_id;
-                  match emote_loader.load_channel_emotes(&sco.roomid, match &sco.provider {
-                    ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
-                    //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
-                  }) {
-                    Ok(x) => {
-                      t.channel_emotes = Some(x);
-                    },
-                    Err(x) => { 
-                      println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
-                      Default::default()
-                    }
-                  };
-                  t.badge_emotes = emote_loader.twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
-                  break;
-                },
-                InternalMessage::EmoteSets { emote_sets } => {
-                  if let Some(provider) = providers.get_mut(&sco.provider) {
-                    for set in emote_sets {
-                      if let Some(set_list) = emote_loader.twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
-                        for (_id, emote) in set_list {
-                          provider.my_sub_emotes.insert(emote.name.to_owned());
-                          if provider.emotes.contains_key(&emote.name) == false {
-                            provider.emotes.insert(emote.name.to_owned(), emote);
-                          }
-                        }
-                      }
-                    }
-                    
-                  }
-                }
-              };
-            }
-
             let label = RichText::new(format!("{} {}", channel, match t.is_live { true => "🔴", false => ""}))
             .size(BUTTON_TEXT_SIZE);
             let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), label);
