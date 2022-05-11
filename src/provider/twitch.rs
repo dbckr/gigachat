@@ -4,21 +4,20 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashSet, HashMap}, ops::Sub};
+use std::{collections::{HashSet, HashMap}};
 
 use chrono::{DateTime, Utc};
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{EmoteLoader, fetch::get_json_from_url}};
+use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{fetch::get_json_from_url}};
 
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
 pub struct TwitchChatManager {
-  token: String,
   handle: tokio::task::JoinHandle<()>,
   pub in_tx: mpsc::Sender<OutgoingMessage>,
   pub out_rx: mpsc::Receiver<IncomingMessage>,
@@ -36,9 +35,7 @@ impl TwitchChatManager {
       spawn_irc(name2, token2, out_tx, in_rx).await
     });
 
-    let token = token.to_owned();
     Self {
-        token,
         handle: task,
         in_tx,
         out_rx,
@@ -55,7 +52,7 @@ impl TwitchChatManager {
     self.handle.abort();
   }
 
-  pub fn init_channel(&mut self, channel_name : &String, emote_loader: &EmoteLoader) -> Channel {
+  pub fn init_channel(&mut self, channel_name : &String) -> Channel {
     let mut channel = Channel {  
       provider: ProviderName::Twitch, 
       channel_name: channel_name.to_lowercase().to_owned(),
@@ -64,11 +61,11 @@ impl TwitchChatManager {
       send_history_ix: None,
       transient: None
     };
-    self.open_channel(&mut channel, emote_loader);
+    self.open_channel(&mut channel);
     channel
   }
 
-  pub fn open_channel<'a>(&mut self, channel: &mut Channel, emote_loader: &EmoteLoader) {
+  pub fn open_channel<'a>(&mut self, channel: &mut Channel) {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
       badge_emotes: None,
@@ -122,7 +119,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            println!("{}", message);
+            //println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -305,7 +302,7 @@ fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<Channe
 }
 
 pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<ChannelStatus> {
-  let mut result: Result<ChannelStatuses, _> = serde_json::from_str(&json);
+  let result: Result<ChannelStatuses, _> = serde_json::from_str(&json);
   match result {
     Ok(result) => {
       channel_ids.iter().filter_map(|cid| { 

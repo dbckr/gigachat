@@ -4,10 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}, ops::{Add, Sub}};
+use std::{collections::{HashMap, VecDeque}, ops::{Add}};
 use chrono::{DateTime, Utc};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
-use egui::{Vec2, ColorImage, Pos2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
+use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
@@ -203,7 +203,7 @@ impl epi::App for TemplateApp {
           if self.twitch_chat_manager.is_none() {
             self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
           }
-          self.twitch_chat_manager.as_mut().unwrap().init_channel(&channel_options.channel_name, emote_loader)
+          self.twitch_chat_manager.as_mut().unwrap().init_channel(&channel_options.channel_name)
           //twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().unwrap(), emote_loader)
         },
         /*ProviderName::YouTube => {
@@ -427,7 +427,8 @@ impl epi::App for TemplateApp {
       });
       ui.separator();
 
-      ui.horizontal(|ui| {
+      ui.horizontal_wrapped(|ui| {
+        ui.set_max_width(ui.available_width() - 80.);
         let label = RichText::new("All Channels").size(BUTTON_TEXT_SIZE);
         let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
         if clbl.clicked() {
@@ -482,8 +483,7 @@ impl epi::App for TemplateApp {
           }
           else if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
             // channel has not been opened yet
-            chat_mgr.open_channel(sco, self.emote_loader.as_ref().unwrap());
-            //twitch::open_channel(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, sco, self.runtime.as_ref().unwrap(), self.emote_loader.as_ref().unwrap());
+            chat_mgr.open_channel(sco);
           }
         }
       });
@@ -959,8 +959,6 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
 }
 
 pub fn load_font() -> FontDefinitions {
-  use eframe::egui::{FontFamily};
-
   let mut fonts = FontDefinitions::default();
 
   let font_file = load_file_into_buffer("C:\\Windows\\Fonts\\segoeui.ttf");

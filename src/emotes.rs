@@ -124,27 +124,27 @@ impl EmoteLoader {
           if let Ok(msg) = recv_msg {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name } => {
-                println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
+                //println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
-                println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
+                //println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name: name, channel_name: channel_name, data: data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
-                println!("{n} loading global emote {} '{}'", name, url);
+                //println!("{n} loading global emote {} '{}'", name, url);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
-                println!("{n} loading global badge {}", name);
+                //println!("{n} loading global badge {}", name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name: name, data: data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
-                println!("{n} loading twitch emote {} '{}'", name, id);
+                //println!("{n} loading twitch emote {} '{}'", name, id);
                 let data = if let Some(x) = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy) {
                   Some(x)
                 } else {
