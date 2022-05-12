@@ -288,6 +288,7 @@ fn get_provider_color(provider : &ProviderName) -> Color32 {
   match provider {
     //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
     ProviderName::Twitch => Color32::from_rgba_unmultiplied(169, 112, 255, 255),
-    //ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255)
+    //ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
+    ProviderName::DGG => Color32::from_rgba_unmultiplied(83, 140, 198, 255),
   }
 }

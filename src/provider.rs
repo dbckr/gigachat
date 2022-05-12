@@ -7,6 +7,8 @@
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
+use curl::easy::Easy;
+use tokio::sync::mpsc;
 
 use crate::emotes::{Emote};
 
@@ -14,6 +16,7 @@ use self::twitch::ChannelStatus;
 
 pub mod twitch;
 //pub mod youtube;
+pub mod dgg;
 
 #[derive(Clone)]
 pub enum IncomingMessage {
@@ -55,13 +58,19 @@ pub struct Provider {
 #[derive(Clone)]
 pub enum ProviderName {
   #[default] Twitch,
+  DGG,
   //YouTube,
+}
+
+pub struct ChatManager {
+  handle: tokio::task::JoinHandle<()>,
+  pub in_tx: mpsc::Sender<OutgoingMessage>,
+  pub out_rx: mpsc::Receiver<IncomingMessage>,
 }
 
 pub struct ChannelTransient {
   pub channel_emotes: Option<HashMap<String, Emote>>,
   pub badge_emotes: Option<HashMap<String, Emote>>,
-  //pub task_handle: JoinHandle<()>,
   pub status: Option<ChannelStatus>
 }
 
@@ -143,4 +152,26 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {
     },
     None => (255, 255, 255)
   }
+}
+
+pub fn make_request(url: &String, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, failure::Error> {
+  let mut result = String::default();
+
+    easy.url(url)?;
+    if let Some(headers) = headers {
+      let mut list = curl::easy::List::new();
+      for head in headers {
+        list.append(&format!("{}: {}", head.0, head.1))?;
+      }
+      easy.http_headers(list)?;
+    }
+    let mut transfer = easy.transfer();
+    transfer.write_function(|data| { 
+      String::from_utf8(data.to_vec()).and_then(|x| Ok((&mut result).push_str(&x))).expect("failed to build string from http response body");
+      Ok(data.len())
+    })?;
+    transfer.perform()?;
+    drop(transfer);
+
+    Ok(result)
 }

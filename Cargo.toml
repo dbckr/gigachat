@@ -5,8 +5,9 @@ edition = "2021"
 license = "MPL-2.0"
 
 [features]
-default = ["persistence"]
+default = ["persistence", "native-tls"]
 persistence = ["eframe/persistence"]
+native-tls = ["tokio-tungstenite/native-tls"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -37,6 +38,10 @@ regex = "1.5.5"
 async-channel = "1.6.1"
 serde = "1.0.136"
 directories-next = "2.0.0"
+sha256 = "1.0.3"
+base64 = "0.13.0"
+tokio-tungstenite = "0.17.1"
+httparse = "1.7.1"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

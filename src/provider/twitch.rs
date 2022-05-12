@@ -69,7 +69,7 @@ impl TwitchChatManager {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
       badge_emotes: None,
-      status: None,
+      status: None
     });
     self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect("channel failure");
   }
@@ -228,10 +228,10 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
       Some(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { channel_name, message } => { 
-            /*_ = match &message.chars().next() {
-              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&name, format!(" {}", &message)),
-              _ => sender.send_privmsg(&format!("#{name}"), &message),
-            }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});*/
+            _ = match &message.chars().next() {
+              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&channel_name, format!(" {}", &message)),
+              _ => sender.send_privmsg(&format!("#{channel_name}"), &message),
+            }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});
             let cmsg = ChatMessage { 
               provider: ProviderName::Twitch,
               channel: channel_name,

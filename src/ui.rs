@@ -10,7 +10,7 @@ use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter}, emotes::imaging::load_file_into_buffer};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::imaging::load_file_into_buffer};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
@@ -46,7 +46,7 @@ pub struct UiChatMessage<'a> {
 
 pub struct AddChannelMenu {
   channel_name: String,
-  channel_id: String,
+  //channel_id: String,
   provider: ProviderName,
 }
 
@@ -54,7 +54,7 @@ impl Default for AddChannelMenu {
     fn default() -> Self {
         Self { 
           channel_name: Default::default(), 
-          channel_id: Default::default(), 
+          //channel_id: Default::default(), 
           provider: ProviderName::Twitch }
     }
 }
@@ -65,7 +65,10 @@ pub struct AuthTokens {
   pub twitch_username: String,
   pub twitch_auth_token: String,
   pub show_twitch_auth_token: bool,
-  pub youtube_auth_token: String
+  pub youtube_auth_token: String,
+  pub show_dgg_auth_token: bool,
+  pub dgg_auth_token: String,
+  pub dgg_verifier: String
 }
 
 #[derive(Default)]
@@ -100,7 +103,9 @@ pub struct TemplateApp {
   chat_scroll: Option<Vec2>,
   enable_combos: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub twitch_chat_manager: Option<TwitchChatManager>
+  pub twitch_chat_manager: Option<TwitchChatManager>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub dgg_chat_manager: Option<ChatManager>
 }
 
 
@@ -206,6 +211,7 @@ impl epi::App for TemplateApp {
           self.twitch_chat_manager.as_mut().unwrap().init_channel(&channel_options.channel_name)
           //twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().unwrap(), emote_loader)
         },
+        ProviderName::DGG => dgg::init_channel()
         /*ProviderName::YouTube => {
           if providers.contains_key(&ProviderName::Twitch) == false {
             providers.insert(ProviderName::Twitch, Provider {
@@ -219,20 +225,20 @@ impl epi::App for TemplateApp {
         }*/
       };
 
-      self.channels.insert(channel_options.channel_name.to_owned(), c);
-      *(&mut self.selected_channel) = Some(channel_options.channel_name.to_owned());
+      let name = c.channel_name.to_owned();
+      self.channels.insert(name.to_owned(), c);
+      *(&mut self.selected_channel) = Some(name);
       channel_options.channel_name = Default::default();
     };
 
     if self.show_auth_ui {
       let auth_menu = egui::Window::new("Auth Tokens").collapsible(false).show(ctx, |ui| {
-        ui.label("Twitch");
         ui.horizontal(|ui| {
-          ui.label("Username:");
+          ui.label("Twitch Username:");
           ui.text_edit_singleline(&mut self.auth_tokens.twitch_username);
         });
         ui.horizontal(|ui| {
-          ui.label("Token:");
+          ui.label("Twitch Token:");
           if self.auth_tokens.show_twitch_auth_token {
             ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
           }
@@ -249,6 +255,23 @@ impl epi::App for TemplateApp {
           }
         });
         ui.separator();
+        ui.horizontal(|ui| {
+          ui.label("DGG Token:");
+          if self.auth_tokens.show_dgg_auth_token {
+            ui.text_edit_singleline(&mut self.auth_tokens.dgg_auth_token);
+          }
+          else if self.auth_tokens.dgg_auth_token.len() > 0 {
+            ui.label("<Auth token hidden>");
+          }
+          else {
+            ui.label("Not logged in");
+          }
+          if ui.button("Log In").clicked() {
+            self.auth_tokens.dgg_auth_token = "".to_owned();
+            self.auth_tokens.show_dgg_auth_token = true;
+            self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
+          }
+        });
         /*ui.horizontal(|ui| {
           ui.label("YouTube");
           ui.text_edit_singleline(&mut self.auth_tokens.youtube_auth_token);
@@ -262,6 +285,17 @@ impl epi::App for TemplateApp {
             self.auth_tokens.twitch_auth_token = cleaned.to_owned();
             if cleaned.len() > 0 {
               self.auth_tokens.show_twitch_auth_token = false;
+            }
+          }
+          let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
+          if dgg_token.starts_with("?") || dgg_token.starts_with("code") {
+            let rgx = regex::Regex::new("code=(.*?)&").unwrap();
+            let cleaned = rgx.captures(dgg_token.as_str()).unwrap().get(1).map_or("", |x| x.as_str());
+            if cleaned.len() > 0 {
+              let token = dgg::complete_authenticate(cleaned, &self.auth_tokens.dgg_verifier);
+              self.auth_tokens.dgg_auth_token = token.expect("failed to get dgg token");
+              self.auth_tokens.dgg_verifier = Default::default();
+              self.auth_tokens.show_dgg_auth_token = false;
             }
           }
           self.show_auth_ui = false;
@@ -284,8 +318,7 @@ impl epi::App for TemplateApp {
           ui.label("Provider:");
           ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::Twitch, "Twitch");
           //ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::YouTube, "Youtube");
-          //ui.selectable_value(&mut self.add_channel_menu_provider, ProviderName::Null, "destiny.gg");
-          //ui.selectable_value(&mut self.add_channel_menu_provider, ProviderName::Null, "Null");
+          ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::DGG, "destiny.gg");
         });
         ui.horizontal(|ui| {
           ui.label("Channel Name:");
@@ -339,69 +372,17 @@ impl epi::App for TemplateApp {
       }
     }
 
+    if self.twitch_chat_manager.is_none() {
+      self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
+    }
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
-      match x {
-        IncomingMessage::PrivMsg { message } => {
-          let provider_emotes = self.providers.get_mut(&message.provider).and_then(|f| Some(&mut f.emotes));
-          let channel = message.channel.to_owned();
-          push_history(
-            &mut self.chat_history, 
-            message, 
-            provider_emotes, 
-            self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()).and_then(|f| f.channel_emotes.as_mut()),
-            &mut self.global_emotes, 
-            self.emote_loader.as_mut().unwrap());
-        },
-        IncomingMessage::StreamingStatus { channel, status } => {
-          if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
-            t.status = status;
-          }
-        },
-        IncomingMessage::MsgEmotes { provider, emote_ids } => {
-          if let Some(provider) = self.providers.get_mut(&provider) {
-            for (id, name) in emote_ids {
-              if provider.emotes.contains_key(&name) == false {
-                provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "cache/twitch/".to_owned(), ..Default::default() });
-              }
-            }
-          }
-        },
-        IncomingMessage::RoomId { channel, room_id } => {
-          if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
-            sco.roomid = room_id;
-            match self.emote_loader.as_mut().unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
-              ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
-              //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
-            }) {
-              Ok(x) => {
-                t.channel_emotes = Some(x);
-              },
-              Err(x) => { 
-                println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
-                Default::default()
-              }
-            };
-            t.badge_emotes = self.emote_loader.as_mut().unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
-            println!("loaded channel badges for {}:{}", channel, sco.roomid);
-            //break;
-          }
-        },
-        IncomingMessage::EmoteSets { provider,  emote_sets } => {
-          if let Some(provider) = self.providers.get_mut(&provider) {
-            for set in emote_sets {
-              if let Some(set_list) = self.emote_loader.as_mut().unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
-                for (_id, emote) in set_list {
-                  provider.my_sub_emotes.insert(emote.name.to_owned());
-                  if provider.emotes.contains_key(&emote.name) == false {
-                    provider.emotes.insert(emote.name.to_owned(), emote);
-                  }
-                }
-              }
-            }
-            
-          }
-        }
-      };
+      self.handle_incoming_message(x);
+    }
+    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+      self.handle_incoming_message(x);
+    }
+    if self.dgg_chat_manager.is_none() && let Some((_, sco)) = self.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
+      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().unwrap(), self.emote_loader.as_ref().unwrap()));
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -423,12 +404,10 @@ impl epi::App for TemplateApp {
             _ = ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
         });
-        egui::warn_if_debug_build(ui);
       });
       ui.separator();
 
       ui.horizontal_wrapped(|ui| {
-        ui.set_max_width(ui.available_width() - 80.);
         let label = RichText::new("All Channels").size(BUTTON_TEXT_SIZE);
         let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
         if clbl.clicked() {
@@ -437,10 +416,6 @@ impl epi::App for TemplateApp {
 
         let channels = &mut self.channels;
         for (channel, sco) in channels.iter_mut() {  
-          if self.twitch_chat_manager.is_none() {
-            self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
-          }
-
           if let Some(t) = sco.transient.as_mut() {            
             let mut job = LayoutJob { ..Default::default() };
             job.append(&format!("{channel}"), 0., egui::TextFormat {
@@ -481,7 +456,7 @@ impl epi::App for TemplateApp {
               });
             }
           }
-          else if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+          else if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
             // channel has not been opened yet
             chat_mgr.open_channel(sco);
           }
@@ -670,6 +645,9 @@ impl epi::App for TemplateApp {
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
     }
+    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
+      chat_mgr.close();
+    }
   }
 
   fn auto_save_interval(&self) -> std::time::Duration {
@@ -797,6 +775,75 @@ impl TemplateApp {
         }
       });
     });
+  }
+
+  fn handle_incoming_message(&mut self, x: IncomingMessage) {
+    match x {
+      IncomingMessage::PrivMsg { mut message } => {
+        let provider_emotes = self.providers.get_mut(&message.provider).and_then(|f| Some(&mut f.emotes));
+        let channel = message.channel.to_owned();
+        // remove any extra whitespace between words
+        let rgx = regex::Regex::new("\\s+").unwrap();
+        message.message = rgx.replace_all(&message.message, " ").to_string();
+        push_history(
+          &mut self.chat_history, 
+          message,
+          provider_emotes, 
+          self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()).and_then(|f| f.channel_emotes.as_mut()),
+          &mut self.global_emotes, 
+          self.emote_loader.as_mut().unwrap());
+      },
+      IncomingMessage::StreamingStatus { channel, status } => {
+        if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
+          t.status = status;
+        }
+      },
+      IncomingMessage::MsgEmotes { provider, emote_ids } => {
+        if let Some(provider) = self.providers.get_mut(&provider) {
+          for (id, name) in emote_ids {
+            if provider.emotes.contains_key(&name) == false {
+              provider.emotes.insert(name.to_owned(), Emote { name: name, id: id, url: "".to_owned(), path: "cache/twitch/".to_owned(), ..Default::default() });
+            }
+          }
+        }
+      },
+      IncomingMessage::RoomId { channel, room_id } => {
+        if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
+          sco.roomid = room_id;
+          match self.emote_loader.as_mut().unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
+            ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
+            ProviderName::DGG => &self.auth_tokens.dgg_auth_token
+            //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
+          }) {
+            Ok(x) => {
+              t.channel_emotes = Some(x);
+            },
+            Err(x) => { 
+              println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
+              Default::default()
+            }
+          };
+          t.badge_emotes = self.emote_loader.as_mut().unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
+          println!("loaded channel badges for {}:{}", channel, sco.roomid);
+          //break;
+        }
+      },
+      IncomingMessage::EmoteSets { provider,  emote_sets } => {
+        if let Some(provider) = self.providers.get_mut(&provider) {
+          for set in emote_sets {
+            if let Some(set_list) = self.emote_loader.as_mut().unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
+              for (_id, emote) in set_list {
+                provider.my_sub_emotes.insert(emote.name.to_owned());
+                if provider.emotes.contains_key(&emote.name) == false {
+                  provider.emotes.insert(emote.name.to_owned(), emote);
+                }
+              }
+            }
+          }
+      
+        }
+      }
+    };
   }
 
   fn get_possible_emotes(&mut self, cursor_position: usize) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {

@@ -102,7 +102,7 @@ pub struct EmoteLoader {
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
   pub transparent_img: Option<TextureHandle>,
-  base_path: PathBuf
+  pub base_path: PathBuf
 }
 
 impl EmoteLoader {

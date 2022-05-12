@@ -12,6 +12,7 @@ use itertools::Itertools;
 use serde_json::Value;
 use tokio::{runtime::Runtime, sync::mpsc};
 
+use super::make_request;
 use super::{Channel, OutgoingMessage, InternalMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient};
 
 pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime) -> Channel {
@@ -142,26 +143,4 @@ fn get_chat_messages(token: &String, livestreamchat_id: &String, channel_name: &
     }
     Err(e) => { println!("Error: {}", e); (None, None) }
   }
-}
-
-fn make_request(url: &String, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, failure::Error> {
-  let mut result = String::default();
-
-    easy.url(url)?;
-    if let Some(headers) = headers {
-      let mut list = curl::easy::List::new();
-      for head in headers {
-        list.append(&format!("{}: {}", head.0, head.1))?;
-      }
-      easy.http_headers(list)?;
-    }
-    let mut transfer = easy.transfer();
-    transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).and_then(|x| Ok((&mut result).push_str(&x))).expect("failed to build string from http response body");
-      Ok(data.len())
-    })?;
-    transfer.perform()?;
-    drop(transfer);
-
-    Ok(result)
 }
