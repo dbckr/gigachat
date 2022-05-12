@@ -997,7 +997,7 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
         chat::get_texture(emote_loader, emote, EmoteRequest::new_global_badge_request(emote))
       }
       else {
-        EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), path: badge.to_owned(), texture: None, zero_width: false }
+        EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), label: None, path: badge.to_owned(), texture: None, zero_width: false }
       };
     result.insert(emote.name.to_owned(), emote);
   }

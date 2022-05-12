@@ -123,34 +123,34 @@ impl Default for ChatMessage {
 pub struct UserProfile {
   pub badges: Option<Vec<String>>,
   pub display_name: Option<String>,
-  pub color: (u8, u8, u8)
+  pub color: Option<(u8, u8, u8)>
 }
 
 impl Default for UserProfile {
   fn default() -> Self {
     Self {
-      color: (255, 255, 255),
+      color: None,
       display_name: Default::default(),
       badges: None
     }
   }
 }
 
-pub fn convert_color_hex(hex_string: Option<&String>) -> (u8, u8, u8) {
+pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   match hex_string {
     Some(hex_str) => { 
       if hex_str == "" {
-        return (255,255,255)
+        return None;
       }
       match hex::decode(hex_str.trim_start_matches("#")) {
-        Ok(val) => (val[0], val[1], val[2]),
+        Ok(val) => Some((val[0], val[1], val[2])),
         Err(_) => {
           println!("ERROR {}", hex_str);
-          (255, 255, 255)
+          None
         }
       }
     },
-    None => (255, 255, 255)
+    None => None
   }
 }
 

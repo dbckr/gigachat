@@ -24,7 +24,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
     if let Some(combo) = row.message.combo_data.as_ref() {
       let emote = row.emotes.get(&combo.word);
-      if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
+      if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
         let texture = texture.as_ref().unwrap_or(transparent_img);
         add_ui_emote_image(&combo.word, &path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
       }
@@ -59,38 +59,44 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           ui.label(job);
           if let Some(user_badges) = &chat_msg.message.profile.badges {
             for badge in user_badges {
-              let tex = chat_msg.badges.as_ref().and_then(|f| f.get(badge).and_then(|g| g.texture.as_ref())).unwrap_or(&transparent_img);
-                ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-                  ui.set_width(BADGE_HEIGHT + 20.);
-                  ui.vertical_centered(|ui| {
-                    ui.image(tex, tex.size_vec2());
-                    let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
-                    match parts.0 {
-                      "subscriber" => {
-                        let num = parts.1.parse::<usize>().unwrap_or(0);
-                        let tier = match num / 1000 {
-                          3 => "T3",
-                          2 => "T2",
-                          _ => "T1",
-                        };
-                        ui.label(format!("{} Month Sub ({})", num % 1000, tier))
-                      }, 
-                      "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
-                      "bits" => ui.label(format!("{} Bits", parts.1)),
-                      _ => ui.label(format!("{}", parts.0))
-                    };
-                  });
+              let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
+              let tex = emote.and_then(|g| g.texture.as_ref()).unwrap_or(&transparent_img);
+              ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+                ui.set_width(BADGE_HEIGHT + 20.);
+                ui.vertical_centered(|ui| {
+                  ui.image(tex, tex.size_vec2());
+                  match chat_msg.message.provider {
+                    ProviderName::Twitch => {
+                      let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                      match parts.0 {
+                        "subscriber" => {
+                          let num = parts.1.parse::<usize>().unwrap_or(0);
+                          let tier = match num / 1000 {
+                            3 => "T3",
+                            2 => "T2",
+                            _ => "T1",
+                          };
+                          ui.label(format!("{} Month Sub ({})", num % 1000, tier))
+                        }, 
+                        "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
+                        "bits" => ui.label(format!("{} Bits", parts.1)),
+                        _ => ui.label(format!("{}", parts.0))
+                      };
+                    },
+                    ProviderName::DGG => { ui.label(emote.and_then(|x| x.label.as_ref()).unwrap_or(badge)); }
+                  };
                 });
+              });
             }
           }
     
-          let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(&chat_msg.message.profile.color)));
+          let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(chat_msg.message.profile.color.as_ref())));
           ui.add(uname);
         }
         for word in message.split(" ") {
         let link_url = is_url(word).then(|| word.to_owned());
           let emote = chat_msg.emotes.get(word);
-          if let Some(EmoteFrame { id: _, name: _, texture, path, zero_width }) = emote {
+          if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(&transparent_img);
             add_ui_emote_image(word, &path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
           }
@@ -189,7 +195,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   if let Some(username) = username {
     job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), spacing, egui::TextFormat {
       font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
-      color: convert_color(&profile.color),
+      color: convert_color(profile.color.as_ref()),
       valign: Align::Center,
       ..Default::default()
     });
@@ -197,11 +203,12 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   job
 }
 
-pub fn convert_color(input : &(u8, u8, u8)) -> Color32 {
+pub fn convert_color(input : Option<&(u8, u8, u8)>) -> Color32 {
   // return white
-  if input == &(255u8, 255u8, 255u8) {
+  if input.is_none() || input.is_some_and(|x| x == &&(255u8, 255u8, 255u8)) {
     return Color32::WHITE;
   }
+  let input = input.unwrap();
 
   // normalize brightness
   let target = 150;
@@ -242,6 +249,7 @@ pub struct EmoteFrame {
   pub id: String,
   pub name: String,
   pub path: String,
+  pub label: Option<String>,
   //extension: Option<String>,
   pub texture: Option<egui::TextureHandle>,
   pub zero_width: bool
@@ -254,9 +262,9 @@ pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, r
         println!("Error sending emote load request: {}", e);
       }
       emote.loaded = EmoteStatus::Loading;
-      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
     },
-    EmoteStatus::Loading => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width},
+    EmoteStatus::Loading => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width},
     EmoteStatus::Loaded => {
       let frames_opt = emote.data.as_ref();
       match frames_opt {
@@ -268,17 +276,17 @@ pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, r
             for (frame, msec) in frames {
               progress_msec += msec; 
               if progress_msec >= target_progress {
-                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
+                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
               }
             }
-            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
           }
           else {
             let (frame, _delay) = frames.get(0).unwrap();
-            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
+            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
           }
         },
-        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
       }
     }
   }

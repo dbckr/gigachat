@@ -12,12 +12,15 @@ use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
 
+use super::CssAnimationData;
+
 pub fn get_image_data(
   url: &str,
   path: PathBuf,
   id: &str,
   extension: &Option<String>,
-  easy: &mut Easy
+  easy: &mut Easy,
+  css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let mut inner =
     || -> std::result::Result<Option<Vec<(ColorImage, u16)>>, failure::Error> {
@@ -35,7 +38,7 @@ pub fn get_image_data(
           let filepath : std::path::PathBuf = x?.as_path().to_owned();
           let buffer = load_file_into_buffer(filepath.to_str().unwrap());
           match filepath.extension() {
-            Some(ext) => Ok(load_image(ext.to_str().unwrap(), &buffer)),
+            Some(ext) => Ok(load_image(ext.to_str().unwrap(), &buffer, css_anim)),
             None => Ok(None)
           }
         }
@@ -96,7 +99,7 @@ pub fn get_image_data(
               .open(path.join(format!("{}.{}", id, ext)))?;
 
             f.write(&buffer)?;
-            Ok(load_image(&ext, &buffer))
+            Ok(load_image(&ext, &buffer, css_anim))
             },
             None => Ok(None)
           }
@@ -113,16 +116,34 @@ pub fn get_image_data(
 fn load_image(
   extension: &str,
   buffer: &[u8],
+  css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   match extension {
     "png" => match image::load_from_memory(&buffer) {
-      Ok(img) => Some([(to_egui_image(img), 0)].to_vec()),
+      Ok(img) => {
+        match css_anim {
+          None => Some([(to_egui_image(img), 0)].to_vec()),
+          Some(data) => process_dgg_sprite_png(img, data)
+        }
+      },
       _ => None,
     },
     "gif" => match load_animated_gif(&buffer) { Some(x) => Some(x), _ => None },
     "webp" => match load_animated_webp(&buffer) { Some(x) => Some(x), _ => None },
     _ => None,
   }
+}
+
+fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Option<Vec<(ColorImage, u16)>> {
+  let mut frames : Vec<(ColorImage, u16)> = Default::default();
+  let mut x_start = 0;
+  let frame_time = (data.cycle_time_msec / data.steps) as u16;
+  while x_start < img.width() {
+    let frame = img.crop_imm(x_start, 0, data.width, img.height());
+    frames.push((to_egui_image(frame), frame_time));
+    x_start += data.width;
+  }
+  Some(frames)
 }
 
 pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {

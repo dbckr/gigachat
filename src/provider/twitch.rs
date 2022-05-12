@@ -202,7 +202,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                           timestamp: chrono::Utc::now(), 
                           message: format!("{}", str_vec.join(", ")), 
                           profile: UserProfile { 
-                            color: (255, 0, 0),
+                            color: Some((255, 0, 0)),
                             ..Default::default() 
                           },
                           ..Default::default()

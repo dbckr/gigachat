@@ -8,14 +8,27 @@ mod test {
     use curl::easy::Easy;
     use egui::{LayerId, Id, Order, Rect, Pos2};
     use itertools::Itertools;
+    use regex::Regex;
 
-    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile, dgg}};
+    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile, dgg}, emotes::fetch};
 
   #[test]
   fn test() {
     let context : egui::Context = Default::default();
     let verifier = dgg::begin_authenticate(&context);
     println!("{}", verifier);
+  }
+
+  #[test]
+  fn test2() {
+    let css_path = "cache/dgg-emotes.css";
+    let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None).expect("failed to download emote css");
+    
+    let prefix = "Askers";
+    //let regex = Regex::new(&format!("animation: {}\\-hover (.*?)s steps\\((.*?)\\) infinite;", prefix)).unwrap();
+    let regex = Regex::new(&format!("\\.emote\\.{prefix}\\s*\\{{\\s*width:\\s*(.*?)px; .*? animation: {prefix}\\-anim (.*?)(ms|s) steps\\((.*?)\\) (.*?)(?:;|\\s)")).unwrap();
+    let caps = regex.captures(&css);
+    println!("{:?}", caps);
   }
 
   #[test]
@@ -63,7 +76,7 @@ mod test {
   #[test]
   fn load_emote() {
     let mut easy = Easy::new();
-    let img = crate::emotes::imaging::get_image_data("https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("cache/bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy);
+    let img = crate::emotes::imaging::get_image_data("https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("cache/bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
     assert!(img.is_some());
   }
 
@@ -132,7 +145,7 @@ mod test {
       profile: UserProfile {
         badges: None,
         display_name: None,
-        color: (0, 0, 0),
+        color: Some((0, 0, 0)),
       }, 
       combo_data: None };
     let emotes : HashMap<String, EmoteFrame> = Default::default();

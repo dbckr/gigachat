@@ -9,12 +9,14 @@ use std::collections::HashMap;
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::StreamExt;
+use itertools::Itertools;
+use regex::Regex;
 use tokio::{runtime::Runtime, sync::mpsc};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest}, connect_async_tls_with_config};
 
-use crate::emotes::{fetch, Emote, EmoteLoader};
+use crate::emotes::{fetch, Emote, EmoteLoader, CssAnimationData};
 
-use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager};
+use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
 
 const DGG_CHANNEL_NAME : &str = "Destiny";
 
@@ -42,7 +44,7 @@ pub fn open_channel<'a>(user_name: &String, token: &String, channel: &mut Channe
 
   channel.transient = Some(ChannelTransient {
     channel_emotes: load_dgg_emotes(emote_loader),
-    badge_emotes: None,
+    badge_emotes: load_dgg_flairs(emote_loader),
     status: None
   });
 
@@ -81,6 +83,7 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
               && let Ok(msg) = serde_json::from_str::<Msg>(&msg) {
                 match command {
                   "MSG" => {
+                    let features = msg.features.iter().filter_map(|f| if f != &"subscriber" { Some(f.to_owned()) } else { None }).collect_vec();
                     let cmsg = ChatMessage { 
                       provider: ProviderName::DGG,
                       channel: DGG_CHANNEL_NAME.to_owned(),
@@ -88,9 +91,9 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
                       timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64, 0), Utc), 
                       message: msg.data,
                       profile: UserProfile { 
-                        badges: if msg.features.len() > 0 { Some(msg.features) } else { None },
+                        badges: if features.len() > 0 { Some(features) } else { None },
                         display_name: None, 
-                        color: (255,255,255) //TODO: DGG sub coloring
+                        color: None
                       },
                       ..Default::default()
                     };
@@ -182,17 +185,19 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
-pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
-  let path = &emote_loader.base_path.join("cache/dgg-emotes.json");
-  let path_str = path.to_str();
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", path_str, None).expect("failed to download emote json");
-  let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).expect("failed to load emote json");
+pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
+  let json_path = &emote_loader.base_path.join("cache/dgg-flairs.json");
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None).expect("failed to download flair json");
+  let emotes = serde_json::from_str::<Vec<DggFlair>>(&json).expect("failed to load flair json");
     let mut result : HashMap<String, Emote> = Default::default();
     for emote in emotes {
       let image = &emote.image.first().unwrap();
       let (id, extension) = image.name.split_once(".").unwrap();
-      result.insert(emote.prefix.to_owned(), Emote { 
-        name: emote.prefix, 
+
+      result.insert(emote.name.to_owned(), Emote { 
+        name: emote.name, 
+        display_name: Some(emote.label),
+        color: convert_color_hex(Some(&emote.color)),
         id: id.to_owned(), 
         data: None, 
         loaded: crate::emotes::EmoteStatus::NotLoaded, 
@@ -200,7 +205,63 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emo
         url: image.url.to_owned(), 
         path: "cache/dgg/".to_owned(), 
         extension: Some(extension.to_owned()), 
-        zero_width: false });
+        zero_width: false,
+        css_anim: None });
+    }
+    Some(result)
+}
+
+pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
+  let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
+  let css_path = &emote_loader.base_path.join("cache/dgg-emotes.css");
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).expect("failed to download emote json");
+  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None).expect("failed to download emote css");
+  let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).expect("failed to load emote json");
+    let mut result : HashMap<String, Emote> = Default::default();
+    for emote in emotes {
+      let image = &emote.image.first().unwrap();
+      let (id, extension) = image.name.split_once(".").unwrap();
+
+      let prefix = &emote.prefix;
+      let regex = Regex::new(&format!("\\.emote\\.{prefix}\\s*\\{{\\s*width:\\s*(.*?)px; .*? animation: {prefix}\\-anim (.*?)(ms|s) steps\\((.*?)\\) (.*?)(?:;|\\s)")).unwrap();
+      let css_anim = match regex.captures(&css) {
+        Some(captures) => {
+          let width = captures.get(1);
+          let time = captures.get(2);
+          let time_unit = captures.get(3);
+          let steps = captures.get(4);
+          let loops = captures.get(5);
+          if let Some(width) = width.and_then(|x| x.as_str().parse::<u32>().ok()) 
+              && let Some(time) = time.and_then(|x| x.as_str().parse::<f32>().ok()) 
+              && let Some(time_unit) = time_unit.and_then(|x| Some(x.as_str())) 
+              && let Some(steps) = steps.and_then(|x| x.as_str().parse::<isize>().ok())
+              && let Some(loops) = loops.and_then(|x| x.as_str().parse::<isize>().ok()) {
+            Some(CssAnimationData {
+              width: width,
+              cycle_time_msec: match time_unit { "ms" => time as isize, _ => (time * 1000.) as isize },
+              steps: steps,
+              loops: loops
+            })
+          } else {
+            None
+          }
+        },
+        None => None
+      };
+
+      result.insert(emote.prefix.to_owned(), Emote { 
+        name: emote.prefix, 
+        id: id.to_owned(), 
+        data: None, 
+        color: None,
+        loaded: crate::emotes::EmoteStatus::NotLoaded, 
+        duration_msec: 0, 
+        url: image.url.to_owned(), 
+        path: "cache/dgg/".to_owned(), 
+        extension: Some(extension.to_owned()), 
+        zero_width: false,
+        css_anim: css_anim,
+        display_name: None });
     }
     Some(result)
 }
@@ -232,4 +293,14 @@ struct DggEmote {
 struct DggEmoteImage {
   url: String,
   name: String
+}
+
+#[derive(serde::Deserialize)]
+struct DggFlair {
+  label: String,
+  name: String,
+  hidden: bool,
+  priority: isize,
+  color: String,
+  image: Vec<DggEmoteImage>
 }
