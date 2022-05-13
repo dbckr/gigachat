@@ -6,12 +6,12 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 - ~Twitch follower emotes~
 - Twitch tier-exclusive emote logic
-- Copying messages into clipboard and/or textbox
+- Copying messages into clipboard and/or textbox (partial support -- can click on msg text to copy msg but no visual feedback)
 - ~Zero width emotes~
 - Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
-- Twitch live status
+- ~Twitch live status~
 - Mentions tab
-- Click user to see their recent messages in channel
+- Click user (or usernames in chat messages) to see their recent messages in channel
 - Cheer emotes
 - Better README
 - Cache json/images in a db file instead of loose files
@@ -27,3 +27,5 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Allow message headers (stuff up to and including username) to split between rows properly
 - Ability to open/navigate browser to a stream
 - ~Detect ASCII art and new line appropiately regardless of width~
+- Combo tooltip to show list of users
+- DGG oauth issue - application oauth flow tokens not working but login keys created directly on DGG site work

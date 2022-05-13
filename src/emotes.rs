@@ -85,12 +85,11 @@ pub enum EmoteStatus {
   Loaded,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CssAnimationData {
   pub width: u32,
   pub cycle_time_msec: isize,
-  pub steps: isize,
-  pub loops: isize
+  pub steps: isize
 }
 
 #[derive(Default)]
@@ -106,7 +105,8 @@ pub struct Emote {
   pub path: String,
   pub extension: Option<String>,
   pub zero_width: bool,
-  pub css_anim: Option<CssAnimationData>
+  pub css_anim: Option<CssAnimationData>,
+  pub priority: isize
 }
 
 pub struct EmoteLoader {

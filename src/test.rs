@@ -23,12 +23,40 @@ mod test {
   fn test2() {
     let css_path = "cache/dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None).expect("failed to download emote css");
+    let loader = dgg::CSSLoader::new();
+    let data = loader.get_css_anim_data(&css);
+
+    let closure = |prefix : &str| {
+      let result = data.get(prefix);
+      println!("{:?}", result);
+    };
     
-    let prefix = "Askers";
-    //let regex = Regex::new(&format!("animation: {}\\-hover (.*?)s steps\\((.*?)\\) infinite;", prefix)).unwrap();
-    let regex = Regex::new(&format!("\\.emote\\.{prefix}\\s*\\{{\\s*width:\\s*(.*?)px; .*? animation: {prefix}\\-anim (.*?)(ms|s) steps\\((.*?)\\) (.*?)(?:;|\\s)")).unwrap();
-    let caps = regex.captures(&css);
-    println!("{:?}", caps);
+    closure("RaveDoge");
+    closure("WooYeah");
+    closure("WOOF");
+    closure("pepeSteer");
+    closure("OOOO");
+  }
+
+  #[test]
+  fn test3() {
+    let css_path = "cache/dgg-emotes.css";
+    let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None).expect("failed to download emote css");
+    let loader = dgg::CSSLoader::new();
+
+    //let regex = Regex::new(r"\.emote\.([^:\-\s]*?)\s\{.*? width: (\d+?)px;.*?animation: (?:[^\s]*?) (.*?);").unwrap();
+    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap();
+    let caps = regex.captures_iter(&css);
+
+    for cap in caps {
+      println!("{}", cap.iter().skip(1).map(|x| format!("{:?}", x.unwrap().as_str())).join(", "));
+    }
+  }
+
+  #[test]
+  fn test4() {
+    let x = format!("MSG {{\"data\":\"{}\"}}", "message");
+    println!("{}", x);
   }
 
   #[test]

@@ -8,17 +8,17 @@ use std::collections::HashMap;
  
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
-use futures::StreamExt;
+use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use regex::Regex;
 use tokio::{runtime::Runtime, sync::mpsc};
-use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest}, connect_async_tls_with_config};
+use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 
 use crate::emotes::{fetch, Emote, EmoteLoader, CssAnimationData};
 
 use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
 
-const DGG_CHANNEL_NAME : &str = "Destiny";
+pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
 pub fn init_channel<'a>() -> Channel {
   let channel = Channel {  
@@ -68,19 +68,28 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
 
   let cookie = format!("authtoken={}", token);
   let mut request = "wss://chat.destiny.gg/ws".into_client_request().expect("failed to build request");
-  request.headers_mut().append(COOKIE, cookie.parse().unwrap());
+  let r = request.headers_mut().append(COOKIE, cookie.parse().unwrap());
+  println!("adding cookie {} {}", cookie, r);
+
+  for item in request.headers().iter() {
+    println!("{}: {:?}", item.0, item.1);
+  }
 
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect("failed to connect to wss");
+  //let (mut write, mut read) = socket.split();
 
   while !quitted {
     tokio::select! {
       Some(result) = socket.next()  => {
         match result {
           Ok(message) => {
-            println!("{}", message);
-            if let Ok(message) = message.into_text() 
+            if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
               && let Some((command, msg)) = message.split_once(" ")
-              && let Ok(msg) = serde_json::from_str::<Msg>(&msg) {
+              && let Ok(msg) = serde_json::from_str::<Msg>(&msg).inspect_err(|f| println!("websocket error: {}\n {}", f, message)) {
+                if command != "NAMES" {
+                  println!("{}", message);
+                }
+
                 match command {
                   "MSG" => {
                     let features = msg.features.iter().filter_map(|f| if f != &"subscriber" { Some(f.to_owned()) } else { None }).collect_vec();
@@ -104,17 +113,19 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
                   },
                   "JOIN" => (),
                   "QUIT" => (),
-                  _ => println!("unknown dgg command: {command}")
+                  _ => println!("unknown dgg command: {:?}", message)
                 }
-            } 
+            }
           },
-          Err(e) => println!("IRC Stream error: {:?}", e)
+          Err(e) => println!("Websocket error: {:?}", e)
         }
       },
       Some(out_msg) = rx.recv() => {
         match out_msg {
-          OutgoingMessage::Chat { channel_name : _, message : _ } => { 
-
+          OutgoingMessage::Chat { channel_name : _, message } => { 
+            socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
+              .inspect_err(|f| println!("socket send error: {}", f))
+              .expect("Error sending websocket message");
           },
           OutgoingMessage::Leave { channel_name : _ } => {
             socket.close(None).await.expect("Error while quitting IRC server"); quitted = true;
@@ -206,48 +217,29 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emo
         path: "cache/dgg/".to_owned(), 
         extension: Some(extension.to_owned()), 
         zero_width: false,
-        css_anim: None });
+        css_anim: None,
+        priority: emote.priority });
     }
     Some(result)
 }
 
 pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
-  let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
   let css_path = &emote_loader.base_path.join("cache/dgg-emotes.css");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).expect("failed to download emote json");
   let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None).expect("failed to download emote css");
+  let css_anim_data = CSSLoader::new().get_css_anim_data(&css);
+
+  let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).expect("failed to download emote json");
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).expect("failed to load emote json");
     let mut result : HashMap<String, Emote> = Default::default();
+    let css_loader = CSSLoader::new();
     for emote in emotes {
       let image = &emote.image.first().unwrap();
       let (id, extension) = image.name.split_once(".").unwrap();
 
       let prefix = &emote.prefix;
-      let regex = Regex::new(&format!("\\.emote\\.{prefix}\\s*\\{{\\s*width:\\s*(.*?)px; .*? animation: {prefix}\\-anim (.*?)(ms|s) steps\\((.*?)\\) (.*?)(?:;|\\s)")).unwrap();
-      let css_anim = match regex.captures(&css) {
-        Some(captures) => {
-          let width = captures.get(1);
-          let time = captures.get(2);
-          let time_unit = captures.get(3);
-          let steps = captures.get(4);
-          let loops = captures.get(5);
-          if let Some(width) = width.and_then(|x| x.as_str().parse::<u32>().ok()) 
-              && let Some(time) = time.and_then(|x| x.as_str().parse::<f32>().ok()) 
-              && let Some(time_unit) = time_unit.and_then(|x| Some(x.as_str())) 
-              && let Some(steps) = steps.and_then(|x| x.as_str().parse::<isize>().ok())
-              && let Some(loops) = loops.and_then(|x| x.as_str().parse::<isize>().ok()) {
-            Some(CssAnimationData {
-              width: width,
-              cycle_time_msec: match time_unit { "ms" => time as isize, _ => (time * 1000.) as isize },
-              steps: steps,
-              loops: loops
-            })
-          } else {
-            None
-          }
-        },
-        None => None
-      };
+      let css_anim = css_anim_data.get(prefix);
+      //println!("{} {:?}", prefix, css_anim);
 
       result.insert(emote.prefix.to_owned(), Emote { 
         name: emote.prefix, 
@@ -260,10 +252,62 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emo
         path: "cache/dgg/".to_owned(), 
         extension: Some(extension.to_owned()), 
         zero_width: false,
-        css_anim: css_anim,
-        display_name: None });
+        css_anim: css_anim.and_then(|x| Some(x.to_owned())),
+        display_name: None,
+        priority: 0 });
     }
     Some(result)
+}
+
+pub struct CSSLoader {
+  time_regex: Regex,
+  steps_regex: Regex,
+}
+
+impl CSSLoader {
+  pub fn new() -> Self {
+    Self { 
+      time_regex: Regex::new(&format!("([\\d\\.]*?)(ms|s)")).unwrap(), 
+      steps_regex: Regex::new(&format!("steps\\((.*?)\\)")).unwrap() 
+    }
+  }
+
+  pub fn get_css_anim_data(&self, css: &String) -> HashMap<String, CssAnimationData> {
+    let mut result : HashMap<String, CssAnimationData> = Default::default();
+    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap();
+    let caps = regex.captures_iter(&css);
+    for captures in caps {
+      let prefix = captures.get(1).and_then(|x| Some(x.as_str()));
+      let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
+      let anim = captures.get(3).and_then(|x| Some(x.as_str()));
+      let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
+
+      let caps = anim.and_then(|x| self.time_regex.captures(x)).unwrap();
+      let time = caps.get(1).and_then(|x| x.as_str().parse::<f32>().ok());
+      let unit = caps.get(2).and_then(|x| Some(x.as_str()));
+      //println!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);
+      let time_msec = if let Some(unit) = unit && let Some(time) = time {
+        match unit { "ms" => time as isize, _ => (time * 1000.) as isize }
+      } else if let Some(steps) = steps {
+        steps * 30
+      } else {
+        1000
+      };
+
+      if let Some(prefix) = prefix && let Some(width) = width && let Some(steps) = steps {
+        result.insert(prefix.to_owned(), CssAnimationData {
+          width: width,
+          cycle_time_msec: time_msec,
+          steps: steps
+        });
+      }
+    }
+    result
+  }
+}
+
+pub fn get_name_color_from_flair(badges: Option<Vec<String>>, channel_badges: Option<&mut HashMap<String, Emote>>) -> Option<(u8,u8,u8)> {
+  todo!();
 }
 
 #[derive(serde::Deserialize)]

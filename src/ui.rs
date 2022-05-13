@@ -23,11 +23,11 @@ const SMALL_TEXT_SIZE : f32 = 15.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
 /// Emotes in chat messages will be scaled to this height
-pub const EMOTE_HEIGHT : f32 = 26.0;
+pub const EMOTE_HEIGHT : f32 = 28.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
-const COMBO_LINE_HEIGHT : f32 = 42.0;
+const COMBO_LINE_HEIGHT : f32 = 38.0;
 
 pub struct UiChatMessageRow {
   pub row_height: f32,
@@ -516,15 +516,26 @@ impl epi::App for TemplateApp {
           }
 
           if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && ui.input().modifiers.shift == false && self.draft_message.len() > 0 {
-            if let Some(sco) = (&mut self.channels).get_mut(sc) && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
-                Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
-                _ => {
-                  sco.send_history.push_front(self.draft_message.to_owned());
-                  *(&mut self.draft_message) = String::new();
+            if let Some(sco) = (&mut self.channels).get_mut(sc) {
+              if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+                match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
+                  Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                  _ => {
+                    sco.send_history.push_front(self.draft_message.to_owned());
+                    *(&mut self.draft_message) = String::new();
+                  }
                 }
               } 
-            }
+              else if sco.provider == ProviderName::DGG && let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
+                match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: "".to_owned(), message: (&mut self.draft_message).replace("\n", " ").to_owned() }) {
+                  Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                  _ => {
+                    sco.send_history.push_front(self.draft_message.to_owned());
+                    *(&mut self.draft_message) = String::new();
+                  }
+                }
+              }
+            } 
           }
           else if self.draft_message.len() > 0 && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
             let cursor = cursor_pos.primary.index;
@@ -717,8 +728,12 @@ impl TemplateApp {
           .and_then(|c| c.transient.as_mut())
           .and_then(|t| Some((t.channel_emotes.as_mut(), t.badge_emotes.as_mut()))).unwrap_or((None, None));
         let emotes = get_emotes_for_message(&row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
-        let badges = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
+        let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
         let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
+
+        if row.profile.color.is_none() && user_color.is_some() {
+          row.profile.color = user_color;
+        }
 
         let mut lines_to_include : Vec<UiChatMessageRow> = Default::default();
         let mut row_y = 0.;
@@ -968,7 +983,7 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMa
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
         Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, &row.channel)))
       }
-      else if let Some(emote) = global_emotes.get_mut(word) {
+      else if row.provider != ProviderName::DGG && let Some(emote) = global_emotes.get_mut(word) {
         Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote)))
       }
       else if let Some(&mut ref mut provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get_mut(word) {
@@ -985,12 +1000,16 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMa
   result
 }
 
-fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&mut HashMap<String, Emote>>, channel_badges: Option<&mut HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> Option<HashMap<String, EmoteFrame>> {
+fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&mut HashMap<String, Emote>>, channel_badges: Option<&mut HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<HashMap<String, EmoteFrame>>, Option<(u8,u8,u8)>) {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
-  if badges.is_none() { return None; }
+  if badges.is_none() { return (None, None); }
+  let mut greatest_badge : Option<(isize, (u8,u8, u8))> = None;
   for badge in badges.unwrap() {
     let emote = 
       if let Some(&mut ref mut channel_badges) = channel_badges && let Some(emote) = channel_badges.get_mut(badge) {
+        if channel_name == dgg::DGG_CHANNEL_NAME && emote.color.is_some() && (greatest_badge.is_none() || greatest_badge.is_some_and(|b| b.0 < emote.priority)) {
+          greatest_badge = Some((emote.priority, emote.color.unwrap()))
+        }
         chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_badge_request(emote, channel_name))
       }
       else if let Some(&mut ref mut global_badges) = global_badges && let Some(emote) = global_badges.get_mut(badge) {
@@ -999,10 +1018,11 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
       else {
         EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), label: None, path: badge.to_owned(), texture: None, zero_width: false }
       };
+    
     result.insert(emote.name.to_owned(), emote);
   }
 
-  Some(result)
+  (Some(result), greatest_badge.and_then(|x| Some(x.1)))
 }
 
 pub fn load_font() -> FontDefinitions {

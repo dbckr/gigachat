@@ -35,6 +35,11 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
 }
 
 pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
+  let mut message_color : Option<(u8,u8,u8)> = None;
+  if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.chars().next() == Some('>') {
+    message_color = Some((99, 151, 37));
+  }
+
   let channel_color = get_provider_color(&chat_msg.message.provider);
   let ui_row = ui.horizontal_wrapped(|ui| {
     let mut row_ix = 0;
@@ -119,7 +124,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
               None => {
                 let text = match chat_msg.is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
-                  false => RichText::new(word)
+                  false => RichText::new(word).color(convert_color(message_color.as_ref()))
                 }.size(BODY_TEXT_SIZE);
                 let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
                 if lbl.clicked() {
