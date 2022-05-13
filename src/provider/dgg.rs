@@ -232,7 +232,6 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emo
   let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).expect("failed to download emote json");
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).expect("failed to load emote json");
     let mut result : HashMap<String, Emote> = Default::default();
-    let css_loader = CSSLoader::new();
     for emote in emotes {
       let image = &emote.image.first().unwrap();
       let (id, extension) = image.name.split_once(".").unwrap();
@@ -306,10 +305,6 @@ impl CSSLoader {
   }
 }
 
-pub fn get_name_color_from_flair(badges: Option<Vec<String>>, channel_badges: Option<&mut HashMap<String, Emote>>) -> Option<(u8,u8,u8)> {
-  todo!();
-}
-
 #[derive(serde::Deserialize)]
 struct AuthResponse {
   access_token: String,
@@ -343,7 +338,7 @@ struct DggEmoteImage {
 struct DggFlair {
   label: String,
   name: String,
-  hidden: bool,
+  //hidden: bool,
   priority: isize,
   color: String,
   image: Vec<DggEmoteImage>

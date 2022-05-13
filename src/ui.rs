@@ -731,6 +731,7 @@ impl TemplateApp {
         let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
         let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, &row, &emotes, badges.as_ref());
 
+        // DGG user colors are tied to badge/flair
         if row.profile.color.is_none() && user_color.is_some() {
           row.profile.color = user_color;
         }
