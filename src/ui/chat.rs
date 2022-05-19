@@ -26,7 +26,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
       let emote = row.emotes.get(&combo.word);
       if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
         let texture = texture.as_ref().unwrap_or(transparent_img);
-        add_ui_emote_image(&combo.word, &path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
+        add_ui_emote_image(&combo.word, path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
       }
       ui.label(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6));
     }
@@ -36,7 +36,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
 
 pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
   let mut message_color : Option<(u8,u8,u8)> = None;
-  if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.chars().next() == Some('>') {
+  if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
     message_color = Some((99, 151, 37));
   }
 
@@ -65,14 +65,14 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           if let Some(user_badges) = &chat_msg.message.profile.badges {
             for badge in user_badges {
               let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
-              let tex = emote.and_then(|g| g.texture.as_ref()).unwrap_or(&transparent_img);
-              ui.image(tex, egui::vec2(&tex.size_vec2().x * (BADGE_HEIGHT / &tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+              let tex = emote.and_then(|g| g.texture.as_ref()).unwrap_or(transparent_img);
+              ui.image(tex, egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
                 ui.set_width(BADGE_HEIGHT + 20.);
                 ui.vertical_centered(|ui| {
                   ui.image(tex, tex.size_vec2());
                   match chat_msg.message.provider {
                     ProviderName::Twitch => {
-                      let parts = badge.split("/").collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                      let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
                       match parts.0 {
                         "subscriber" => {
                           let num = parts.1.parse::<usize>().unwrap_or(0);
@@ -85,7 +85,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                         }, 
                         "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
                         "bits" => ui.label(format!("{} Bits", parts.1)),
-                        _ => ui.label(format!("{}", parts.0))
+                        _ => ui.label(parts.0)
                       };
                     },
                     ProviderName::DGG => { ui.label(emote.and_then(|x| x.label.as_ref()).unwrap_or(badge)); }
@@ -98,12 +98,12 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(chat_msg.message.profile.color.as_ref())));
           ui.add(uname);
         }
-        for word in message.split(" ") {
+        for word in message.split(' ') {
         let link_url = is_url(word).then(|| word.to_owned());
           let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
-            let tex = texture.as_ref().unwrap_or(&transparent_img);
-            add_ui_emote_image(word, &path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
+            let tex = texture.as_ref().unwrap_or(transparent_img);
+            add_ui_emote_image(word, path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
           }
           else {
             last_emote_width = None;
@@ -147,7 +147,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   ui_row.response.rect
 }
 
-fn add_ui_emote_image(word: &str, path: &String, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
@@ -158,7 +158,7 @@ fn add_ui_emote_image(word: &str, path: &String, texture: &egui::TextureHandle, 
   }
   else {
     ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
-      ui.label(format!("{}\n{}", word, path.replace("cache/", "").replace("/","")));
+      ui.label(format!("{}\n{}", word, path.replace("cache/", "").replace('/',"")));
       ui.image(texture, texture.size_vec2());
     });
     *last_emote_width = Some((x, y));
@@ -194,7 +194,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   });
   if for_display { return job; }
 
-  let badge_count = profile.badges.as_ref().and_then(|f| Some(f.len())).unwrap_or(0) as f32;
+  let badge_count = profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
   let spacing = 3.0 + badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
 
   if let Some(username) = username {
@@ -246,7 +246,7 @@ pub fn convert_color(input : Option<&(u8, u8, u8)>) -> Color32 {
   let (rx, gx, bx) = (r + min(adj, r_max_adj), g + min(adj, g_max_adj), b + min(adj, b_max_adj));
 
   //println!("{} {} {}", rx, gx, bx);
-  return Color32::from_rgb(rx, gx, bx);
+  Color32::from_rgb(rx, gx, bx)
 }
 
 
@@ -260,7 +260,7 @@ pub struct EmoteFrame {
   pub zero_width: bool
 }
 
-pub fn get_texture<'a> (emote_loader: &mut EmoteLoader, emote : &'a mut Emote, request : EmoteRequest) -> EmoteFrame {
+pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &mut Emote, request : EmoteRequest) -> EmoteFrame {
   match emote.loaded {
     EmoteStatus::NotLoaded => {
       if let Err(e) = emote_loader.tx.try_send(request) {

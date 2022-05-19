@@ -118,8 +118,8 @@ pub struct EmoteLoader {
 }
 
 impl EmoteLoader {
-  pub fn new(app_name: &String, runtime: &Runtime) -> Self {
-    let (in_tx, in_rx) = async_channel::unbounded(); //tokio::sync::mpsc::channel::<EmoteRequest>(128);
+  pub fn new(app_name: &str, runtime: &Runtime) -> Self {
+    let (in_tx, in_rx) = async_channel::unbounded::<EmoteRequest>();
     let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(256);
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
@@ -138,31 +138,30 @@ impl EmoteLoader {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
                 //println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, css_anim);
-                out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name: name, channel_name: channel_name, data: data })
+                out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 //println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
-                out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name: name, channel_name: channel_name, data: data })
+                out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 //println!("{n} loading global emote {} '{}'", name, url);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
-                out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name: name, data: data })
+                out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name, data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 //println!("{n} loading global badge {}", name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
-                out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name: name, data: data })
+                out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name, data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //println!("{n} loading twitch emote {} '{}'", name, id);
-                let data = if let Some(x) = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None) {
-                  Some(x)
-                } else {
-                  imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
-                };
-                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name: name, id: id, data: data })
+                let mut data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None);
+                if data.is_none() {
+                  data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
+                }
+                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data })
               }
             };
             match sent_msg {
@@ -282,7 +281,7 @@ impl EmoteLoader {
   }
 
   pub fn twitch_get_emote_set(&mut self, token : &String, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
-    if emote_set_id.contains(":") || emote_set_id.contains("-") || emote_set_id.contains("emotesv2") {
+    if emote_set_id.contains(':') || emote_set_id.contains('-') || emote_set_id.contains("emotesv2") {
       return None;
     }
 
@@ -313,8 +312,8 @@ impl EmoteLoader {
   pub fn twitch_get_global_badges(&self, token : &String) -> Option<HashMap<String, Emote>> { 
     let emotes = self.process_badge_json(
       "global",
-      &format!("https://api.twitch.tv/helix/chat/badges/global"),
-      &format!("cache/twitch-badges-global"),
+      "https://api.twitch.tv/helix/chat/badges/global",
+      "cache/twitch-badges-global",
       Some([
         ("Authorization", &format!("Bearer {}", token)),
         ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())

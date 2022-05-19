@@ -23,7 +23,7 @@ mod test {
   fn test2() {
     let css_path = "cache/dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None).expect("failed to download emote css");
-    let loader = dgg::CSSLoader::new();
+    let loader = dgg::CSSLoader::default();
     let data = loader.get_css_anim_data(&css);
 
     let closure = |prefix : &str| {

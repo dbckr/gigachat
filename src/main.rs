@@ -4,7 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use eframe;
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
 
@@ -33,9 +32,8 @@ fn main() {
           emotes.insert(name, emote);
         }
       },
-      Err(x) => { println!("ERROR LOADING GLOBAL EMOTES: {}", x); () }
+      Err(x) => { println!("ERROR LOADING GLOBAL EMOTES: {}", x); }
     };
-    let b = Box::new(app); 
-    b
+    Box::new(app)
   }));
 }

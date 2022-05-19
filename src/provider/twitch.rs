@@ -52,10 +52,10 @@ impl TwitchChatManager {
     self.handle.abort();
   }
 
-  pub fn init_channel(&mut self, channel_name : &String) -> Channel {
+  pub fn init_channel(&mut self, channel_name : &str) -> Channel {
     let mut channel = Channel {  
       provider: ProviderName::Twitch, 
-      channel_name: channel_name.to_lowercase().to_owned(),
+      channel_name: channel_name.to_lowercase(),
       roomid: Default::default(),
       send_history: Default::default(),
       send_history_ix: None,
@@ -65,7 +65,7 @@ impl TwitchChatManager {
     channel
   }
 
-  pub fn open_channel<'a>(&mut self, channel: &mut Channel) {
+  pub fn open_channel(&mut self, channel: &mut Channel) {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
       badge_emotes: None,
@@ -103,7 +103,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
     // check channel statuses
     if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_seconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC) {
       let room_ids = active_room_ids.iter().map(|(_k,v)| v.to_owned()).collect_vec();
-      if room_ids.len() > 0 {
+      if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
         let status_data = get_channel_statuses(room_ids, &token);
         for status in status_data {
@@ -131,25 +131,25 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                 if let Some(tags) = message.tags.as_ref() {
                   let cmsg = ChatMessage { 
                     provider: ProviderName::Twitch,
-                    channel: _target.trim_start_matches("#").to_owned(),
+                    channel: _target.trim_start_matches('#').to_owned(),
                     username: sender_name.to_owned(), 
                     timestamp: chrono::Utc::now(), 
                     message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
-                    profile: get_user_profile(&tags),
+                    profile: get_user_profile(tags),
                     ..Default::default()
                   };
-                  if let Some(emote_ids) = get_tag_value(&tags, "emotes") && emote_ids.len() > 0 {
+                  if let Some(emote_ids) = get_tag_value(tags, "emotes") && !emote_ids.is_empty() {
                     //println!("{}", message);
-                    let ids = emote_ids.split("/").filter_map(|x| {
-                      let pair = x.split(":").collect_vec();
+                    let ids = emote_ids.split('/').filter_map(|x| {
+                      let pair = x.split(':').collect_vec();
                       if pair.len() < 2 { return None; }
                       if seen_emote_ids.contains(pair[0]) {
                         return None;
                       } else {
                         seen_emote_ids.insert(pair[0].to_owned());
                       }
-                      let range = pair[1].split(",").next()
-                        .and_then(|r| Some(r.split("-").filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(_x) => None } ).collect_vec()))
+                      let range = pair[1].split(',').next()
+                        .map(|r| r.split('-').filter_map(|x| match x.parse::<usize>() { Ok(x) => Some(x), Err(_x) => None } ).collect_vec())
                         .unwrap_or_default();
                       match range.len() {
                         //2 => Some((pair[0].to_owned(), msg[range[0]..=range[1]].to_owned())),
@@ -181,15 +181,15 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                       profile = get_user_profile(&tags);
                       tx.try_send(IncomingMessage::EmoteSets { 
                         provider: ProviderName::Twitch,
-                        emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(",").map(|x| x.to_owned()).collect::<Vec<String>>() 
+                        emote_sets: get_tag_value(&tags, "emote-sets").unwrap().split(',').map(|x| x.to_owned()).collect::<Vec<String>>() 
                       })
                     },
                     "ROOMSTATE" => {
-                      active_room_ids.insert(str_vec.last().unwrap().trim_start_matches("#").to_owned(), get_tag_value(&tags, "room-id").unwrap().to_owned());
+                      active_room_ids.insert(str_vec.last().unwrap().trim_start_matches('#').to_owned(), get_tag_value(&tags, "room-id").unwrap().to_owned());
                       // small delay to not spam twitch API when joining channels at app start
                       last_status_check = Some(Utc::now() - chrono::Duration::seconds(TWITCH_STATUS_FETCH_INTERVAL_SEC - 2));
                       tx.try_send(IncomingMessage::RoomId { 
-                        channel: str_vec.last().unwrap().trim_start_matches("#").to_owned(),
+                        channel: str_vec.last().unwrap().trim_start_matches('#').to_owned(),
                         room_id: get_tag_value(&tags, "room-id").unwrap().to_owned() })
                     },
                     "NOTICE" => {
@@ -200,7 +200,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                           channel: "".to_owned(), 
                           username: "SYSTEM_MSG".to_owned(), 
                           timestamp: chrono::Utc::now(), 
-                          message: format!("{}", str_vec.join(", ")), 
+                          message: str_vec.join(", ").to_string(), 
                           profile: UserProfile { 
                             color: Some((255, 0, 0)),
                             ..Default::default() 
@@ -229,7 +229,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
         match out_msg {
           OutgoingMessage::Chat { channel_name, message } => { 
             _ = match &message.chars().next() {
-              Some(x) if x.to_owned() == ':' => sender.send_privmsg(&channel_name, format!(" {}", &message)),
+              Some(x) if *x == ':' => sender.send_privmsg(&channel_name, format!(" {}", &message)),
               _ => sender.send_privmsg(&format!("#{channel_name}"), &message),
             }.inspect_err(|e| { println!("Error sending twitch IRC message: {}", e)});
             let cmsg = ChatMessage { 
@@ -237,7 +237,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
               channel: channel_name,
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 
-              message: message, 
+              message, 
               profile: profile.to_owned(),
               ..Default::default()
             };
@@ -262,10 +262,9 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
 
 fn get_user_profile(tags: &Vec<irc::proto::message::Tag>) -> UserProfile {
   UserProfile {
-    display_name: get_tag_value(&tags, "display-name"),
-    color: convert_color_hex(get_tag_value(&tags, "color").as_ref()),
-    badges: get_tag_value(&tags, "badges").and_then(|b| Some(b.split(",").filter_map(|x| if x.len() > 0 { Some(x.to_owned()) } else { None }).collect_vec())),
-    ..Default::default()
+    display_name: get_tag_value(tags, "display-name"),
+    color: convert_color_hex(get_tag_value(tags, "color").as_ref()),
+    badges: get_tag_value(tags, "badges").map(|b| b.split(',').filter_map(|x| if !x.is_empty() { Some(x.to_owned()) } else { None }).collect_vec())
   }
 }
 
@@ -275,7 +274,7 @@ fn get_tag_value(tags: &Vec<irc::proto::message::Tag>, key: &str) -> Option<Stri
       return tag.1.to_owned();
     }
   }
-  return None;
+  None
 }
 
 pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
@@ -288,7 +287,7 @@ pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
 }
 
 fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<ChannelStatus> {
-  if channel_ids.len() == 0 {
+  if channel_ids.is_empty() {
     return Default::default();
   }
   let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
@@ -306,7 +305,7 @@ pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<
   match result {
     Ok(result) => {
       channel_ids.iter().filter_map(|cid| { 
-        result.data.iter().find(|i| &i.user_id == cid).and_then(|i| Some(i.to_owned()))
+        result.data.iter().find(|i| &i.user_id == cid).map(|i| i.to_owned())
       }).collect_vec()
     },
     Err(e) => { println!("error deserializing channel statuses: {}", e); Default::default() }

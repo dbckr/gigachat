@@ -119,30 +119,20 @@ impl Default for ChatMessage {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct UserProfile {
   pub badges: Option<Vec<String>>,
   pub display_name: Option<String>,
   pub color: Option<(u8, u8, u8)>
 }
 
-impl Default for UserProfile {
-  fn default() -> Self {
-    Self {
-      color: None,
-      display_name: Default::default(),
-      badges: None
-    }
-  }
-}
-
 pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   match hex_string {
     Some(hex_str) => { 
-      if hex_str == "" {
+      if hex_str.is_empty() {
         return None;
       }
-      match hex::decode(hex_str.trim_start_matches("#")) {
+      match hex::decode(hex_str.trim_start_matches('#')) {
         Ok(val) => Some((val[0], val[1], val[2])),
         Err(_) => {
           println!("ERROR {}", hex_str);
@@ -154,7 +144,7 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   }
 }
 
-pub fn make_request(url: &String, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, failure::Error> {
+pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, failure::Error> {
   let mut result = String::default();
 
     easy.url(url)?;
@@ -167,7 +157,7 @@ pub fn make_request(url: &String, headers: Option<Vec<(&str, String)>>, easy : &
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).and_then(|x| Ok((&mut result).push_str(&x))).expect("failed to build string from http response body");
+      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).expect("failed to build string from http response body");
       Ok(data.len())
     })?;
     transfer.perform()?;

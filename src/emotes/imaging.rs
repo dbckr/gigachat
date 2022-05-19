@@ -43,10 +43,7 @@ pub fn get_image_data(
           }
         }
         None => {
-          let mut extension = match extension {
-            Some(ref ext) => Some(ext.to_owned()),
-            None => None
-          };
+          let mut extension = extension.as_ref().map(|f| f.to_owned());
           let mut success = false;
           let mut buffer: Vec<u8> = Default::default();
 
@@ -59,21 +56,19 @@ pub fn get_image_data(
             if let Ok(header) = result && header.contains("200 OK") {
               success = true;
             }
-            if extension.is_none() {
-              if let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
-                //TODO: extract extension using regex
-                if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
-                  extension = Some("png".to_owned());
-                }
-                else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
-                  extension = Some("gif".to_owned());
-                }
-                else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
-                  extension = Some("webp".to_owned());
-                }
-                else {
-                  extension = Some("png".to_owned());
-                }
+            if extension.is_none() && let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
+              //TODO: extract extension using regex
+              if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
+                extension = Some("png".to_owned());
+              }
+              else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
+                extension = Some("gif".to_owned());
+              }
+              else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
+                extension = Some("webp".to_owned());
+              }
+              else {
+                extension = Some("png".to_owned());
               }
             }
             true
@@ -98,7 +93,7 @@ pub fn get_image_data(
               .write(true)
               .open(path.join(format!("{}.{}", id, ext)))?;
 
-            f.write(&buffer)?;
+            f.write_all(&buffer)?;
             Ok(load_image(&ext, &buffer, css_anim))
             },
             None => Ok(None)
@@ -119,7 +114,7 @@ fn load_image(
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   match extension {
-    "png" => match image::load_from_memory(&buffer) {
+    "png" => match image::load_from_memory(buffer) {
       Ok(img) => {
         match css_anim {
           None => Some([(to_egui_image(img), 0)].to_vec()),
@@ -128,9 +123,9 @@ fn load_image(
       },
       _ => None,
     },
-    "gif" => match load_animated_gif(&buffer) { Some(x) => Some(x), _ => None },
-    "webp" => match load_animated_webp(&buffer) { Some(x) => Some(x), _ => None },
-    _ => None,
+    "gif" => load_animated_gif(buffer),
+    "webp" => load_animated_webp(buffer),
+    _ => None
   }
 }
 
@@ -159,7 +154,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
       x if x <= 1 => 100,
       x => x * 10
     };
-    match screen.blit_frame(&frame) {
+    match screen.blit_frame(frame) {
       Ok(_) => {
         let x = screen.pixels.pixels().flat_map(|px| [px.r, px.g, px.b, px.a]).collect_vec();
         let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
@@ -171,7 +166,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
     }
   }
 
-  if loaded_frames.len() > 0 {
+  if !loaded_frames.is_empty() {
     Some(loaded_frames)
   } else {
     None
@@ -180,7 +175,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
 
 pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
-  let decoder = webp_animation::Decoder::new(&buffer).unwrap();
+  let decoder = webp_animation::Decoder::new(buffer).unwrap();
   let mut last_timestamp: u16 = 0;
   for frame in decoder.into_iter() {
     let (width, height) = frame.dimensions();
@@ -198,7 +193,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
       println!("failed frame load webp");
     }
   }
-  if loaded_frames.len() > 0 {
+  if !loaded_frames.is_empty() {
     Some(loaded_frames)
   } else {
     None
@@ -213,10 +208,7 @@ pub fn load_file_into_buffer (filepath : &str) -> Vec<u8> {
 }
 
 pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
-  match frames {
-    Some(frames) => Some(frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect()),
-    None => None
-  }
+  frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect())
 }
 
 pub fn load_image_into_texture_handle(

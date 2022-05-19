@@ -38,7 +38,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   //println!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, badges);
-  let header_rows = &ui.fonts().layout_job(job.clone()).rows;
+  let header_rows = &ui.fonts().layout_job(job).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));
   }
@@ -82,12 +82,12 @@ fn get_word_size(ui: &mut egui::Ui, ix: &mut usize, emotes: &HashMap<String, Emo
       [(word.len(), egui::vec2(EMOTE_HEIGHT, EMOTE_HEIGHT))].to_vec()
     }
   } else {
-    get_text_rect(ui, word, &curr_row_width, is_ascii_art).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
+    get_text_rect(ui, word, curr_row_width, is_ascii_art).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
   };
   let mut row_iter = rows.iter();
   while let Some((char_len, row)) = row_iter.next() {
     let row_char_range = TextRange::Range { range: (row_start_char_ix..*ix) };
-    let new_row = process_word_result(ui.available_width(), &ui.spacing().item_spacing, &ui.spacing().interact_size, &row, curr_row_width, curr_row_height, row_data, row_char_range);
+    let new_row = process_word_result(ui.available_width(), &ui.spacing().item_spacing, &ui.spacing().interact_size, row, curr_row_width, curr_row_height, row_data, row_char_range);
     if new_row {
       row_start_char_ix = *ix;
     }
@@ -121,7 +121,7 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
 fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
   let mut job = LayoutJob {
     wrap: TextWrapping { 
-      break_anywhere: if word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some() { true } else { false },
+      break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
       max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
       ..Default::default()
     },
@@ -137,7 +137,7 @@ fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_a
   galley.rows.clone()
 }
 
-pub fn is_ascii_art(msg: &String) -> Option<usize> {
+pub fn is_ascii_art(msg: &str) -> Option<usize> {
   let words = msg.split_ascii_whitespace().map(|w| w.len()).collect_vec();
   if words.len() > 1 && words.iter().all_equal() && let Some(len) = words.first() && len > &15 {
     Some(len.to_owned())
