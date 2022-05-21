@@ -6,7 +6,7 @@
 
 use std::{collections::{HashSet, HashMap}};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, NaiveDateTime};
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
@@ -119,7 +119,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //println!("{}", message);
+            println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -132,8 +132,12 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
                   let cmsg = ChatMessage { 
                     provider: ProviderName::Twitch,
                     channel: _target.trim_start_matches('#').to_owned(),
-                    username: sender_name.to_owned(), 
-                    timestamp: chrono::Utc::now(), 
+                    username: sender_name.to_owned(),
+                    //tmi-sent-ts
+                    timestamp: get_tag_value(tags, "tmi-sent-ts")
+                      .and_then(|x| x.parse::<usize>().ok())
+                      .map(|x| DateTime::from_utc(NaiveDateTime::from_timestamp(x as i64 / 1000, (x % 1000 * 1000_usize.pow(2)) as u32 ), Utc))
+                      .unwrap_or_else(chrono::Utc::now),
                     message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
                     profile: get_user_profile(tags),
                     ..Default::default()

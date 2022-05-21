@@ -85,9 +85,9 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
             if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
               && let Some((command, msg)) = message.split_once(' ')
               && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| println!("websocket error: {}\n {}", f, message)) {
-                if command != "NAMES" {
+                /*if command != "NAMES" {
                   println!("{}", message);
-                }
+                }*/
 
                 match command {
                   "MSG" => {
@@ -96,8 +96,8 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
                       provider: ProviderName::DGG,
                       channel: DGG_CHANNEL_NAME.to_owned(),
                       username: msg.nick, 
-                      timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64, 0), Utc), 
-                      message: msg.data,
+                      timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
+                      message: msg.data.unwrap(),
                       profile: UserProfile { 
                         badges: if !features.is_empty() { Some(features) } else { None },
                         display_name: None, 
@@ -320,7 +320,7 @@ struct Msg {
   nick: String,
   features: Vec<String>,
   timestamp: usize,
-  data: String
+  data: Option<String>
 }
 
 #[derive(serde::Deserialize)]

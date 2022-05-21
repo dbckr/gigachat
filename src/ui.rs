@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque}, ops::{Add}};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
@@ -81,7 +81,7 @@ pub struct TemplateApp {
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  chat_history: VecDeque<(ChatMessage, Option<f32>)>,
+  chat_histories: HashMap<String, VecDeque<(ChatMessage, Option<f32>)>>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   draft_message: String,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -606,14 +606,16 @@ impl epi::App for TemplateApp {
         }
         
         let mut popped_height = 0.;
-        if self.chat_history.len() > 2000 && let Some(popped) = self.chat_history.pop_front() 
+        for (channel, history) in self.chat_histories.iter_mut() {
+          if history.len() > 2000 && let Some(popped) = history.pop_front() 
             && let Some(height) = popped.1 && (self.selected_channel.is_none() || self.selected_channel == Some(popped.0.channel)) {
-          if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
-            // add nothing to y_pos
-          } else if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end && c.count > 1) {
-            popped_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-          } else {
-            popped_height += height;
+            if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
+              // add nothing to y_pos
+            } else if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end && c.count > 1) {
+              popped_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+            } else {
+              popped_height += height;
+            }
           }
         }
 
@@ -691,11 +693,18 @@ impl TemplateApp {
       let mut y_pos = 0.0;
       let mut excess_top_space : Option<f32> = None;
       let mut skipped_rows = 0;
-
-      for (row, cached_y) in self.chat_history.iter_mut() {
-        if let Some(channel) = channel_name && &row.channel != channel {
-          continue;
+      
+      let mut history_iters = Vec::new();
+      for (cname, hist) in self.chat_histories.iter_mut() {
+        if self.selected_channel.is_none() || self.selected_channel.is_some_and(|f| f == cname) {
+          history_iters.push(hist.iter_mut().peekable());
         }
+      }
+      let mut history_iters = HistoryIterator {
+        iterators: history_iters,
+      };
+
+      while let Some((row, cached_y)) = history_iters.get_next() {
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
@@ -765,6 +774,7 @@ impl TemplateApp {
           });
         }
       }
+
       let transparent_texture = self.emote_loader.as_ref().unwrap().transparent_img.as_ref().unwrap();
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
@@ -793,8 +803,9 @@ impl TemplateApp {
         // remove any extra whitespace between words
         let rgx = regex::Regex::new("\\s+").unwrap();
         message.message = rgx.replace_all(&message.message, " ").to_string();
+        let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
         push_history(
-          &mut self.chat_history, 
+          chat_history, 
           message,
           provider_emotes, 
           self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()).and_then(|f| f.channel_emotes.as_mut()),
@@ -1044,4 +1055,27 @@ pub fn load_font() -> FontDefinitions {
   fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
 
   fonts
+}
+
+struct HistoryIterator<'a> {
+  //histories: Vec<VecDeque<(ChatMessage, Option<f32>)>>,
+  iterators: Vec<Peekable<IterMut<'a, (ChatMessage, Option<f32>)>>>,
+}
+
+impl<'a> HistoryIterator<'a> {
+  fn get_next(&mut self) -> Option<&'a mut (ChatMessage, Option<f32>)> {
+    let mut min_i = 0;
+    let mut ts = Utc::now();
+
+    let mut i = 0;
+    for iter in self.iterators.iter_mut() {
+      if let Some((msg, _y)) = iter.peek() && msg.timestamp < ts {
+        ts = msg.timestamp;
+        min_i = i;
+      }
+      i += 1;
+    }
+
+    self.iterators.get_mut(min_i).and_then(|x| x.next())
+  }
 }
