@@ -29,7 +29,7 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>) -> (Vec<(f32, TextRange)>, bool) {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>, show_channel_names: bool) -> (Vec<(f32, TextRange)>, bool) {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
@@ -37,7 +37,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   let is_ascii_art = is_ascii_art(&row.message);
   //println!("ascii {}", is_ascii_art.is_some());
 
-  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, badges);
+  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, show_channel_names);
   let header_rows = &ui.fonts().layout_job(job).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));

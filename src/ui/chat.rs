@@ -15,9 +15,9 @@ use crate::{emotes::*, provider::{ProviderName, UserProfile}};
 
 use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
 
-pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
+pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
-  let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, row.badges.as_ref());
+  let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_names);
   let ui_row = ui.horizontal_wrapped(|ui| {
     ui.image(transparent_img, emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
     ui.label(job);
@@ -34,7 +34,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle) -> emath::Rect {
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool) -> emath::Rect {
   let mut message_color : Option<(u8,u8,u8)> = None;
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
     message_color = Some((99, 151, 37));
@@ -60,7 +60,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
         ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
         ui.set_row_height(row_height);
         if row_ix == 0 {
-          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.badges.as_ref());
+          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, show_channel_names);
           ui.label(job);
           if let Some(user_badges) = &chat_msg.message.profile.badges {
             for badge in user_badges {
@@ -170,7 +170,7 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http")
 }
 
-pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, _badges : Option<&HashMap<String, EmoteFrame>>) -> LayoutJob {
+pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_names: bool) -> LayoutJob {
   let mut job = LayoutJob {
     wrap: TextWrapping { 
       break_anywhere: false,
@@ -180,13 +180,15 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
     ..Default::default()
   };
+  if show_channel_names {
   job.append(&format!("#{channel_name}"), 0., egui::TextFormat { 
-    font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
-    color: channel_color.linear_multiply(0.6), 
-    valign: Align::Center,
-    ..Default::default()
-  });
-  job.append(&format!("[{}]", timestamp.format("%H:%M")), 3.0, egui::TextFormat { 
+      font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
+      color: channel_color.linear_multiply(0.6), 
+      valign: Align::Center,
+      ..Default::default()
+    });
+  }
+  job.append(&format!("[{}]", timestamp.with_timezone(&chrono::Local).format("%H:%M")), if show_channel_names { 3.0 } else { 0. }, egui::TextFormat { 
     font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
     color: Color32::DARK_GRAY, 
     valign: Align::Center,

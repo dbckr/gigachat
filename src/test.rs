@@ -177,7 +177,7 @@ mod test {
       combo_data: None };
     let emotes : HashMap<String, EmoteFrame> = Default::default();
     let badges : HashMap<String, EmoteFrame> = Default::default();
-    let x = get_chat_msg_size(&mut ui, &msg, &emotes, Some(&badges));
+    let x = get_chat_msg_size(&mut ui, &msg, &emotes, Some(&badges), true);
     
     x.0.iter().map(|item| {
       let rng = match &item.1 {

@@ -715,6 +715,7 @@ impl TemplateApp {
       let mut history_iters = HistoryIterator {
         iterators: history_iters,
       };
+      let show_channel_names = history_iters.iterators.len() > 1;
 
       while let Some((row, cached_y)) = history_iters.get_next() {
         let combo = &row.combo_data;
@@ -742,7 +743,7 @@ impl TemplateApp {
           .map(|t| (t.channel_emotes.as_mut(), t.badge_emotes.as_mut())).unwrap_or((None, None));
         let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
         let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
-        let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, row, &emotes, badges.as_ref());
+        let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, row, &emotes, badges.as_ref(), show_channel_names);
 
         // DGG user colors are tied to badge/flair
         if row.profile.color.is_none() && user_color.is_some() {
@@ -797,10 +798,10 @@ impl TemplateApp {
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
-            chat::create_chat_message(viewport_ui, chat_msg, transparent_texture);
+            chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names);
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-            chat::create_combo_message(viewport_ui, chat_msg, transparent_texture);
+            chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names);
           }
         }
       });
