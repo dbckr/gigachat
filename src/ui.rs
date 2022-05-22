@@ -349,14 +349,22 @@ impl epi::App for TemplateApp {
       }
     }
 
+    
     let mut channel_removed = false;
-    if self.show_channel_options && let Some(channel) = self.selected_channel.as_ref() {
-      let add_menu = egui::Window::new(format!("Configure Channel: {}", channel)).collapsible(false).show(ctx, |ui| {
-        if ui.button("Remove channel").clicked() {
-          if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-            chat_mgr.leave_channel(channel);
-            channel_removed = true;
-            self.show_channel_options = false;
+    if self.show_channel_options {
+      let channels = self.channels.iter_mut();
+      let add_menu = egui::Window::new(format!("Configure Channel: {}", self.selected_channel.as_ref().unwrap_or(&"".to_owned()))).collapsible(false).show(ctx, |ui| {
+        if let Some(channel) = self.selected_channel.as_ref() {
+          if ui.button("Remove channel").clicked() {
+            if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+              chat_mgr.leave_channel(channel);
+              channel_removed = true;
+              self.show_channel_options = false;
+            }
+          }
+        } else {
+          for (name, channel) in channels {
+            ui.checkbox(&mut channel.show_in_all, name);
           }
         }
       }).unwrap();
@@ -410,6 +418,9 @@ impl epi::App for TemplateApp {
         let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
         if clbl.clicked() {
           channel_swap = true;
+        }
+        else if clbl.clicked_by(egui::PointerButton::Secondary) {
+          self.show_channel_options = true;
         }
 
         let channels = &mut self.channels;
@@ -696,7 +707,8 @@ impl TemplateApp {
       
       let mut history_iters = Vec::new();
       for (cname, hist) in self.chat_histories.iter_mut() {
-        if self.selected_channel.is_none() || self.selected_channel.is_some_and(|f| f == cname) {
+        if self.selected_channel.is_some_and(|channel| channel == cname) 
+          || self.selected_channel.is_none() && self.channels.get(cname).is_some_and(|f| f.show_in_all) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }

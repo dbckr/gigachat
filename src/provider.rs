@@ -79,6 +79,7 @@ pub struct Channel {
   pub channel_name: String,
   pub roomid: String,
   pub provider: ProviderName,
+  pub show_in_all: bool,
   pub send_history: VecDeque<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history_ix: Option<usize>,

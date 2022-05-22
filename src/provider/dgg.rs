@@ -24,6 +24,7 @@ pub fn init_channel() -> Channel {
   Channel {  
     provider: ProviderName::DGG,  
     channel_name: DGG_CHANNEL_NAME.to_owned(),
+    show_in_all: true,
     roomid: Default::default(),
     send_history: Default::default(),
     send_history_ix: None,

@@ -56,6 +56,7 @@ impl TwitchChatManager {
     let mut channel = Channel {  
       provider: ProviderName::Twitch, 
       channel_name: channel_name.to_lowercase(),
+      show_in_all: true,
       roomid: Default::default(),
       send_history: Default::default(),
       send_history_ix: None,
