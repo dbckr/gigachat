@@ -110,6 +110,7 @@ pub struct TemplateApp {
 
 
 impl TemplateApp {
+  #[cfg(not(feature = "use-bevy"))]
   pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
     cc.egui_ctx.set_visuals(egui::Visuals::dark());
     let mut r = TemplateApp {
@@ -126,6 +127,26 @@ impl TemplateApp {
     println!("{} channels", r.channels.len());
     r
   }
+
+  #[cfg(feature = "use-bevy")]
+  pub fn new(title: String, runtime: tokio::runtime::Runtime) -> Self {
+    //cc.egui_ctx.set_visuals(egui::Visuals::dark());
+    let mut r = TemplateApp {
+      ..Default::default()
+    };
+    
+    let mut loader = EmoteLoader::new(&title, &runtime);
+    //loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    r.runtime = Some(runtime);
+    r.emote_loader = Some(loader);
+    println!("{} channels", r.channels.len());
+    r
+  }
+
+  fn bevy_update(mut egui_ctx: bevy_egui::EguiContext,
+    mut ui_state: TemplateApp) {
+      ui_state.update_inner(egui_ctx.ctx_mut())
+  }
 }
 
 impl epi::App for TemplateApp {
@@ -135,6 +156,50 @@ impl epi::App for TemplateApp {
   }
 
   fn update(&mut self, ctx: &egui::Context, _frame: &mut epi::Frame) {
+    self.update_inner(ctx)
+  }
+
+  fn on_exit_event(&mut self) -> bool {
+    true
+  }
+
+  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
+    self.emote_loader.as_ref().unwrap().close();
+    if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+      chat_mgr.close();
+    }
+    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
+      chat_mgr.close();
+    }
+  }
+
+  fn auto_save_interval(&self) -> std::time::Duration {
+      std::time::Duration::from_secs(30)
+  }
+
+  fn max_size_points(&self) -> egui::Vec2 {
+    egui::Vec2::new(1024.0, 2048.0)
+  }
+
+  fn clear_color(&self) -> egui::Rgba {
+    egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
+  }
+
+  fn persist_native_window(&self) -> bool {
+    true
+  }
+
+  fn persist_egui_memory(&self) -> bool {
+    true
+  }
+
+  fn warm_up_enabled(&self) -> bool {
+    false
+  }
+}
+
+impl TemplateApp {
+  fn update_inner(self, ctx: &egui::Context) {
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }
@@ -652,46 +717,6 @@ impl epi::App for TemplateApp {
     ctx.request_repaint();
   }
 
-  fn on_exit_event(&mut self) -> bool {
-    true
-  }
-
-  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
-    self.emote_loader.as_ref().unwrap().close();
-    if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-      chat_mgr.close();
-    }
-    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
-      chat_mgr.close();
-    }
-  }
-
-  fn auto_save_interval(&self) -> std::time::Duration {
-      std::time::Duration::from_secs(30)
-  }
-
-  fn max_size_points(&self) -> egui::Vec2 {
-    egui::Vec2::new(1024.0, 2048.0)
-  }
-
-  fn clear_color(&self) -> egui::Rgba {
-    egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
-  }
-
-  fn persist_native_window(&self) -> bool {
-    true
-  }
-
-  fn persist_egui_memory(&self) -> bool {
-    true
-  }
-
-  fn warm_up_enabled(&self) -> bool {
-    false
-  }
-}
-
-impl TemplateApp {
   fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
