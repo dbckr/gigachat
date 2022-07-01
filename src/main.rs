@@ -6,6 +6,7 @@
 
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
+use gigachat::ui;
 
 #[cfg(all(not(feature = "use-bevy"), not(target_arch = "wasm32")))]
 fn main() {
@@ -74,6 +75,6 @@ fn main() {
     .add_plugin(bevy_egui::EguiPlugin)
     //.add_startup_system(configure_visuals)
     //.add_system(update_ui_scale_factor)
-    .add_system(ui_example)
+    .add_system(ui::bevy_update)
     .run();
 }

@@ -15,7 +15,7 @@ native-tls = ["tokio-tungstenite/native-tls"]
 [dependencies]
 futures = "0.3.0"
 tokio = { version = "1.17.0", features = ["full"] }
-egui = { version = "0.17.0" }
+egui = { version = "0.18.0" }
 eframe = "0.17.0"
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = "1.0.0"

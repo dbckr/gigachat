@@ -5,7 +5,7 @@
  */
 
 use curl::easy::Easy;
-use eframe::{epaint::{TextureHandle}};
+use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
 use failure;
 

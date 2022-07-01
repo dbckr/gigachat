@@ -4,9 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add, DerefMut}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use eframe::{egui::{self, emath, RichText, Key, Modifiers}, epi, epaint::{FontId}, emath::{Align, Rect}};
+use eframe::epi;
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -72,42 +73,46 @@ pub struct AuthTokens {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(feature = "persistence", serde(default))]
+#[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(default))]
 pub struct TemplateApp {
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
   pub providers: HashMap<ProviderName, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   chat_histories: HashMap<String, VecDeque<(ChatMessage, Option<f32>)>>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   draft_message: String,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   show_add_channel_menu: bool,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   add_channel_menu: AddChannelMenu,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub global_emotes: HashMap<String, Emote>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub emote_loader: Option<EmoteLoader>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub selected_emote: Option<String>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   show_auth_ui: bool,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   show_channel_options: bool,
   pub auth_tokens: AuthTokens,
   chat_frame: Option<Rect>,
   chat_scroll: Option<Vec2>,
   enable_combos: bool,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub twitch_chat_manager: Option<TwitchChatManager>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub dgg_chat_manager: Option<ChatManager>
 }
 
+pub fn bevy_update(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>,
+  mut ui_state: bevy::prelude::ResMut<TemplateApp>) {
+    ui_state.update_inner(egui_ctx.ctx_mut())
+}
 
 impl TemplateApp {
   #[cfg(not(feature = "use-bevy"))]
@@ -142,20 +147,16 @@ impl TemplateApp {
     println!("{} channels", r.channels.len());
     r
   }
-
-  fn bevy_update(mut egui_ctx: bevy_egui::EguiContext,
-    mut ui_state: TemplateApp) {
-      ui_state.update_inner(egui_ctx.ctx_mut())
-  }
 }
 
+#[cfg(not(feature = "use-bevy"))]
 impl epi::App for TemplateApp {
   #[cfg(feature = "persistence")]
   fn save(&mut self, storage: &mut dyn epi::Storage) {
     epi::set_value(storage, epi::APP_KEY, self);
   }
 
-  fn update(&mut self, ctx: &egui::Context, _frame: &mut epi::Frame) {
+  fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut epi::Frame) {
     self.update_inner(ctx)
   }
 
@@ -177,11 +178,11 @@ impl epi::App for TemplateApp {
       std::time::Duration::from_secs(30)
   }
 
-  fn max_size_points(&self) -> egui::Vec2 {
+  fn max_size_points(&self) -> Vec2 {
     egui::Vec2::new(1024.0, 2048.0)
   }
 
-  fn clear_color(&self) -> egui::Rgba {
+  fn clear_color(&self) -> Rgba {
     egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
   }
 
@@ -199,7 +200,7 @@ impl epi::App for TemplateApp {
 }
 
 impl TemplateApp {
-  fn update_inner(self, ctx: &egui::Context) {
+  fn update_inner(&mut self, ctx: &egui::Context) {
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }
@@ -636,7 +637,7 @@ impl TemplateApp {
                   self.selected_emote = emotes.first().map(|x| x.0.to_owned());
                 }
 
-                ui.allocate_ui_with_layout(emath::Vec2::new(ui.available_width(), 35. + EMOTE_HEIGHT * 2.), 
+                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 35. + EMOTE_HEIGHT * 2.), 
                     egui::Layout::from_main_dir_and_cross_align( egui::Direction::LeftToRight, Align::BOTTOM), |ui| {
                 egui::ScrollArea::horizontal()
                 .id_source("emote_selector_scrollarea")
@@ -717,14 +718,14 @@ impl TemplateApp {
     ctx.request_repaint();
   }
 
-  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: emath::Rect, channel_name: &Option<String>) {
+  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: Rect, channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
       //ui.spacing_mut().item_spacing.y = 1.;
 
       let y_min = ui.max_rect().top() + viewport.min.y;
       let y_max = ui.max_rect().top() + viewport.max.y;
-      let rect = emath::Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+      let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
       let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut y_pos = 0.0;
       let mut excess_top_space : Option<f32> = None;

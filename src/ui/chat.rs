@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use chrono::{Timelike, DateTime, Utc};
-use eframe::{emath, epaint::text::TextWrapping};
+use egui::{emath, epaint::text::TextWrapping};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 

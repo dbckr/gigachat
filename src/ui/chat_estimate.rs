@@ -6,7 +6,7 @@
 
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 
-use eframe::epaint::text::TextWrapping;
+use egui::epaint::text::TextWrapping;
 use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
 
