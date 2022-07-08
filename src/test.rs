@@ -1,7 +1,7 @@
-#[allow(non_snake_case)]
+//#[allow(non_snake_case)]
 
-#[cfg(test)]
-mod test {
+//#[cfg(test)]
+//mod test {
     use std::{path::PathBuf, collections::HashMap, ops::Range};
 
     use chrono::Utc;
@@ -11,6 +11,19 @@ mod test {
     use regex::Regex;
 
     use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile, dgg}, emotes::fetch};
+
+  #[test]
+  fn cursor_pos_test() {
+    let msg = "GIG";
+    let cursor_position = 3;
+
+    let word = msg.split_whitespace()
+      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
+      .filter_map(|p| { println!("{}", p.0); if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None } })
+      .next().unwrap();
+
+    println!("{:?}", word);
+  }
 
   #[test]
   fn test() {
@@ -192,4 +205,4 @@ mod test {
       )
     }).collect_vec()
   }
-}
+//}

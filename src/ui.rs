@@ -4,10 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add, DerefMut}, iter::Peekable};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use eframe::epi;
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Context, Rounding};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -109,6 +108,7 @@ pub struct TemplateApp {
   pub dgg_chat_manager: Option<ChatManager>
 }
 
+#[cfg(feature = "use-bevy")]
 pub fn bevy_update(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>,
   mut ui_state: bevy::prelude::ResMut<TemplateApp>) {
     ui_state.update_inner(egui_ctx.ctx_mut())
@@ -117,13 +117,13 @@ pub fn bevy_update(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>,
 impl TemplateApp {
   #[cfg(not(feature = "use-bevy"))]
   pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
-    cc.egui_ctx.set_visuals(egui::Visuals::dark());
+    cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
     let mut r = TemplateApp {
       ..Default::default()
     };
     #[cfg(feature = "persistence")]
     if let Some(storage) = cc.storage {
-        r = epi::get_value(storage, epi::APP_KEY).unwrap_or_default();
+        r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
     }
     let mut loader = EmoteLoader::new(&title, &runtime);
     loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
@@ -150,13 +150,13 @@ impl TemplateApp {
 }
 
 #[cfg(not(feature = "use-bevy"))]
-impl epi::App for TemplateApp {
+impl eframe::App for TemplateApp {
   #[cfg(feature = "persistence")]
-  fn save(&mut self, storage: &mut dyn epi::Storage) {
-    epi::set_value(storage, epi::APP_KEY, self);
+  fn save(&mut self, storage: &mut dyn eframe::Storage) {
+    eframe::set_value(storage, eframe::APP_KEY, self);
   }
 
-  fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut epi::Frame) {
+  fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
     self.update_inner(ctx)
   }
 
@@ -178,12 +178,12 @@ impl epi::App for TemplateApp {
       std::time::Duration::from_secs(30)
   }
 
-  fn max_size_points(&self) -> Vec2 {
-    egui::Vec2::new(1024.0, 2048.0)
+  fn max_size_points(&self) -> eframe::egui::Vec2 {
+    eframe::egui::Vec2::new(1024.0, 2048.0)
   }
 
-  fn clear_color(&self) -> Rgba {
-    egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
+  fn clear_color(&self, visuals : &eframe::egui::Visuals) -> eframe::egui::Rgba {
+    eframe::egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
   }
 
   fn persist_native_window(&self) -> bool {
@@ -615,12 +615,13 @@ impl TemplateApp {
             if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
               if enter_emote && let Some(emote_text) = &self.selected_emote {
                 let msg = if self.draft_message.len() <= pos + word.len() || &self.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
-                  format!("{}{} {}",&self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
+                  format!("{}{} {}", &self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
                 } else {
-                  format!("{}{}{}",&self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
+                  format!("{}{}{}", &self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
                 };
                 self.draft_message = msg;
                 outgoing_msg.response.request_focus();
+                println!("{}", emote_text.len());
                 outgoing_msg.state.set_ccursor_range(
                   Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message[..pos].len() + emote_text.len() + 1)))
                 );
@@ -637,49 +638,67 @@ impl TemplateApp {
                   self.selected_emote = emotes.first().map(|x| x.0.to_owned());
                 }
 
-                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 35. + EMOTE_HEIGHT * 2.), 
-                    egui::Layout::from_main_dir_and_cross_align( egui::Direction::LeftToRight, Align::BOTTOM), |ui| {
-                egui::ScrollArea::horizontal()
-                .id_source("emote_selector_scrollarea")
-                .always_show_scroll(true)
-                .show(ui, |ui|{
-                    for emote in emotes {
-                      if goto_prev_emote && self.selected_emote.as_ref() == Some(&emote.0) {
-                        ui.scroll_to_cursor(None)
-                      }
-                      ui.vertical(|ui| {
-                        if let Some(img) = emote.1 && let Some(texture) = img.texture.as_ref().or_else(|| self.emote_loader.as_ref().unwrap().transparent_img.as_ref()) {
-                          if ui.image(texture, egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT * 2. / texture.size_vec2().y), EMOTE_HEIGHT * 2.))
-                              .interact(egui::Sense::click())
-                              .clicked() {
-                            self.selected_emote = Some(emote.0.to_owned());
-                          }
-                        }
-                        else {
-                          ui.add_space(EMOTE_HEIGHT);
-                        }
+                // Overlay style emote selector
+                let msg_rect = outgoing_msg.response.rect.to_owned();
+                let ovl_height = ui.available_height() / 4.;
+                let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
+                let mut painter = ui.painter_at(painter_rect);
+                let painter_rect = painter.clip_rect();
+                painter.set_layer_id(egui::LayerId::debug());
 
-                        ui.style_mut().wrap = Some(false);
-                        let mut disp_text = emote.0.to_owned();
-                        if disp_text.len() > 12 {
-                          disp_text.truncate(10);
-                          disp_text.push_str("...");
-                        }
-                        ui.selectable_value(&mut self.selected_emote, Some(emote.0.to_owned()), RichText::new(disp_text).size(SMALL_TEXT_SIZE))
-                          .on_hover_text_at_pointer(emote.0.to_owned());
-                      });
-                      if goto_next_emote && self.selected_emote.as_ref() == Some(&emote.0) {
-                        ui.scroll_to_cursor(None)
-                      }
-                    }
-                  });
-                });
-                ui.label("Alt+Left/Right to select, Alt+Down to confirm");
+                let mut y = painter_rect.bottom();
+                let mut x = painter_rect.left();
+                for emote in emotes {
+                  let mut job = LayoutJob {
+                    wrap: egui::epaint::text::TextWrapping { 
+                      break_anywhere: false,
+                      ..Default::default()
+                    },
+                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                    ..Default::default()
+                  };
+                  job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
+                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                    ..Default::default() });
+                  let galley = ui.fonts().layout_job(job);
+                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
+                  let texture = emote.1.as_ref()
+                    .and_then(|f| f.texture.as_ref())
+                    .or_else(|| self.emote_loader.as_ref().unwrap().transparent_img.as_ref())
+                    .unwrap();
+
+                  let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
+                  if x + width + text_width > painter_rect.right() {
+                    y -= EMOTE_HEIGHT;
+                    x = painter_rect.left();
+                  }
+
+                  let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
+                  let rect = egui::Rect { 
+                    min: egui::pos2(painter_rect.left() + x, y - EMOTE_HEIGHT ), 
+                    max: egui::pos2(painter_rect.left() + x + width, y) 
+                  };
+
+                  painter.rect_filled(egui::Rect {
+                    min: egui::pos2(x, y - EMOTE_HEIGHT),
+                    max: egui::pos2(x + width + text_width, y),
+                  }, Rounding::none(), Color32::from_rgba_unmultiplied(0, 0, 0, 210));
+
+                  let mut mesh = egui::Mesh::with_texture(texture.id());
+                  mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+                  painter.add(egui::Shape::mesh(mesh));
+
+                  let mut disp_text = emote.0.to_owned();
+                  painter.text(egui::pos2(painter_rect.left() + x + width, y), egui::Align2::LEFT_BOTTOM, disp_text, FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), if self.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE });
+
+                  x = x + width + text_width;
+                }
               }
             }
           }
+
           outgoing_msg.state.store(ctx, outgoing_msg.response.id);
-          ui.separator();
         }
         
         let mut popped_height = 0.;
@@ -912,10 +931,10 @@ impl TemplateApp {
       .next();
 
     if let Some((pos, input_str)) = word {
-      if input_str.len() < 3 || !input_str.starts_with(':') {
+      if input_str.len() < 3  {
         return None;
       }
-      let word = &input_str[1..];
+      let word = &input_str[0..];
       let word_lower = &word.to_lowercase();
 
       let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
@@ -923,9 +942,6 @@ impl TemplateApp {
       // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
       if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) && let Some(transient) = channel.transient.as_mut() && let Some(channel_emotes) = transient.channel_emotes.as_mut() {
         for (name, emote) in channel_emotes { // Channel emotes
-          if name == word {
-            return None;
-          }
           let name_l = name.to_lowercase();
           if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
             let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_channel_request(emote, channel_name));
@@ -937,9 +953,6 @@ impl TemplateApp {
         }
         if let Some(provider) = self.providers.get_mut(&channel.provider) { // Provider emotes
           for name in provider.my_sub_emotes.iter() {
-            if name == word {
-              return None;
-            }
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
               if let Some(emote) = provider.emotes.get_mut(name) {
@@ -954,9 +967,6 @@ impl TemplateApp {
         }
       }
       for (name, emote) in &mut self.global_emotes { // Global emotes
-        if name == word {
-          return None;
-        }
         let name_l = name.to_lowercase();
         if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
           let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_global_request(emote));

@@ -33,13 +33,15 @@ pub fn init_channel() -> Channel {
 }
 
 pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
-  let (out_tx, out_rx) = mpsc::channel::<IncomingMessage>(32);
-  let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
+  let (mut out_tx, out_rx) = mpsc::channel::<IncomingMessage>(32);
+  let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let token2 = token.to_owned();
   let name2 = user_name.to_owned();
 
   let handle = runtime.spawn(async move { 
-    spawn_websocket_client(name2, token2, out_tx, in_rx).await
+    loop {
+      spawn_websocket_client(name2.to_owned(), token2.to_owned(), &mut out_tx, &mut in_rx).await
+    }
   });
 
   channel.transient = Some(ChannelTransient {
@@ -63,7 +65,7 @@ impl ChatManager {
   }
 }
 
-async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::Sender<IncomingMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
+async fn spawn_websocket_client(_user_name : String, token: String, tx : &mut mpsc::Sender<IncomingMessage>, rx: &mut mpsc::Receiver<OutgoingMessage>) {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
@@ -80,7 +82,7 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
 
   while !quitted {
     tokio::select! {
-      Some(result) = socket.next()  => {
+      Some(result) = socket.next() => {
         match result {
           Ok(message) => {
             if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
@@ -117,7 +119,10 @@ async fn spawn_websocket_client(_user_name : String, token: String, tx : mpsc::S
                 }
             }
           },
-          Err(e) => println!("Websocket error: {:?}", e)
+          Err(e) => {
+            println!("Websocket error: {:?}", e);
+            return;
+          }
         }
       },
       Some(out_msg) = rx.recv() => {

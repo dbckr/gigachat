@@ -172,7 +172,12 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
     None
   }
 }
+#[cfg(not(feature = "webp"))]
+pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
+  None
+}
 
+#[cfg(feature = "webp")]
 pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let decoder = webp_animation::Decoder::new(buffer).unwrap();
