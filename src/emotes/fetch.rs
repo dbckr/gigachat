@@ -14,7 +14,7 @@ pub fn process_badge_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
-) -> std::result::Result<Vec<Emote>, failure::Error> {
+) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
@@ -43,7 +43,7 @@ pub fn process_twitch_follower_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
-) -> std::result::Result<Vec<Emote>, failure::Error> {
+) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //println!("processing emote json {}", filename);
   let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
@@ -78,7 +78,7 @@ pub fn process_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
-) -> std::result::Result<Vec<Emote>, failure::Error> {
+) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //println!("processing emote json {}", filename);
   let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
@@ -168,7 +168,7 @@ pub fn get_json_from_url(
   url: &str,
   filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
-) -> std::result::Result<String, failure::Error> {
+) -> std::result::Result<String, anyhow::Error> {
 
   let mut buffer: Vec<u8> = Default::default();
   let mut json: String = Default::default();

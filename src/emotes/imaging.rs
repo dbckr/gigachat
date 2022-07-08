@@ -23,7 +23,7 @@ pub fn get_image_data(
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let inner =
-    || -> std::result::Result<Option<Vec<(ColorImage, u16)>>, failure::Error> {
+    || -> std::result::Result<Option<Vec<(ColorImage, u16)>>, anyhow::Error> {
       //if path.exists().len() > 0 {
       DirBuilder::new().recursive(true).create(&path)?;
       //}

@@ -7,7 +7,6 @@
 use curl::easy::Easy;
 use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
-use failure;
 
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
 use std::{collections::HashMap, time::Duration, path::PathBuf};
@@ -196,7 +195,7 @@ impl EmoteLoader {
     &mut self,
     channel_id: &String,
     token: &String
-  ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
+  ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
     let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
     let ffz_emotes = self.process_emote_json(
       &ffz_url,
@@ -245,7 +244,7 @@ impl EmoteLoader {
 
   pub fn load_global_emotes(
     &self,
-  ) -> std::result::Result<HashMap<String, Emote>, failure::Error> {
+  ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
     let bttv_emotes = self.process_emote_json(
       "https://api.betterttv.net/3/cached/emotes/global",
       "cache/bttv-global-json",
@@ -268,15 +267,15 @@ impl EmoteLoader {
     Ok(result)
   }
 
-  fn process_emote_json(&self, url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+  fn process_emote_json(&self, url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
     fetch::process_emote_json(url, self.base_path.join(path).to_str().unwrap(), headers)
   }
 
-  fn process_twitch_follower_emote_json(&self, twitch_url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+  fn process_twitch_follower_emote_json(&self, twitch_url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
     fetch::process_twitch_follower_emote_json(twitch_url, self.base_path.join(path).to_str().unwrap(), headers)
   }
 
-  fn process_badge_json(&self, room_id: &str, url: &str, filename: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, failure::Error> {
+  fn process_badge_json(&self, room_id: &str, url: &str, filename: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
     fetch::process_badge_json(room_id, url, self.base_path.join(filename).to_str().unwrap(), headers)
   }
 

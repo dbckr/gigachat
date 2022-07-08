@@ -145,7 +145,7 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   }
 }
 
-pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, failure::Error> {
+pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, anyhow::Error> {
   let mut result = String::default();
 
     easy.url(url)?;
