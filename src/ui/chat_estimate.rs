@@ -29,7 +29,7 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&HashMap<String, EmoteFrame>>, show_channel_names: bool) -> (Vec<(f32, TextRange)>, bool) {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_names: bool) -> (Vec<(f32, TextRange)>, bool) {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;

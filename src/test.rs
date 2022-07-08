@@ -1,16 +1,12 @@
 //#[allow(non_snake_case)]
 
-//#[cfg(test)]
-//mod test {
-    use std::{path::PathBuf, collections::HashMap, ops::Range};
-
-    use chrono::Utc;
-    use curl::easy::Easy;
-    use egui::{LayerId, Id, Order, Rect, Pos2};
-    use itertools::Itertools;
-    use regex::Regex;
-
-    use crate::{ui::{chat_estimate::{get_chat_msg_size, TextRange}, chat::EmoteFrame, load_font}, provider::{ChatMessage, UserProfile, dgg}, emotes::fetch};
+#[cfg(test)]
+mod test {
+  use std::{ops::Range, path::PathBuf};
+  use curl::easy::Easy;
+  use itertools::Itertools;
+  use regex::Regex;
+  use crate::{emotes::fetch, provider::dgg};
 
   #[test]
   fn cursor_pos_test() {
@@ -168,7 +164,14 @@
     }
   }
 
+  #[cfg(test)]
   fn estimate_message_test_helper(width: f32, message: String) -> Vec<(Range<usize>, f32, String)> {
+    use std::collections::HashMap;
+    use chrono::Utc;
+    use egui::{LayerId, Order, Pos2, Rect, Id};
+    use itertools::Itertools;
+    use crate::{provider::{UserProfile, ChatMessage}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size}, load_font}};
+
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());
     context.begin_frame(Default::default());
@@ -205,4 +208,4 @@
       )
     }).collect_vec()
   }
-//}
+}

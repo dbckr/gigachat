@@ -6,7 +6,6 @@
 
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
-use gigachat::ui;
 
 #[cfg(all(not(feature = "use-bevy"), not(target_arch = "wasm32")))]
 fn main() {

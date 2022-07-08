@@ -164,7 +164,7 @@ impl eframe::App for TemplateApp {
     true
   }
 
-  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
+  fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
     self.emote_loader.as_ref().unwrap().close();
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
@@ -182,7 +182,7 @@ impl eframe::App for TemplateApp {
     eframe::egui::Vec2::new(1024.0, 2048.0)
   }
 
-  fn clear_color(&self, visuals : &eframe::egui::Visuals) -> eframe::egui::Rgba {
+  fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> eframe::egui::Rgba {
     eframe::egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
   }
 
@@ -689,7 +689,7 @@ impl TemplateApp {
                   mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
                   painter.add(egui::Shape::mesh(mesh));
 
-                  let mut disp_text = emote.0.to_owned();
+                  let disp_text = emote.0.to_owned();
                   painter.text(egui::pos2(painter_rect.left() + x + width, y), egui::Align2::LEFT_BOTTOM, disp_text, FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), if self.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE });
 
                   x = x + width + text_width;
@@ -702,7 +702,7 @@ impl TemplateApp {
         }
         
         let mut popped_height = 0.;
-        for (channel, history) in self.chat_histories.iter_mut() {
+        for (_channel, history) in self.chat_histories.iter_mut() {
           if history.len() > 2000 && let Some(popped) = history.pop_front() 
             && let Some(height) = popped.1 && (self.selected_channel.is_none() || self.selected_channel == Some(popped.0.channel)) {
             if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
@@ -737,7 +737,7 @@ impl TemplateApp {
     ctx.request_repaint();
   }
 
-  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: Rect, channel_name: &Option<String>) {
+  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: Rect, _channel_name: &Option<String>) {
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
       //ui.spacing_mut().item_spacing.y = 1.;
