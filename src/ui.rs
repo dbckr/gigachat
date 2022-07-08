@@ -498,15 +498,15 @@ impl TemplateApp {
               color: Color32::LIGHT_GRAY,
               ..Default::default()
             });
-            if t.status.is_some_and(|s| s.stream_type == "live") {
+            if t.status.is_some_and(|s| s.is_live) {
+              let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 255 } else { 220 };
               job.append("🔴", 3., egui::TextFormat {
-                font_id: FontId::new(BUTTON_TEXT_SIZE / 2., FontFamily::Proportional), 
-                color: Color32::from_rgb(220, 0, 0),
+                font_id: FontId::new(BUTTON_TEXT_SIZE / 1.5, FontFamily::Proportional), 
+                color: Color32::from_rgb(red, 0, 0),
                 valign: Align::Center,
                 ..Default::default()
               });
             }
-            //let label = RichText::new(format!("{} {}", channel, match t.status.is_some_and(|s| s.stream_type == "live") { true => "🔴", false => ""})).size(BUTTON_TEXT_SIZE);
             let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), job);
             if clbl.clicked() {
               channel_swap = true;
@@ -520,13 +520,27 @@ impl TemplateApp {
             }
             if let Some(status) = &t.status {
               clbl.on_hover_ui(|ui| {
-                ui.label(&status.title);
-                ui.label(&status.game_name);
-                ui.label(format!("{} viewers", &status.viewer_count));
-                if let Ok(dt) = DateTime::parse_from_rfc3339(&status.started_at) {
-                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
-                  let width = 2;
-                  ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                if let Some(title) = status.title.as_ref() {
+                  ui.label(title);
+                }
+                if let Some(game) = status.game_name.as_ref() {
+                  ui.label(game);
+                }
+                if let Some(viewers) = status.viewer_count.as_ref() {
+                  ui.label(format!("{} viewers", viewers));
+                }
+                
+                if let Some(started_at) = status.started_at.as_ref() { 
+                  if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
+                    let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                    let width = 2;
+                    ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                  }
+                  else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
+                    let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                    let width = 2;
+                    ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                  }
                 }
               });
             }

@@ -12,8 +12,6 @@ use tokio::sync::mpsc;
 
 use crate::emotes::{Emote};
 
-use self::twitch::ChannelStatus;
-
 pub mod twitch;
 //pub mod youtube;
 pub mod dgg;
@@ -63,7 +61,7 @@ pub enum ProviderName {
 }
 
 pub struct ChatManager {
-  handle: tokio::task::JoinHandle<()>,
+  handles: Vec<tokio::task::JoinHandle<()>>,
   pub in_tx: mpsc::Sender<OutgoingMessage>,
   pub out_rx: mpsc::Receiver<IncomingMessage>,
 }
@@ -165,4 +163,13 @@ pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut
     drop(transfer);
 
     Ok(result)
+}
+
+#[derive(Clone,Debug,Default)]
+pub struct ChannelStatus {
+  pub game_name: Option<String>,
+  pub is_live: bool,
+  pub title: Option<String>,
+  pub viewer_count: Option<usize>,
+  pub started_at: Option<String>
 }

@@ -11,7 +11,7 @@ use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{sync::{mpsc}, runtime::Runtime};
-use crate::{provider::{Channel, convert_color_hex, ProviderName}, emotes::{fetch::get_json_from_url}};
+use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus}, emotes::{fetch::get_json_from_url}};
 
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
 
@@ -108,7 +108,13 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
         last_status_check = Some(Utc::now());
         let status_data = get_channel_statuses(room_ids, &token);
         for status in status_data {
-          match tx.try_send(IncomingMessage::StreamingStatus { channel: status.user_name.to_lowercase().to_owned(), status: Some(status) }) {
+          match tx.try_send(IncomingMessage::StreamingStatus { channel: status.user_name.to_lowercase().to_owned(), status: Some(ChannelStatus {
+            game_name: Some(status.game_name),
+            is_live: match status.stream_type.as_str() { "live" => true, _ => false },
+            title: Some(status.title),
+            viewer_count: Some(status.viewer_count),
+            started_at: Some(status.started_at),
+          }) }) {
             Err(e) => println!("error sending status: {}", e),
             _ => ()
           }
@@ -291,7 +297,7 @@ pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
   ctx.output().open_url(&authorize_url);
 }
 
-fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<ChannelStatus> {
+fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();
   }
@@ -305,8 +311,8 @@ fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<Channe
   parse_channel_status_json(channel_ids, json)
 }
 
-pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<ChannelStatus> {
-  let result: Result<ChannelStatuses, _> = serde_json::from_str(&json);
+pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<TwitchChannelStatus> {
+  let result: Result<TwitchChannelStatuses, _> = serde_json::from_str(&json);
   match result {
     Ok(result) => {
       channel_ids.iter().filter_map(|cid| { 
@@ -317,13 +323,13 @@ pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<
   }
 }
 #[derive(serde::Deserialize)]
-pub struct ChannelStatuses {
-  data: Vec<ChannelStatus>
+pub struct TwitchChannelStatuses {
+  data: Vec<TwitchChannelStatus>
 }
 
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Default)]
 #[derive(serde::Deserialize)]
-pub struct ChannelStatus {
+pub struct TwitchChannelStatus {
   pub user_id: String,
   pub user_name: String,
   pub game_name: String,

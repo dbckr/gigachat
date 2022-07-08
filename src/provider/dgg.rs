@@ -14,7 +14,7 @@ use regex::Regex;
 use tokio::{runtime::Runtime, sync::mpsc};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 
-use crate::emotes::{fetch, Emote, EmoteLoader, CssAnimationData};
+use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
 
 use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
 
@@ -35,12 +35,19 @@ pub fn init_channel() -> Channel {
 pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
   let (mut out_tx, out_rx) = mpsc::channel::<IncomingMessage>(32);
   let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
-  let token2 = token.to_owned();
-  let name2 = user_name.to_owned();
 
+  let mut out_tx_2 = out_tx.clone();
+  let handle2 = runtime.spawn(async move { 
+    loop {
+      spawn_websocket_live_client(&mut out_tx_2).await
+    }
+  });
+
+  let name1 = user_name.to_owned();
+  let token1 = token.to_owned();
   let handle = runtime.spawn(async move { 
     loop {
-      spawn_websocket_client(name2.to_owned(), token2.to_owned(), &mut out_tx, &mut in_rx).await
+      spawn_websocket_chat_client(&name1, &token1, &mut out_tx, &mut in_rx).await
     }
   });
 
@@ -50,8 +57,10 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
     status: None
   });
 
+  let handles = vec![ handle, handle2 ];
+
   ChatManager {
-    handle,
+    handles,
     in_tx,
     out_rx,
   }
@@ -61,11 +70,46 @@ impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect("channel failure");
     std::thread::sleep(std::time::Duration::from_millis(1000));
-    self.handle.abort();
+    for handle in &self.handles {
+      handle.abort();
+    }
   }
 }
 
-async fn spawn_websocket_client(_user_name : String, token: String, tx : &mut mpsc::Sender<IncomingMessage>, rx: &mut mpsc::Receiver<OutgoingMessage>) {
+async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
+  let request = "wss://live.destiny.gg/ws".into_client_request().expect("failed to build request");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect("failed to connect to wss");
+
+  loop {
+    tokio::select! {
+      Some(result) = socket.next() => {
+        match result {
+          Ok(message) => {
+            if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
+              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| println!("websocket error: {}\n {}", f, message))
+              && let Some(yt_data) = msg.streams.youtube {
+                let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
+                  game_name: yt_data.game, 
+                  is_live: yt_data.live.unwrap_or(false), 
+                  title: yt_data.status_text,  
+                  viewer_count: yt_data.viewers, 
+                  started_at: yt_data.started_at, 
+                  ..Default::default() }) };
+
+                if let Err(e) = tx.try_send(status_msg) { println!("error sending status: {}",e) }
+            }
+          },
+          Err(e) => {
+            println!("Websocket error: {:?}", e);
+            return;
+          }
+        }
+      }
+    };
+  }
+}
+
+async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut mpsc::Sender<IncomingMessage>, rx: &mut mpsc::Receiver<OutgoingMessage>) {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
@@ -310,6 +354,32 @@ impl CSSLoader {
     }
     result
   }
+}
+
+#[derive(serde::Deserialize)]
+struct LiveSocketMsg {
+  streams: LiveSocketMsgStreams
+}
+
+#[derive(serde::Deserialize)]
+struct LiveSocketMsgStreams {
+  //twitch: Option<LiveSocketMsgStreamDetail>,
+  youtube: Option<LiveSocketMsgStreamDetail>
+}
+
+#[derive(serde::Deserialize)]
+struct LiveSocketMsgStreamDetail {
+  live: Option<bool>,
+  game: Option<String>,
+  //preview: Option<String>,
+  status_text: Option<String>,
+  started_at: Option<String>,
+  //ended_at: Option<String>,
+  //duration: Option<usize>,
+  viewers: Option<usize>,
+  //id: Option<String>,
+  //platform: Option<String>,
+  //r#type: Option<String>
 }
 
 #[derive(serde::Deserialize)]
