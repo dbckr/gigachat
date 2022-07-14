@@ -6,7 +6,7 @@
 
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Context, Rounding};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -114,6 +114,23 @@ pub fn bevy_update(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>,
     ui_state.update_inner(egui_ctx.ctx_mut())
 }
 
+#[cfg(feature = "use-bevy")]
+pub fn bevy_configure_visuals(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>) {
+  egui_ctx.ctx_mut().set_visuals(egui::Visuals::dark());
+  egui_ctx.ctx_mut().set_fonts(load_font());
+  egui_ctx.ctx_mut().set_pixels_per_point(1.0);
+}
+
+#[cfg(feature = "use-bevy")]
+pub fn bevy_update_ui_scale_factor(
+  _keyboard_input: bevy::prelude::Res<bevy::input::Input<bevy::prelude::KeyCode>>,
+  mut _toggle_scale_factor: bevy::prelude::Local<Option<bool>>,
+  mut egui_settings: bevy::prelude::ResMut<bevy_egui::EguiSettings>,
+  _windows: bevy::prelude::Res<bevy::window::Windows>,) 
+{
+    egui_settings.scale_factor = 0.80;
+}
+
 impl TemplateApp {
   #[cfg(not(feature = "use-bevy"))]
   pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
@@ -135,13 +152,11 @@ impl TemplateApp {
 
   #[cfg(feature = "use-bevy")]
   pub fn new(title: String, runtime: tokio::runtime::Runtime) -> Self {
-    //cc.egui_ctx.set_visuals(egui::Visuals::dark());
     let mut r = TemplateApp {
       ..Default::default()
     };
     
-    let mut loader = EmoteLoader::new(&title, &runtime);
-    //loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    let loader = EmoteLoader::new(&title, &runtime);
     r.runtime = Some(runtime);
     r.emote_loader = Some(loader);
     println!("{} channels", r.channels.len());
@@ -156,7 +171,7 @@ impl eframe::App for TemplateApp {
     eframe::set_value(storage, eframe::APP_KEY, self);
   }
 
-  fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+  fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     self.update_inner(ctx)
   }
 
@@ -164,7 +179,7 @@ impl eframe::App for TemplateApp {
     true
   }
 
-  fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
+  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
     self.emote_loader.as_ref().unwrap().close();
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
@@ -201,6 +216,12 @@ impl eframe::App for TemplateApp {
 
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
+
+    if self.emote_loader.as_ref().unwrap().transparent_img == None {
+      self.emote_loader.as_mut().unwrap().transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    }
+
+    #[cfg(not(feature="use-bevy"))]
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }

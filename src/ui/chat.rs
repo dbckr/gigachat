@@ -5,7 +5,7 @@
  */
 
 use chrono::{Timelike, DateTime, Utc};
-use egui::{emath, epaint::text::TextWrapping};
+use egui::{emath};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 
@@ -170,11 +170,7 @@ fn is_url(word: &str) -> bool {
 
 pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_names: bool) -> LayoutJob {
   let mut job = LayoutJob {
-    wrap: TextWrapping { 
-      break_anywhere: false,
-      //max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
-      ..Default::default()
-    },
+    break_on_newline: false,
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
     ..Default::default()
   };

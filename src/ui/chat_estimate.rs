@@ -5,8 +5,6 @@
  */
 
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
-
-use egui::epaint::text::TextWrapping;
 use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
 
@@ -120,7 +118,9 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
 
 fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
   let mut job = LayoutJob {
-    wrap: TextWrapping { 
+    //wrap_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
+    //break_on_newline: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
+    wrap: egui::epaint::text::TextWrapping { 
       break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
       max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
       ..Default::default()

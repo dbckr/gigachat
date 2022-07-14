@@ -7,6 +7,9 @@
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
 
+#[cfg(feature = "use-bevy")]
+use gigachat::ui;
+
 #[cfg(all(not(feature = "use-bevy"), not(target_arch = "wasm32")))]
 fn main() {
   let native_options = eframe::NativeOptions { 
@@ -43,7 +46,6 @@ fn main() {
     use bevy::window::WindowDescriptor;
 
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
-  //cc.egui_ctx.set_fonts(gigachat::ui::load_font());
   let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
   let mut app = TemplateApp::new(title, runtime);
   let loader = app.emote_loader.as_ref().unwrap();
@@ -61,19 +63,20 @@ fn main() {
   };
 
   bevy::prelude::App::new()
-    //.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
-    .insert_resource(bevy::prelude::Msaa { samples: 4 })
+    .insert_resource(bevy::core_pipeline::ClearColor(bevy::prelude::Color::rgba(0.0, 0.0, 0.0, 120.0)))
+    .insert_resource(bevy::prelude::Msaa { samples: 2 })
     // Optimal power saving and present mode settings for desktop apps.
-    //.insert_resource(WinitSettings::desktop_app())
+    .insert_resource(bevy::winit::WinitSettings::desktop_app())
     .insert_resource(WindowDescriptor {
         present_mode: bevy::window::PresentMode::Mailbox,
         ..Default::default()
     })
     .insert_resource::<TemplateApp>(app)
     .add_plugins(bevy::DefaultPlugins)
+    .add_plugin(bevy_framepace::FramepacePlugin::default())
     .add_plugin(bevy_egui::EguiPlugin)
-    //.add_startup_system(configure_visuals)
-    //.add_system(update_ui_scale_factor)
+    .add_startup_system(ui::bevy_configure_visuals)
+    .add_system(ui::bevy_update_ui_scale_factor)
     .add_system(ui::bevy_update)
     .run();
 }
