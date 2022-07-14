@@ -86,7 +86,7 @@ async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
         match result {
           Ok(message) => {
             if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
-              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| println!("websocket error: {}\n {}", f, message))
+              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| println!("json parse error: {}\n {}", f, message))
               && let Some(yt_data) = msg.streams.youtube {
                 let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
                   game_name: yt_data.game, 
@@ -131,7 +131,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
           Ok(message) => {
             if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
               && let Some((command, msg)) = message.split_once(' ')
-              && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| println!("websocket error: {}\n {}", f, message)) {
+              && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| println!("json parse error: {}\n {}", f, message)) {
                 /*if command != "NAMES" {
                   println!("{}", message);
                 }*/

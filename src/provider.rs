@@ -101,7 +101,8 @@ pub struct ChatMessage {
   pub timestamp: DateTime<Utc>,
   pub message: String,
   pub profile: UserProfile,
-  pub combo_data: Option<ComboCounter>
+  pub combo_data: Option<ComboCounter>,
+  pub is_removed: bool
 }
 
 impl Default for ChatMessage {
@@ -113,7 +114,8 @@ impl Default for ChatMessage {
       timestamp: Utc::now(), 
       message: Default::default(), 
       profile: Default::default(),
-      combo_data: None
+      combo_data: None,
+      is_removed: false
     }
   }
 }

@@ -190,7 +190,8 @@ mod test {
         display_name: None,
         color: Some((0, 0, 0)),
       }, 
-      combo_data: None };
+      combo_data: None,
+      is_removed: false };
     let emotes : HashMap<String, EmoteFrame> = Default::default();
     let badges : HashMap<String, EmoteFrame> = Default::default();
     let x = get_chat_msg_size(&mut ui, &msg, &emotes, Some(&badges), true);

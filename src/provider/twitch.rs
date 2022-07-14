@@ -103,18 +103,32 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
 
     // check channel statuses
     if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_seconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC) {
-      let room_ids = active_room_ids.iter().map(|(_k,v)| v.to_owned()).collect_vec();
+      let room_ids = active_room_ids.iter().map(|(_k,v)| v).collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
         let status_data = get_channel_statuses(room_ids, &token);
-        for status in status_data {
-          match tx.try_send(IncomingMessage::StreamingStatus { channel: status.user_name.to_lowercase().to_owned(), status: Some(ChannelStatus {
-            game_name: Some(status.game_name),
-            is_live: match status.stream_type.as_str() { "live" => true, _ => false },
-            title: Some(status.title),
-            viewer_count: Some(status.viewer_count),
-            started_at: Some(status.started_at),
-          }) }) {
+
+        for (channel, room_id) in active_room_ids.iter() {
+          let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
+            IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(ChannelStatus {
+              game_name: Some(status.game_name.to_owned()),
+              is_live: match status.stream_type.as_str() { "live" => true, _ => false },
+              title: Some(status.title.to_owned()),
+              viewer_count: Some(status.viewer_count),
+              started_at: Some(status.started_at.to_owned()),
+            }) }
+          }
+          else {
+            IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(ChannelStatus {
+              game_name: None,
+              is_live: false,
+              title: None,
+              viewer_count: None,
+              started_at: None,
+            }) }
+          };
+
+          match tx.try_send(status_update_msg) {
             Err(e) => println!("error sending status: {}", e),
             _ => ()
           }
@@ -126,7 +140,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            println!("{}", message);
+            //println!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -297,7 +311,7 @@ pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
   ctx.output().open_url(&authorize_url);
 }
 
-fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<TwitchChannelStatus> {
+fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();
   }
@@ -308,15 +322,16 @@ fn get_channel_statuses(channel_ids : Vec<String>, token: &String) -> Vec<Twitch
       Ok(json) => json,
       Err(e) => { println!("failed getting twitch statuses: {}", e); return Default::default(); }
     };
+  println!("{}", json);
   parse_channel_status_json(channel_ids, json)
 }
 
-pub fn parse_channel_status_json(channel_ids: Vec<String>, json: String) -> Vec<TwitchChannelStatus> {
+pub fn parse_channel_status_json(channel_ids: Vec<&String>, json: String) -> Vec<TwitchChannelStatus> {
   let result: Result<TwitchChannelStatuses, _> = serde_json::from_str(&json);
   match result {
     Ok(result) => {
       channel_ids.iter().filter_map(|cid| { 
-        result.data.iter().find(|i| &i.user_id == cid).map(|i| i.to_owned())
+        result.data.iter().find(|i| &&i.user_id == cid).map(|i| i.to_owned())
       }).collect_vec()
     },
     Err(e) => { println!("error deserializing channel statuses: {}", e); Default::default() }

@@ -7,6 +7,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
 - Click user (or usernames in chat messages) to see their recent messages in channel
+- Temporarily pin a user's most recent 2-3 messages to top of window when they get a lot of mentions over short duration
 - Cache json/images in a db file instead of loose files
 - Poll status (Twitch, DGG)
 - Handle Twitch CLEARCHAT, CLEARMSG commands
@@ -35,6 +36,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 ##
 
+- ~DGG~
 - ~Zero width emotes~
 - ~Unicode character support~
 - ~Twitch follower emotes~

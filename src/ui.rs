@@ -518,7 +518,7 @@ impl TemplateApp {
               chat_mgr.leave_channel(channel);
               channel_removed = true;
             }
-            if let Some(status) = &t.status {
+            if let Some(status) = &t.status && status.is_live {
               clbl.on_hover_ui(|ui| {
                 if let Some(title) = status.title.as_ref() {
                   ui.label(title);
@@ -945,7 +945,7 @@ impl TemplateApp {
       .next();
 
     if let Some((pos, input_str)) = word {
-      if input_str.len() < 3  {
+      if input_str.len() < 2  {
         return None;
       }
       let word = &input_str[0..];
@@ -954,15 +954,17 @@ impl TemplateApp {
       let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
-      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) && let Some(transient) = channel.transient.as_mut() && let Some(channel_emotes) = transient.channel_emotes.as_mut() {
-        for (name, emote) in channel_emotes { // Channel emotes
-          let name_l = name.to_lowercase();
-          if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-            let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_channel_request(emote, channel_name));
-            _ = match name_l.starts_with(word_lower) {
-              true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
-              false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
-            };
+      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
+          if let Some(transient) = channel.transient.as_mut() && let Some(channel_emotes) = transient.channel_emotes.as_mut() {
+          for (name, emote) in channel_emotes { // Channel emotes
+            let name_l = name.to_lowercase();
+            if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
+              let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_channel_request(emote, channel_name));
+              _ = match name_l.starts_with(word_lower) {
+                true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
+                false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
+              };
+            }
           }
         }
         if let Some(provider) = self.providers.get_mut(&channel.provider) { // Provider emotes
@@ -979,17 +981,21 @@ impl TemplateApp {
             }
           }
         }
-      }
-      for (name, emote) in &mut self.global_emotes { // Global emotes
-        let name_l = name.to_lowercase();
-        if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-          let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_global_request(emote));
-          _ = match name_l.starts_with(word_lower) {
-            true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
-            false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
-          };
+        // Global emotes, only if not DGG
+        if channel.provider != ProviderName::DGG {
+          for (name, emote) in &mut self.global_emotes { 
+            let name_l = name.to_lowercase();
+            if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
+              let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_global_request(emote));
+              _ = match name_l.starts_with(word_lower) {
+                true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
+                false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
+              };
+            }
+          }
         }
       }
+      
       let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       starts_with.append(&mut contains);
