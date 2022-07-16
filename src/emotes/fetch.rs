@@ -8,6 +8,7 @@ use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead}}
 use curl::easy::Easy;
 use std::io::BufReader;
 use super::{Emote};
+use crate::error_util::{LogErrResult, LogErrOption};
 
 pub fn process_badge_json(
   room_id: &str,
@@ -19,13 +20,13 @@ pub fn process_badge_json(
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() { // Twitch Badges
-    for set in v["data"].as_array_mut().unwrap() {
-      let set_id = set["set_id"].as_str().unwrap().to_owned();
-      for v in set["versions"].as_array_mut().unwrap() {
-        let id = v["id"].as_str().unwrap();
+    for set in v["data"].as_array_mut().log_unwrap() {
+      let set_id = set["set_id"].as_str().log_unwrap().to_owned();
+      for v in set["versions"].as_array_mut().log_unwrap() {
+        let id = v["id"].as_str().log_unwrap();
         let name = format!("{}/{}", set_id, id);
         let id = format!("{}__{}__{}", room_id, &set_id, &id);
-        let imgurl = v["image_url_4x"].as_str().unwrap();
+        let imgurl = v["image_url_4x"].as_str().log_unwrap();
         emotes.push(Emote {
           name,
           id,
@@ -44,18 +45,18 @@ pub fn process_twitch_follower_emote_json(
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  //println!("processing emote json {}", filename);
+  //info!("processing emote json {}", filename);
   let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
     // Twitch Global
-    for i in v["data"].as_array_mut().unwrap() {
+    for i in v["data"].as_array_mut().log_unwrap() {
       if let Some(emote_type) = i["emote_type"].as_str() && emote_type == "follower" { 
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let extension;
-        let wtf = i["format"].as_array().unwrap();
+        let wtf = i["format"].as_array().log_unwrap();
         let imgurl = if wtf.len() == 2 {
           extension = Some("gif".to_owned());
           i["images"]["url_4x"]
@@ -79,17 +80,17 @@ pub fn process_emote_json(
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  //println!("processing emote json {}", filename);
+  //info!("processing emote json {}", filename);
   let data = get_json_from_url(url, Some(filename), headers)?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
     // Twitch Global
-    for i in v["data"].as_array_mut().unwrap() {
+    for i in v["data"].as_array_mut().log_unwrap() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let extension;
-      let wtf = i["format"].as_array().unwrap();
+      let wtf = i["format"].as_array().log_unwrap();
       let imgurl = if wtf.len() == 2 {
         extension = Some("gif".to_owned());
         i["images"]["url_4x"]
@@ -105,14 +106,14 @@ pub fn process_emote_json(
     }
   } else if v["channelEmotes"].is_null() == false {
     // BTTV
-    for i in v["channelEmotes"].as_array_mut().unwrap() {
+    for i in v["channelEmotes"].as_array_mut().log_unwrap() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
       let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
       emotes.push(Emote {name, id, url: imgurl, path: "cache/bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
-    for i in v["sharedEmotes"].as_array_mut().unwrap() {
+    for i in v["sharedEmotes"].as_array_mut().log_unwrap() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
@@ -122,17 +123,17 @@ pub fn process_emote_json(
   } else if v["room"].is_null() == false {
     // FFZ
     let setid = v["room"]["set"].to_string();
-    for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap() {
+    for i in v["sets"][&setid]["emoticons"].as_array_mut().log_unwrap() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let imgurl = format!(
         "https:{}",
-        i["urls"].as_object_mut().unwrap().values().last().unwrap().to_string().trim_matches('"')
+        i["urls"].as_object_mut().log_unwrap().values().last().log_unwrap().to_string().trim_matches('"')
       );
       emotes.push(Emote {name, id, url: imgurl, path: "cache/ffz/".to_owned(), ..Default::default()});
     }
   } else if v[0].is_null() == false {
-    for i in v.as_array_mut().unwrap() {
+    for i in v.as_array_mut().log_unwrap() {
       if i["code"].is_null() == false {
         // BTTV Global
         let name = i["code"].to_string().trim_matches('"').to_owned();
@@ -145,8 +146,8 @@ pub fn process_emote_json(
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
-        let x = i["urls"].as_array().unwrap().last().unwrap().as_array().unwrap().last().unwrap();
-        let imgurl = x.as_str().unwrap();
+        let x = i["urls"].as_array().log_unwrap().last().log_unwrap().as_array().log_unwrap().last().log_unwrap();
+        let imgurl = x.as_str().log_unwrap();
         let zero_width = i["visibility_simple"].as_array().map(|f| f.iter().any(|f| f.as_str().unwrap_or_default() == "ZERO_WIDTH")).unwrap_or(false);
         emotes.push(Emote {
           name,
@@ -210,14 +211,14 @@ pub fn get_json_from_url(
 
     if path.exists()
     {
-      let file = File::open(filename).expect("no such file");
+      let file = File::open(filename).log_expect("no such file");
       for line in BufReader::new(file).lines().filter_map(|result| result.ok()) {
         json.push_str(&line);
       }
     }
     else {
-      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).expect("Unable to open file");
-      f.write_all(&buffer).expect("Failed to write to file");
+      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).log_expect("Unable to open file");
+      f.write_all(&buffer).log_expect("Failed to write to file");
     }
   }
 

@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod test {
+  use tracing::info;
   use std::{ops::Range, path::PathBuf};
   use curl::easy::Easy;
   use itertools::Itertools;
@@ -15,17 +16,17 @@ mod test {
 
     let word = msg.split_whitespace()
       .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-      .filter_map(|p| { println!("{}", p.0); if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None } })
+      .filter_map(|p| { info!("{}", p.0); if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None } })
       .next().unwrap();
 
-    println!("{:?}", word);
+    info!("{:?}", word);
   }
 
   #[test]
   fn test() {
     let context : egui::Context = Default::default();
     let verifier = dgg::begin_authenticate(&context);
-    println!("{}", verifier);
+    info!("{}", verifier);
   }
 
   #[test]
@@ -37,7 +38,7 @@ mod test {
 
     let closure = |prefix : &str| {
       let result = data.get(prefix);
-      println!("{:?}", result);
+      info!("{:?}", result);
     };
     
     closure("RaveDoge");
@@ -57,14 +58,14 @@ mod test {
     let caps = regex.captures_iter(&css);
 
     for cap in caps {
-      println!("{}", cap.iter().skip(1).map(|x| format!("{:?}", x.unwrap().as_str())).join(", "));
+      info!("{}", cap.iter().skip(1).map(|x| format!("{:?}", x.unwrap().as_str())).join(", "));
     }
   }
 
   #[test]
   fn test4() {
     let x = format!("MSG {{\"data\":\"{}\"}}", "message");
-    println!("{}", x);
+    info!("{}", x);
   }
 
   #[test]
@@ -124,7 +125,7 @@ mod test {
     let mut expected_iter = expected_ranges.iter();
     for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
+      info!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -136,7 +137,7 @@ mod test {
     let mut expected_iter = expected_ranges.iter();
     for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
+      info!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -148,7 +149,7 @@ mod test {
     let mut expected_iter = expected_ranges.iter();
     for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
+      info!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 
@@ -160,7 +161,7 @@ mod test {
     let mut expected_iter = expected_ranges.iter();
     for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
-      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
+      info!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }
 

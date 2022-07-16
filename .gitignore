@@ -4,3 +4,4 @@
 /cache
 flamegraph.svg
 perf.data*
+update_release.bat

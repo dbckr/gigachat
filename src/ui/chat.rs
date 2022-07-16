@@ -4,10 +4,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use tracing::info;
 use chrono::{Timelike, DateTime, Utc};
 use egui::{emath};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
+use crate::error_util::{LogErrOption};
 
 use crate::{emotes::*, provider::{ProviderName, UserProfile}};
 
@@ -140,7 +142,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
   let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
   if actual != expected {
-    println!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
+    info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   }
   ui_row.response.rect
 }
@@ -209,7 +211,7 @@ pub fn convert_color(input : Option<&(u8, u8, u8)>) -> Color32 {
   if input.is_none() || input.is_some_and(|x| x == &&(255u8, 255u8, 255u8)) {
     return Color32::WHITE;
   }
-  let input = input.unwrap();
+  let input = input.log_unwrap();
 
   // normalize brightness
   let target = 150;
@@ -241,7 +243,7 @@ pub fn convert_color(input : Option<&(u8, u8, u8)>) -> Color32 {
 
   let (rx, gx, bx) = (r + min(adj, r_max_adj), g + min(adj, g_max_adj), b + min(adj, b_max_adj));
 
-  //println!("{} {} {}", rx, gx, bx);
+  //info!("{} {} {}", rx, gx, bx);
   Color32::from_rgb(rx, gx, bx)
 }
 
@@ -260,7 +262,7 @@ pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &mut Emote, request :
   match emote.loaded {
     EmoteStatus::NotLoaded => {
       if let Err(e) = emote_loader.tx.try_send(request) {
-        println!("Error sending emote load request: {}", e);
+        info!("Error sending emote load request: {}", e);
       }
       emote.loaded = EmoteStatus::Loading;
       EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
@@ -283,7 +285,7 @@ pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &mut Emote, request :
             EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
           }
           else {
-            let (frame, _delay) = frames.get(0).unwrap();
+            let (frame, _delay) = frames.get(0).log_unwrap();
             EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
           }
         },

@@ -4,6 +4,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 # Todo
 
+- Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
 - Click user (or usernames in chat messages) to see their recent messages in channel

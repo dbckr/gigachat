@@ -36,20 +36,20 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
           &token, 
           activelivechat_id, 
           &name_copy, 
-          match next_page_token { Some(x) => { println!("using page token {}", x); x}, None => "".to_owned() }, 
+          match next_page_token { Some(x) => { info!("using page token {}", x); x}, None => "".to_owned() }, 
           &mut easy);
-        println!("updating token to {:?}", page_token);
+        info!("updating token to {:?}", page_token);
         next_page_token = page_token;
         if let Some(messages) = msgs && messages.len() > 0 {
-          println!("got {} messages", &messages.len());
+          info!("got {} messages", &messages.len());
           for message in messages {
             if let Err(e) = out_tx.try_send(InternalMessage::PrivMsg { message: message }) {
-              println!("Error sending PrivMsg: {}", e);
+              info!("Error sending PrivMsg: {}", e);
             }
           }
         }
         else { 
-          println!("no new messages");
+          info!("no new messages");
           tokio::time::sleep(Duration::from_millis(10000)).await;
         }
         tokio::time::sleep(Duration::from_millis(20000)).await;
@@ -96,10 +96,10 @@ fn check_channel(token: &String, channel_id: &String, easy : &mut Easy) -> Optio
     Ok(data) => {
       match serde_json::from_str::<Value>(&data){
         Ok(v) => v["items"][0]["id"]["videoId"].as_str().and_then(|x| Some(x.to_owned())),
-        Err(e) => { println!("JSON Error: {}", e); None }
+        Err(e) => { info!("JSON Error: {}", e); None }
       }
     }
-    Err(e) => { println!("Error: {}", e); None }
+    Err(e) => { info!("Error: {}", e); None }
   }
 }
 
@@ -110,10 +110,10 @@ fn get_active_livestreamchat_id(token: &String, video_id: &String, easy : &mut E
     Ok(data) => {
       match serde_json::from_str::<Value>(&data){
         Ok(v) => v["items"][0]["liveStreamingDetails"]["activeLiveChatId"].as_str().and_then(|x| Some(x.to_owned())),
-        Err(e) => { println!("JSON Error: {}", e); None }
+        Err(e) => { info!("JSON Error: {}", e); None }
       }
     }
-    Err(e) => { println!("Error: {}", e); None }
+    Err(e) => { info!("Error: {}", e); None }
   }
 }
 
@@ -122,25 +122,25 @@ fn get_chat_messages(token: &String, livestreamchat_id: &String, channel_name: &
   let headers = Some([("Authorization", format!("Bearer {}", token)), ("Accept", "application/json".to_owned())].to_vec());
   match make_request(&url, headers, easy) {
     Ok(data) => {
-      println!("{}", data);
+      info!("{}", data);
       match serde_json::from_str::<Value>(&data){
         Ok(v) => {
           let token = v["nextPageToken"].as_str().and_then(|x| Some(x.to_owned()));
-          (token, Some(v["items"].as_array().unwrap().into_iter().filter_map(|item| { Some(ChatMessage { 
+          (token, Some(v["items"].as_array().log_unwrap().into_iter().filter_map(|item| { Some(ChatMessage { 
             provider: ProviderName::YouTube, 
             channel: channel_name.to_owned(), 
             username: item["authorDetails"]["displayName"].as_str()
               .and_then(|x| Some(x.to_owned()))
-              .or_else(|| Some("unknown1".to_owned())).unwrap(), 
-            timestamp: item["snippet"]["publishedAt"].as_str().and_then(|x| Some(Utc.datetime_from_str(x, "%+").unwrap())).or_else(|| Some(Utc::now())).unwrap().into(),
+              .or_else(|| Some("unknown1".to_owned())).log_unwrap(), 
+            timestamp: item["snippet"]["publishedAt"].as_str().and_then(|x| Some(Utc.datetime_from_str(x, "%+").log_unwrap())).or_else(|| Some(Utc::now())).log_unwrap().into(),
             message: item["snippet"]["displayMessage"].as_str()
               .and_then(|x| Some(x.to_owned()))
-              .or_else(|| Some("".to_owned())).unwrap(), 
+              .or_else(|| Some("".to_owned())).log_unwrap(), 
             ..Default::default() }) }).collect_vec()))
         },
-        Err(e) => { println!("JSON Error: {}", e); (None, None) }
+        Err(e) => { info!("JSON Error: {}", e); (None, None) }
       }
     }
-    Err(e) => { println!("Error: {}", e); (None, None) }
+    Err(e) => { info!("Error: {}", e); (None, None) }
   }
 }

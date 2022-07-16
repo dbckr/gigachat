@@ -4,11 +4,13 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use tracing::info;
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
 use curl::easy::Easy;
 use tokio::sync::mpsc;
+use crate::error_util::{LogErrResult};
 
 use crate::emotes::{Emote};
 
@@ -136,7 +138,7 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
       match hex::decode(hex_str.trim_start_matches('#')) {
         Ok(val) => Some((val[0], val[1], val[2])),
         Err(_) => {
-          println!("ERROR {}", hex_str);
+          info!("ERROR {}", hex_str);
           None
         }
       }
@@ -158,7 +160,7 @@ pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).expect("failed to build string from http response body");
+      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).log_expect("failed to build string from http response body");
       Ok(data.len())
     })?;
     transfer.perform()?;

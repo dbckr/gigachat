@@ -7,6 +7,7 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
+use crate::error_util::{LogErrOption};
 
 use crate::provider::*;
 
@@ -33,15 +34,15 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, TextRange)> = Default::default();
   let is_ascii_art = is_ascii_art(&row.message);
-  //println!("ascii {}", is_ascii_art.is_some());
+  //info!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, show_channel_names);
   let header_rows = &ui.fonts().layout_job(job).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));
   }
-  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().unwrap().rect.size().x + ui.spacing().item_spacing.x;
-  let mut curr_row_height = header_rows.last().unwrap().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
+  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().log_unwrap().rect.size().x + ui.spacing().item_spacing.x;
+  let mut curr_row_height = header_rows.last().log_unwrap().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
 
   let mut ix = 0;
   for word in row.message.to_owned().split_ascii_whitespace() {

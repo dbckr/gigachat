@@ -6,12 +6,19 @@
 
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
+use gigachat::error_util::{LogErrResult, LogErrOption};
+use tracing::{info, Level, Subscriber};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{Layer, Registry};
+use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 
 #[cfg(feature = "use-bevy")]
 use gigachat::ui;
 
 #[cfg(all(not(feature = "use-bevy"), not(target_arch = "wasm32")))]
 fn main() {
+  let _guard = init_logging();
+
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
@@ -22,9 +29,9 @@ fn main() {
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
   eframe::run_native(&title.to_owned(), native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());
-    let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
+    let runtime = tokio::runtime::Runtime::new().log_expect("new tokio Runtime");
     let mut app = TemplateApp::new(cc, title, runtime);
-    let loader = app.emote_loader.as_ref().unwrap();
+    let loader = app.emote_loader.as_ref().log_unwrap();
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
       twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)
@@ -35,7 +42,7 @@ fn main() {
           emotes.insert(name, emote);
         }
       },
-      Err(x) => { println!("ERROR LOADING GLOBAL EMOTES: {}", x); }
+      Err(x) => { info!("ERROR LOADING GLOBAL EMOTES: {}", x); }
     };
     Box::new(app)
   }));
@@ -45,10 +52,12 @@ fn main() {
 fn main() {
     use bevy::window::WindowDescriptor;
 
+  let _guard = init_logging();
+
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
-  let runtime = tokio::runtime::Runtime::new().expect("new tokio Runtime");
+  let runtime = tokio::runtime::Runtime::new().log_expect("new tokio Runtime");
   let mut app = TemplateApp::new(title, runtime);
-  let loader = app.emote_loader.as_ref().unwrap();
+  let loader = app.emote_loader.as_ref().log_unwrap();
   let emotes = &mut app.global_emotes;
   if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
     twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)
@@ -59,7 +68,7 @@ fn main() {
         emotes.insert(name, emote);
       }
     },
-    Err(x) => { println!("ERROR LOADING GLOBAL EMOTES: {}", x); }
+    Err(x) => { info!("ERROR LOADING GLOBAL EMOTES: {}", x); }
   };
 
   bevy::prelude::App::new()
@@ -79,4 +88,26 @@ fn main() {
     .add_system(ui::bevy_update_ui_scale_factor)
     .add_system(ui::bevy_update)
     .run();
+}
+
+fn init_logging() -> WorkerGuard {
+  let working_dir = std::env::current_dir().ok().unwrap_or_default();
+
+  let file_appender = tracing_appender::rolling::hourly(working_dir, "gigachat.log");
+  let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+  let console = tracing_subscriber::fmt::layer()
+    .with_line_number(true)
+    .boxed();
+
+  let file = tracing_subscriber::fmt::layer()
+    .with_line_number(true)
+    .with_ansi(false)
+    .with_writer(non_blocking)
+    .boxed();
+
+  let subscriber = Registry::default().with(console).with(file);
+  tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
+
+  guard
 }

@@ -4,6 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use tracing::info;
 use curl::easy::Easy;
 use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
@@ -11,6 +12,7 @@ use egui::ColorImage;
 use tokio::{runtime::Runtime, sync::mpsc::{Receiver}, task::JoinHandle};
 use std::{collections::HashMap, time::Duration, path::PathBuf};
 use std::str;
+use crate::error_util::{LogErrOption};
 
 pub mod fetch;
 pub mod imaging;
@@ -123,39 +125,39 @@ impl EmoteLoader {
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..5 {
-      let base_path = cache_path_from_app_name(app_name).expect("Failed to locate an appropiate location to store cache files");
+      let base_path = cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files");
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
       let task : JoinHandle<()> = runtime.spawn(async move { 
-        println!("emote thread {n}");
+        info!("emote thread {n}");
         let mut easy = Easy::new();
         loop {
           let recv_msg = in_rx.recv().await;
           if let Ok(msg) = recv_msg {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
-                //println!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
+                //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, css_anim);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
-                //println!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
+                //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
-                //println!("{n} loading global emote {} '{}'", name, url);
+                //info!("{n} loading global emote {} '{}'", name, url);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name, data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
-                //println!("{n} loading global badge {}", name);
+                //info!("{n} loading global badge {}", name);
                 let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name, data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
-                //println!("{n} loading twitch emote {} '{}'", name, id);
+                //info!("{n} loading twitch emote {} '{}'", name, id);
                 let mut data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None);
                 if data.is_none() {
                   data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
@@ -165,7 +167,7 @@ impl EmoteLoader {
             };
             match sent_msg {
               Ok(()) => (),
-              Err(e) => println!("Error sending loaded image event: {}", e)
+              Err(e) => info!("Error sending loaded image event: {}", e)
             };
           }
           // everything ends up handled by one thread without this delay
@@ -175,7 +177,7 @@ impl EmoteLoader {
       tasks.insert(tasks.len(), task);
     }
 
-    //println!("counted {} receivers", in_rx.receiver_count());
+    //info!("counted {} receivers", in_rx.receiver_count());
     //in_rx.close();
 
     Self { 
@@ -183,7 +185,7 @@ impl EmoteLoader {
       rx: out_rx,
       handle: tasks,
       transparent_img: None,
-      base_path: cache_path_from_app_name(app_name).expect("Failed to locate an appropiate location to store cache files")
+      base_path: cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files")
      }
   }
 
@@ -268,15 +270,15 @@ impl EmoteLoader {
   }
 
   fn process_emote_json(&self, url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-    fetch::process_emote_json(url, self.base_path.join(path).to_str().unwrap(), headers)
+    fetch::process_emote_json(url, self.base_path.join(path).to_str().log_unwrap(), headers)
   }
 
   fn process_twitch_follower_emote_json(&self, twitch_url: &str, path: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-    fetch::process_twitch_follower_emote_json(twitch_url, self.base_path.join(path).to_str().unwrap(), headers)
+    fetch::process_twitch_follower_emote_json(twitch_url, self.base_path.join(path).to_str().log_unwrap(), headers)
   }
 
   fn process_badge_json(&self, room_id: &str, url: &str, filename: &str, headers: Option<Vec<(&str, &String)>>) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-    fetch::process_badge_json(room_id, url, self.base_path.join(filename).to_str().unwrap(), headers)
+    fetch::process_badge_json(room_id, url, self.base_path.join(filename).to_str().log_unwrap(), headers)
   }
 
   pub fn twitch_get_emote_set(&mut self, token : &String, emote_set_id : &String) -> Option<HashMap<String, Emote>> { 
@@ -302,7 +304,7 @@ impl EmoteLoader {
         Some(map)
       },
       Err(e) => {
-        println!("Error loading emote set: {}", e);
+        info!("Error loading emote set: {}", e);
         Some(HashMap::new())
       }
     }
@@ -328,7 +330,7 @@ impl EmoteLoader {
         Some(map)
       },
       Err(e) => {
-        println!("Error loading emote set: {}", e);
+        info!("Error loading emote set: {}", e);
         Some(HashMap::new())
       }
     }
@@ -354,7 +356,7 @@ impl EmoteLoader {
         Some(map)
       },
       Err(e) => {
-        println!("Error loading channel badge json: {}", e);
+        info!("Error loading channel badge json: {}", e);
         Some(HashMap::new())
       }
     }
@@ -366,7 +368,7 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", app_name) {
       let data_dir = proj_dirs.data_dir().to_path_buf();
       if let Err(err) = std::fs::create_dir_all(&data_dir) {
-          println!(
+          info!(
               "Saving disabled: Failed to create app path at {:?}: {}",
               data_dir,
               err
@@ -376,7 +378,7 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
           Some(data_dir)
       }
   } else {
-      println!("Saving disabled: Failed to find path to data_dir.");
+      info!("Saving disabled: Failed to find path to data_dir.");
       None
   }
 }

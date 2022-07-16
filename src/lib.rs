@@ -9,6 +9,7 @@ pub mod ui;
 pub mod provider;
 pub mod emotes;
 pub mod test;
+pub mod error_util;
 pub use ui::TemplateApp;
 
 #[cfg(target_arch = "wasm32")]

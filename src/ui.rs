@@ -4,6 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use tracing::info;
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding};
@@ -13,6 +14,7 @@ use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::imaging::load_file_into_buffer};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
+use crate::error_util::{LogErrResult, LogErrOption};
 
 pub mod chat;
 pub mod chat_estimate;
@@ -146,7 +148,7 @@ impl TemplateApp {
     loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     r.runtime = Some(runtime);
     r.emote_loader = Some(loader);
-    println!("{} channels", r.channels.len());
+    info!("{} channels", r.channels.len());
     r
   }
 
@@ -159,7 +161,7 @@ impl TemplateApp {
     let loader = EmoteLoader::new(&title, &runtime);
     r.runtime = Some(runtime);
     r.emote_loader = Some(loader);
-    println!("{} channels", r.channels.len());
+    info!("{} channels", r.channels.len());
     r
   }
 }
@@ -180,7 +182,7 @@ impl eframe::App for TemplateApp {
   }
 
   fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
-    self.emote_loader.as_ref().unwrap().close();
+    self.emote_loader.as_ref().log_unwrap().close();
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
     }
@@ -217,8 +219,8 @@ impl eframe::App for TemplateApp {
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
 
-    if self.emote_loader.as_ref().unwrap().transparent_img == None {
-      self.emote_loader.as_mut().unwrap().transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    if self.emote_loader.as_ref().log_unwrap().transparent_img == None {
+      self.emote_loader.as_mut().log_unwrap().transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     }
 
     #[cfg(not(feature="use-bevy"))]
@@ -235,7 +237,7 @@ impl TemplateApp {
       emote.loaded = EmoteStatus::Loaded;
     };
 
-    if let Ok(event) = self.emote_loader.as_mut().unwrap().rx.try_recv() {
+    if let Ok(event) = self.emote_loader.as_mut().log_unwrap().rx.try_recv() {
       match event {
         EmoteResponse::GlobalEmoteImageLoaded { name, data } => {
           if let Some(emote) = self.global_emotes.get_mut(&name) {
@@ -291,10 +293,10 @@ impl TemplateApp {
               global_badges: emote_loader.twitch_get_global_badges(&auth_tokens.twitch_auth_token)
           });
           if self.twitch_chat_manager.is_none() {
-            self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
+            self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap()));
           }
-          self.twitch_chat_manager.as_mut().unwrap().init_channel(&channel_options.channel_name)
-          //twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().unwrap(), emote_loader)
+          self.twitch_chat_manager.as_mut().log_unwrap().init_channel(&channel_options.channel_name)
+          //twitch::init_channel(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, channel_options.channel_name.to_owned(), self.runtime.as_ref().log_unwrap(), emote_loader)
         },
         ProviderName::DGG => dgg::init_channel()
         /*ProviderName::YouTube => {
@@ -306,7 +308,7 @@ impl TemplateApp {
                 global_badges: Default::default()
             });
           }
-          youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), self.runtime.as_ref().unwrap())
+          youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), self.runtime.as_ref().log_unwrap())
         }*/
       };
 
@@ -336,7 +338,7 @@ impl TemplateApp {
           if ui.button("Log In").clicked() {
             self.auth_tokens.twitch_auth_token = "".to_owned();
             self.auth_tokens.show_twitch_auth_token = true;
-            twitch::authenticate(ctx, self.runtime.as_ref().unwrap());
+            twitch::authenticate(ctx, self.runtime.as_ref().log_unwrap());
           }
         });
         ui.separator();
@@ -365,8 +367,8 @@ impl TemplateApp {
         if ui.button("Ok").clicked() {
           let twitch_token = self.auth_tokens.twitch_auth_token.to_owned();
           if twitch_token.starts_with('#') || twitch_token.starts_with("access") {
-            let rgx = regex::Regex::new("access_token=(.*?)&").unwrap();
-            let cleaned = rgx.captures(twitch_token.as_str()).unwrap().get(1).map_or("", |x| x.as_str());
+            let rgx = regex::Regex::new("access_token=(.*?)&").log_unwrap();
+            let cleaned = rgx.captures(twitch_token.as_str()).log_unwrap().get(1).map_or("", |x| x.as_str());
             self.auth_tokens.twitch_auth_token = cleaned.to_owned();
             if !cleaned.is_empty() {
               self.auth_tokens.show_twitch_auth_token = false;
@@ -374,18 +376,18 @@ impl TemplateApp {
           }
           let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
           if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
-            let rgx = regex::Regex::new("code=(.*?)&").unwrap();
-            let cleaned = rgx.captures(dgg_token.as_str()).unwrap().get(1).map_or("", |x| x.as_str());
+            let rgx = regex::Regex::new("code=(.*?)&").log_unwrap();
+            let cleaned = rgx.captures(dgg_token.as_str()).log_unwrap().get(1).map_or("", |x| x.as_str());
             if !cleaned.is_empty() {
               let token = dgg::complete_authenticate(cleaned, &self.auth_tokens.dgg_verifier);
-              self.auth_tokens.dgg_auth_token = token.expect("failed to get dgg token");
+              self.auth_tokens.dgg_auth_token = token.log_expect("failed to get dgg token");
               self.auth_tokens.dgg_verifier = Default::default();
               self.auth_tokens.show_dgg_auth_token = false;
             }
           }
           self.show_auth_ui = false;
         }
-      }).unwrap();
+      }).log_unwrap();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !auth_menu.response.rect.contains(pos) {
@@ -418,14 +420,14 @@ impl TemplateApp {
           });
         }*/
         
-        if name_input.unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
-          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().unwrap()); 
+        if name_input.log_unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().log_unwrap()); 
           self.show_add_channel_menu = false;
         }
         if ui.button("Cancel").clicked() {
           self.show_add_channel_menu = false;
         }
-      }).unwrap();
+      }).log_unwrap();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !add_menu.response.rect.contains(pos) {
@@ -454,7 +456,7 @@ impl TemplateApp {
             ui.checkbox(&mut channel.show_in_all, name);
           }
         }
-      }).unwrap();
+      }).log_unwrap();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !add_menu.response.rect.contains(pos) {
@@ -466,7 +468,7 @@ impl TemplateApp {
     }
 
     if self.twitch_chat_manager.is_none() {
-      self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap()));
+      self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap()));
     }
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
       self.handle_incoming_message(x);
@@ -475,7 +477,7 @@ impl TemplateApp {
       self.handle_incoming_message(x);
     }
     if self.dgg_chat_manager.is_none() && let Some((_, sco)) = self.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
-      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().unwrap(), self.emote_loader.as_ref().unwrap()));
+      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), self.emote_loader.as_ref().log_unwrap()));
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -626,7 +628,7 @@ impl TemplateApp {
             if let Some(sco) = (&mut self.channels).get_mut(sc) {
               if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
                 match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: self.draft_message.replace('\n', " ") }) {
-                  Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                  Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                   _ => {
                     sco.send_history.push_front(self.draft_message.to_owned());
                     self.draft_message = String::new();
@@ -635,7 +637,7 @@ impl TemplateApp {
               } 
               else if sco.provider == ProviderName::DGG && let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
                 match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: "".to_owned(), message: self.draft_message.replace('\n', " ") }) {
-                  Err(e) => println!("Failed to send message: {}", e), //TODO: emit this into UI
+                  Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                   _ => {
                     sco.send_history.push_front(self.draft_message.to_owned());
                     self.draft_message = String::new();
@@ -656,7 +658,7 @@ impl TemplateApp {
                 };
                 self.draft_message = msg;
                 outgoing_msg.response.request_focus();
-                println!("{}", emote_text.len());
+                info!("{}", emote_text.len());
                 outgoing_msg.state.set_ccursor_range(
                   Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message[..pos].len() + emote_text.len() + 1)))
                 );
@@ -700,8 +702,8 @@ impl TemplateApp {
 
                   let texture = emote.1.as_ref()
                     .and_then(|f| f.texture.as_ref())
-                    .or_else(|| self.emote_loader.as_ref().unwrap().transparent_img.as_ref())
-                    .unwrap();
+                    .or_else(|| self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref())
+                    .log_unwrap();
 
                   let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
                   if x + width + text_width > painter_rect.right() {
@@ -821,8 +823,8 @@ impl TemplateApp {
         let (channel_emotes, channel_badges) = self.channels.get_mut(&row.channel)
           .and_then(|c| c.transient.as_mut())
           .map(|t| (t.channel_emotes.as_mut(), t.badge_emotes.as_mut())).unwrap_or((None, None));
-        let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().unwrap());
-        let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().unwrap());
+        let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &mut self.global_emotes, self.emote_loader.as_mut().log_unwrap());
+        let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().log_unwrap());
         let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, row, &emotes, badges.as_ref(), show_channel_names);
 
         // DGG user colors are tied to badge/flair
@@ -834,7 +836,7 @@ impl TemplateApp {
         let mut row_y = 0.;
         for line in msg_sizing {
           let size_y = line.0;
-          //println!("{} {}", viewport.min.y, viewport.max.y);
+          //info!("{} {}", viewport.min.y, viewport.max.y);
           if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
             if excess_top_space.is_none() {
               excess_top_space = Some(y_pos + row_y - viewport.min.y);
@@ -868,7 +870,7 @@ impl TemplateApp {
         }
       }
 
-      let transparent_texture = self.emote_loader.as_ref().unwrap().transparent_img.as_ref().unwrap();
+      let transparent_texture = self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref().log_unwrap();
       self.chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
@@ -894,7 +896,7 @@ impl TemplateApp {
         let provider_emotes = self.providers.get_mut(&message.provider).map(|f| &mut f.emotes);
         let channel = message.channel.to_owned();
         // remove any extra whitespace between words
-        let rgx = regex::Regex::new("\\s+").unwrap();
+        let rgx = regex::Regex::new("\\s+").log_unwrap();
         message.message = rgx.replace_all(&message.message, " ").to_string();
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
         push_history(
@@ -903,7 +905,7 @@ impl TemplateApp {
           provider_emotes, 
           self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()).and_then(|f| f.channel_emotes.as_mut()),
           &mut self.global_emotes, 
-          self.emote_loader.as_mut().unwrap());
+          self.emote_loader.as_mut().log_unwrap());
       },
       IncomingMessage::StreamingStatus { channel, status } => {
         if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
@@ -922,7 +924,7 @@ impl TemplateApp {
       IncomingMessage::RoomId { channel, room_id } => {
         if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
           sco.roomid = room_id;
-          match self.emote_loader.as_mut().unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
+          match self.emote_loader.as_mut().log_unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
             ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
             ProviderName::DGG => &self.auth_tokens.dgg_auth_token
             //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
@@ -931,19 +933,19 @@ impl TemplateApp {
               t.channel_emotes = Some(x);
             },
             Err(x) => { 
-              println!("ERROR LOADING CHANNEL EMOTES: {}", x); 
+              info!("ERROR LOADING CHANNEL EMOTES: {}", x); 
               Default::default()
             }
           };
-          t.badge_emotes = self.emote_loader.as_mut().unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
-          println!("loaded channel badges for {}:{}", channel, sco.roomid);
+          t.badge_emotes = self.emote_loader.as_mut().log_unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
+          info!("loaded channel badges for {}:{}", channel, sco.roomid);
           //break;
         }
       },
       IncomingMessage::EmoteSets { provider,  emote_sets } => {
         if let Some(provider) = self.providers.get_mut(&provider) {
           for set in emote_sets {
-            if let Some(set_list) = self.emote_loader.as_mut().unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
+            if let Some(set_list) = self.emote_loader.as_mut().log_unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
               for (_id, emote) in set_list {
                 provider.my_sub_emotes.insert(emote.name.to_owned());
                 if !provider.emotes.contains_key(&emote.name) {
@@ -980,7 +982,7 @@ impl TemplateApp {
           for (name, emote) in channel_emotes { // Channel emotes
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-              let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_channel_request(emote, channel_name));
+              let tex = chat::get_texture(self.emote_loader.as_mut().log_unwrap(), emote, EmoteRequest::new_channel_request(emote, channel_name));
               _ = match name_l.starts_with(word_lower) {
                 true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                 false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -993,7 +995,7 @@ impl TemplateApp {
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
               if let Some(emote) = provider.emotes.get_mut(name) {
-                let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_twitch_emote_request(emote));
+                let tex = chat::get_texture(self.emote_loader.as_mut().log_unwrap(), emote, EmoteRequest::new_twitch_emote_request(emote));
                 _ = match name_l.starts_with(word_lower) {
                   true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                   false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -1007,7 +1009,7 @@ impl TemplateApp {
           for (name, emote) in &mut self.global_emotes { 
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-              let tex = chat::get_texture(self.emote_loader.as_mut().unwrap(), emote, EmoteRequest::new_global_request(emote));
+              let tex = chat::get_texture(self.emote_loader.as_mut().log_unwrap(), emote, EmoteRequest::new_global_request(emote));
               _ = match name_l.starts_with(word_lower) {
                 true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                 false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -1098,11 +1100,11 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   if badges.is_none() { return (None, None); }
   let mut greatest_badge : Option<(isize, (u8,u8, u8))> = None;
-  for badge in badges.unwrap() {
+  for badge in badges.log_unwrap() {
     let emote = 
       if let Some(&mut ref mut channel_badges) = channel_badges && let Some(emote) = channel_badges.get_mut(badge) {
         if channel_name == dgg::DGG_CHANNEL_NAME && emote.color.is_some() && (greatest_badge.is_none() || greatest_badge.is_some_and(|b| b.0 < emote.priority)) {
-          greatest_badge = Some((emote.priority, emote.color.unwrap()))
+          greatest_badge = Some((emote.priority, emote.color.log_unwrap()))
         }
         chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_badge_request(emote, channel_name))
       }

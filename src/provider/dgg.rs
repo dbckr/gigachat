@@ -10,6 +10,8 @@ use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
+use tracing::{info,warn,error};
+use crate::error_util::{LogErrResult, LogErrOption};
 use regex::Regex;
 use tokio::{runtime::Runtime, sync::mpsc};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
@@ -68,7 +70,7 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
 
 impl ChatManager {
   pub fn close(&mut self) {
-    self.in_tx.try_send(OutgoingMessage::Quit {}).expect("channel failure");
+    self.in_tx.try_send(OutgoingMessage::Quit {}).log_expect("channel failure");
     std::thread::sleep(std::time::Duration::from_millis(1000));
     for handle in &self.handles {
       handle.abort();
@@ -77,16 +79,16 @@ impl ChatManager {
 }
 
 async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
-  let request = "wss://live.destiny.gg/ws".into_client_request().expect("failed to build request");
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect("failed to connect to wss");
+  let request = "wss://live.destiny.gg/ws".into_client_request().log_expect("failed to build request");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
 
   loop {
     tokio::select! {
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
-              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| println!("json parse error: {}\n {}", f, message))
+            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) 
+              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
               && let Some(yt_data) = msg.streams.youtube {
                 let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
                   game_name: yt_data.game, 
@@ -96,11 +98,11 @@ async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
                   started_at: yt_data.started_at, 
                   ..Default::default() }) };
 
-                if let Err(e) = tx.try_send(status_msg) { println!("error sending status: {}",e) }
+                if let Err(e) = tx.try_send(status_msg) { info!("error sending status: {}",e) }
             }
           },
           Err(e) => {
-            println!("Websocket error: {:?}", e);
+            error!("Websocket error: {:?}", e);
             return;
           }
         }
@@ -113,15 +115,15 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
-  let mut request = "wss://chat.destiny.gg/ws".into_client_request().expect("failed to build request");
-  let r = request.headers_mut().append(COOKIE, cookie.parse().unwrap());
-  println!("adding cookie {} {}", cookie, r);
+  let mut request = "wss://chat.destiny.gg/ws".into_client_request().log_expect("failed to build request");
+  let r = request.headers_mut().append(COOKIE, cookie.parse().log_unwrap());
+  info!("adding cookie {} {}", cookie, r);
 
   for item in request.headers().iter() {
-    println!("{}: {:?}", item.0, item.1);
+    info!("{}: {:?}", item.0, item.1);
   }
 
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect("failed to connect to wss");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
   //let (mut write, mut read) = socket.split();
 
   while !quitted {
@@ -129,11 +131,11 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| println!("websocket error: {}", f)) 
+            if let Ok(message) = message.into_text().inspect_err(|f| info!("websocket error: {}", f)) 
               && let Some((command, msg)) = message.split_once(' ')
-              && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| println!("json parse error: {}\n {}", f, message)) {
+              && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
                 /*if command != "NAMES" {
-                  println!("{}", message);
+                  info!("{}", message);
                 }*/
 
                 match command {
@@ -144,7 +146,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                       channel: DGG_CHANNEL_NAME.to_owned(),
                       username: msg.nick, 
                       timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
-                      message: msg.data.unwrap(),
+                      message: msg.data.log_unwrap(),
                       profile: UserProfile { 
                         badges: if !features.is_empty() { Some(features) } else { None },
                         display_name: None, 
@@ -154,17 +156,17 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                     };
                     match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
                       Ok(_) => (),
-                      Err(x) => println!("Send failure: {}", x)
+                      Err(x) => info!("Send failure: {}", x)
                     };
                   },
                   "JOIN" => (),
                   "QUIT" => (),
-                  _ => println!("unknown dgg command: {:?}", message)
+                  _ => warn!("unknown dgg command: {:?}", message)
                 }
             }
           },
           Err(e) => {
-            println!("Websocket error: {:?}", e);
+            error!("Websocket error: {:?}", e);
             return;
           }
         }
@@ -173,11 +175,11 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
         match out_msg {
           OutgoingMessage::Chat { channel_name : _, message } => { 
             socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
-              .inspect_err(|f| println!("socket send error: {}", f))
-              .expect("Error sending websocket message");
+              .inspect_err(|f| info!("socket send error: {}", f))
+              .log_expect("Error sending websocket message");
           },
           OutgoingMessage::Leave { channel_name : _ } => {
-            socket.close(None).await.expect("Error while quitting IRC server"); quitted = true;
+            socket.close(None).await.log_expect("Error while quitting IRC server"); quitted = true;
           },
           _ => ()
         };
@@ -201,7 +203,7 @@ pub fn begin_authenticate(ctx: &egui::Context) -> String {
     state,
     code_challenge);
 
-  println!("{}", &authorize_url);
+  info!("{}", &authorize_url);
 
   ctx.output().open_url(&authorize_url);
   code_verifier
@@ -220,10 +222,10 @@ pub fn complete_authenticate(code: &str, code_verifier: &String) -> Option<Strin
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
         Ok(r) => Some(r.access_token),
-        Err(e) => { println!("error parsing dgg auth response: {}", e); None }
+        Err(e) => { info!("error parsing dgg auth response: {}", e); None }
       }
     },
-    Err(e) => { println!("error getting dgg auth token: {}", e); None }
+    Err(e) => { info!("error getting dgg auth token: {}", e); None }
   }
 }
 
@@ -238,21 +240,21 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
         Ok(r) => Some(r.access_token),
-        Err(e) => { println!("error parsing dgg auth response: {}", e); None }
+        Err(e) => { info!("error parsing dgg auth response: {}", e); None }
       }
     },
-    Err(e) => { println!("error getting dgg auth token: {}", e); None }
+    Err(e) => { info!("error getting dgg auth token: {}", e); None }
   }
 }
 
 pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
   let json_path = &emote_loader.base_path.join("cache/dgg-flairs.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None).expect("failed to download flair json");
-  let emotes = serde_json::from_str::<Vec<DggFlair>>(&json).expect("failed to load flair json");
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None).log_expect("failed to download flair json");
+  let emotes = serde_json::from_str::<Vec<DggFlair>>(&json).log_expect("failed to load flair json");
     let mut result : HashMap<String, Emote> = Default::default();
     for emote in emotes {
-      let image = &emote.image.first().unwrap();
-      let (id, extension) = image.name.split_once('.').unwrap();
+      let image = &emote.image.first().log_unwrap();
+      let (id, extension) = image.name.split_once('.').log_unwrap();
 
       result.insert(emote.name.to_owned(), Emote { 
         name: emote.name, 
@@ -274,20 +276,20 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emo
 
 pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Option<HashMap<String, Emote>> {
   let css_path = &emote_loader.base_path.join("cache/dgg-emotes.css");
-  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None).expect("failed to download emote css");
+  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None).log_expect("failed to download emote css");
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
   let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).expect("failed to download emote json");
-  let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).expect("failed to load emote json");
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None).log_expect("failed to download emote json");
+  let emotes = serde_json::from_str::<Vec<DggEmote>>(&json).log_expect("failed to load emote json");
     let mut result : HashMap<String, Emote> = Default::default();
     for emote in emotes {
-      let image = &emote.image.first().unwrap();
-      let (id, extension) = image.name.split_once('.').unwrap();
+      let image = &emote.image.first().log_unwrap();
+      let (id, extension) = image.name.split_once('.').log_unwrap();
 
       let prefix = &emote.prefix;
       let css_anim = css_anim_data.get(prefix);
-      //println!("{} {:?}", prefix, css_anim);
+      //info!("{} {:?}", prefix, css_anim);
 
       result.insert(emote.prefix.to_owned(), Emote { 
         name: emote.prefix, 
@@ -315,8 +317,8 @@ pub struct CSSLoader {
 impl Default for CSSLoader {
   fn default() -> Self {
     Self { 
-      time_regex: Regex::new("([\\d\\.]*?)(ms|s)").unwrap(), 
-      steps_regex: Regex::new("steps\\((.*?)\\)").unwrap() 
+      time_regex: Regex::new("([\\d\\.]*?)(ms|s)").log_unwrap(), 
+      steps_regex: Regex::new("steps\\((.*?)\\)").log_unwrap() 
     }
   }
 }
@@ -324,7 +326,7 @@ impl Default for CSSLoader {
 impl CSSLoader {
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
-    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap();
+    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").log_unwrap();
     let caps = regex.captures_iter(css);
     for captures in caps {
       let prefix = captures.get(1).map(|x| x.as_str());
@@ -332,10 +334,10 @@ impl CSSLoader {
       let anim = captures.get(3).map(|x| x.as_str());
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
 
-      let caps = anim.and_then(|x| self.time_regex.captures(x)).unwrap();
+      let caps = anim.and_then(|x| self.time_regex.captures(x)).log_unwrap();
       let time = caps.get(1).and_then(|x| x.as_str().parse::<f32>().ok());
       let unit = caps.get(2).map(|x| x.as_str());
-      //println!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);
+      //info!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);
       let time_msec = if let Some(unit) = unit && let Some(time) = time {
         match unit { "ms" => time as isize, _ => (time * 1000.) as isize }
       } else if let Some(steps) = steps {
