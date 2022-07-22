@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod test {
   use tracing::info;
+use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
   use std::{ops::Range, path::PathBuf};
   use curl::easy::Easy;
   use itertools::Itertools;
@@ -70,6 +71,13 @@ mod test {
 
   #[test]
   fn gachihyper() {
+    let console = tracing_subscriber::fmt::layer()
+    .with_line_number(true)
+    .boxed();
+
+    let subscriber = Registry::default().with(console);
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
+
     let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/60420a8b77137b000de9e66e.gif");
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 60);
@@ -100,7 +108,7 @@ mod test {
   fn peepoLeave() {
     let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/60b056f5b254a5e16b929707.webp");
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
-    assert_eq!(frames.unwrap().len(), 35);
+    assert_eq!(frames.unwrap().len(), 11);
   }
 
   #[test]

@@ -88,8 +88,11 @@ async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
         match result {
           Ok(message) => {
             if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) 
-              && let Ok(msg) = serde_json::from_str::<LiveSocketMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
-              && let Some(yt_data) = msg.streams.youtube {
+              && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
+              && msg.r#type == Some("dggApi:streamInfo".to_string())
+              && let Some(data) = msg.data
+              && let Some(streams) = data.streams
+              && let Some(yt_data) = streams.youtube {
                 let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
                   game_name: yt_data.game, 
                   is_live: yt_data.live.unwrap_or(false), 
@@ -359,8 +362,14 @@ impl CSSLoader {
 }
 
 #[derive(serde::Deserialize)]
+struct DggApiMsg {
+  r#type: Option<String>,
+  data: Option<LiveSocketMsg>
+}
+
+#[derive(serde::Deserialize)]
 struct LiveSocketMsg {
-  streams: LiveSocketMsgStreams
+  streams: Option<LiveSocketMsgStreams>
 }
 
 #[derive(serde::Deserialize)]

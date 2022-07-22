@@ -145,7 +145,8 @@ pub fn process_emote_json(
         // 7TV
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
-        let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
+        // 7TV just says webp for everything, derp
+        //let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
         let x = i["urls"].as_array().log_unwrap().last().log_unwrap().as_array().log_unwrap().last().log_unwrap();
         let imgurl = x.as_str().log_unwrap();
         let zero_width = i["visibility_simple"].as_array().map(|f| f.iter().any(|f| f.as_str().unwrap_or_default() == "ZERO_WIDTH")).unwrap_or(false);
@@ -154,7 +155,7 @@ pub fn process_emote_json(
           id,
           url: imgurl.trim_matches('"').to_owned(),
           path: "cache/7tv/".to_owned(),
-          extension: Some(extension),
+          extension: None,
           zero_width,
           ..Default::default()
         });
