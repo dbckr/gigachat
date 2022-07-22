@@ -6,7 +6,7 @@
 
 use tracing::info;
 use chrono::{Timelike, DateTime, Utc};
-use egui::{emath};
+use egui::{emath, Rounding};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 use crate::error_util::{LogErrOption};
@@ -34,10 +34,11 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool) -> emath::Rect {
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool, highlight: Option<bool>) -> (emath::Rect, bool) {
+  let mut user_selected = false;
   let mut message_color : Option<(u8,u8,u8)> = None;
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
-    message_color = Some((99, 151, 37));
+    message_color =  Some((99, 151, 37));
   }
 
   let channel_color = get_provider_color(&chat_msg.message.provider);
@@ -59,6 +60,11 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
       if is_visible {
         ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
         ui.set_row_height(row_height);
+
+        if highlight.unwrap_or(false) {
+          highlight_ui_row(ui);
+        }
+
         if row_ix == 0 {
           let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, show_channel_names);
           ui.label(job);
@@ -95,8 +101,15 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
     
-          let uname = egui::Label::new(RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username))).color(convert_color(chat_msg.message.profile.color.as_ref())));
-          ui.add(uname);
+          let unametext = RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username)))
+            .color(convert_color(chat_msg.message.profile.color.as_ref()));
+          let uname = ui.add(egui::Label::new(unametext).sense(egui::Sense::click()));
+          if uname.clicked() {
+            user_selected = true;
+          }
+          if uname.hovered() {
+            ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+          }
         }
         for word in message.split(' ') {
         let link_url = is_url(word).then(|| word.to_owned());
@@ -144,7 +157,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   if actual != expected {
     info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   }
-  ui_row.response.rect
+  (ui_row.response.rect, user_selected)
 }
 
 fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
@@ -163,6 +176,38 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zer
     });
     *last_emote_width = Some((x, y));
   }
+}
+
+/*fn dim_ui_emote_image(last_emote_width: &Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+  if let Some((x, y)) = last_emote_width {
+    let cursor = ui.cursor().to_owned();
+    let rect = egui::epaint::Rect { 
+      min: Pos2 {
+        x: cursor.left() - x - ui.spacing().item_spacing.x, 
+        y: cursor.top()}, 
+      max:  Pos2 {
+        x: cursor.left() - ui.spacing().item_spacing.x, 
+        y: cursor.bottom()} };
+    ui.painter().rect_filled(
+      rect, 
+      Rounding::none(), 
+      Color32::from_rgba_unmultiplied(0, 0, 0, 210));
+  }
+}*/
+
+fn highlight_ui_row(ui: &mut egui::Ui) {
+  let cursor = ui.cursor().to_owned();
+  let rect = egui::epaint::Rect { 
+    min: Pos2 {
+      x: cursor.left(), 
+      y: cursor.top()}, 
+    max:  Pos2 {
+      x: cursor.left() + ui.available_width(), 
+      y: cursor.bottom()} };
+  ui.painter().rect_filled(
+    rect, 
+    Rounding::none(), 
+    Color32::from_rgba_unmultiplied(90, 90, 90, 90));
 }
 
 fn is_url(word: &str) -> bool {

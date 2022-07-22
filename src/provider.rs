@@ -4,12 +4,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use async_channel::{Sender, Receiver};
 use tracing::info;
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
 use curl::easy::Easy;
-use tokio::sync::mpsc;
 use crate::error_util::{LogErrResult};
 
 use crate::emotes::{Emote};
@@ -24,7 +24,9 @@ pub enum IncomingMessage {
   EmoteSets { provider: ProviderName, emote_sets: Vec<String> },
   MsgEmotes { provider: ProviderName, emote_ids: Vec<(String, String)> },
   RoomId { channel: String, room_id: String },
-  StreamingStatus { channel: String, status: Option<ChannelStatus>}
+  StreamingStatus { channel: String, status: Option<ChannelStatus>},
+  UserJoin { channel: String, username: String },
+  UserLeave { channel: String, username: String }
 }
 
 impl Default for IncomingMessage {
@@ -64,8 +66,8 @@ pub enum ProviderName {
 
 pub struct ChatManager {
   handles: Vec<tokio::task::JoinHandle<()>>,
-  pub in_tx: mpsc::Sender<OutgoingMessage>,
-  pub out_rx: mpsc::Receiver<IncomingMessage>,
+  pub in_tx: Sender<OutgoingMessage>,
+  pub out_rx: Receiver<IncomingMessage>,
 }
 
 pub struct ChannelTransient {
@@ -84,7 +86,8 @@ pub struct Channel {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history_ix: Option<usize>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub transient: Option<ChannelTransient>
+  pub transient: Option<ChannelTransient>,
+  pub users: HashSet<String>
 }
 
 #[derive(Clone)]

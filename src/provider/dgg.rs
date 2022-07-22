@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
+use async_channel::{Sender, Receiver};
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -13,7 +14,7 @@ use itertools::Itertools;
 use tracing::{info,warn,error};
 use crate::error_util::{LogErrResult, LogErrOption};
 use regex::Regex;
-use tokio::{runtime::Runtime, sync::mpsc};
+use tokio::{runtime::Runtime};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
@@ -30,13 +31,14 @@ pub fn init_channel() -> Channel {
     roomid: Default::default(),
     send_history: Default::default(),
     send_history_ix: None,
-    transient: None
+    transient: None,
+    users: Default::default()
   }
 }
 
 pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
-  let (mut out_tx, out_rx) = mpsc::channel::<IncomingMessage>(32);
-  let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
+  let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
+  let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
 
   let mut out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
@@ -78,7 +80,7 @@ impl ChatManager {
   }
 }
 
-async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
+async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) {
   let request = "wss://live.destiny.gg/ws".into_client_request().log_expect("failed to build request");
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
 
@@ -114,7 +116,7 @@ async fn spawn_websocket_live_client(tx : &mut mpsc::Sender<IncomingMessage>) {
   }
 }
 
-async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut mpsc::Sender<IncomingMessage>, rx: &mut mpsc::Receiver<OutgoingMessage>) {
+async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
@@ -135,35 +137,56 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
         match result {
           Ok(message) => {
             if let Ok(message) = message.into_text().inspect_err(|f| info!("websocket error: {}", f)) 
-              && let Some((command, msg)) = message.split_once(' ')
-              && let Ok(msg) = serde_json::from_str::<Msg>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                /*if command != "NAMES" {
-                  info!("{}", message);
-                }*/
-
+              && let Some((command, msg)) = message.split_once(' ') {
                 match command {
                   "MSG" => {
-                    let features = msg.features.iter().filter_map(|f| if f != "subscriber" { Some(f.to_owned()) } else { None }).collect_vec();
-                    let cmsg = ChatMessage { 
-                      provider: ProviderName::DGG,
-                      channel: DGG_CHANNEL_NAME.to_owned(),
-                      username: msg.nick, 
-                      timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
-                      message: msg.data.log_unwrap(),
-                      profile: UserProfile { 
-                        badges: if !features.is_empty() { Some(features) } else { None },
-                        display_name: None, 
-                        color: None
-                      },
-                      ..Default::default()
-                    };
-                    match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
-                      Ok(_) => (),
-                      Err(x) => info!("Send failure: {}", x)
-                    };
+                    if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      let features = msg.features.iter().filter_map(|f| if f != "subscriber" { Some(f.to_owned()) } else { None }).collect_vec();
+                      let cmsg = ChatMessage { 
+                        provider: ProviderName::DGG,
+                        channel: DGG_CHANNEL_NAME.to_owned(),
+                        username: msg.nick, 
+                        timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
+                        message: msg.data.log_unwrap(),
+                        profile: UserProfile { 
+                          badges: if !features.is_empty() { Some(features) } else { None },
+                          display_name: None, 
+                          color: None
+                        },
+                        ..Default::default()
+                      };
+                      match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for MSG: {}", x)
+                      };
+                    }
                   },
-                  "JOIN" => (),
-                  "QUIT" => (),
+                  "JOIN" => {
+                    if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned() }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for JOIN: {}", x)
+                      };
+                    }
+                  },
+                  "QUIT" => {
+                    if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      match tx.try_send(IncomingMessage::UserLeave { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned() }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for QUIT: {}", x)
+                      };
+                    }
+                  },
+                  "NAMES" => {
+                    if let Ok(msg) = serde_json::from_str::<NamesMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      for user in msg.users {
+                        match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: user.nick.to_owned() }) {
+                          Ok(_) => (),
+                          Err(x) => info!("Send failure for NAMES: {}", x)
+                        };
+                      }
+                    }
+                  },
                   _ => warn!("unknown dgg command: {:?}", message)
                 }
             }
@@ -174,7 +197,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
           }
         }
       },
-      Some(out_msg) = rx.recv() => {
+      Ok(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { channel_name : _, message } => { 
             socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
@@ -403,7 +426,17 @@ struct AuthResponse {
 }
 
 #[derive(serde::Deserialize)]
-struct Msg {
+struct NamesMessage {
+  users: Vec<PartialMsgMessage>
+}
+
+#[derive(serde::Deserialize)]
+struct PartialMsgMessage {
+  nick: String
+}
+
+#[derive(serde::Deserialize)]
+struct MsgMessage {
   nick: String,
   features: Vec<String>,
   timestamp: usize,

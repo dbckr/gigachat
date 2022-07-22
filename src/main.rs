@@ -7,7 +7,7 @@
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
 use gigachat::error_util::{LogErrResult, LogErrOption};
-use tracing::{info, Level, Subscriber};
+use tracing::{info};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, Registry};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;

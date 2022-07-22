@@ -6,12 +6,13 @@
 
 use std::{collections::{HashSet, HashMap}};
 
+use async_channel::{Receiver, Sender};
 use tracing::info;
 use chrono::{DateTime, Utc, NaiveDateTime};
 use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
-use tokio::{sync::{mpsc}, runtime::Runtime};
+use tokio::{runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus}, emotes::{fetch::get_json_from_url}};
 use crate::error_util::{LogErrResult, LogErrOption};
 
@@ -21,15 +22,15 @@ const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
 pub struct TwitchChatManager {
   handle: tokio::task::JoinHandle<()>,
-  pub in_tx: mpsc::Sender<OutgoingMessage>,
-  pub out_rx: mpsc::Receiver<IncomingMessage>,
+  pub in_tx: Sender<OutgoingMessage>,
+  pub out_rx: Receiver<IncomingMessage>,
 }
 
 impl TwitchChatManager {
 
   pub fn new(username: &String, token: &String, runtime: &Runtime) -> Self {
-    let (out_tx, out_rx) = mpsc::channel::<IncomingMessage>(256);
-    let (in_tx, in_rx) = mpsc::channel::<OutgoingMessage>(32);
+    let (out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
+    let (in_tx, in_rx) = async_channel::unbounded::<OutgoingMessage>();
     let token2 = token.to_owned();
     let name2 = username.to_owned();
 
@@ -62,7 +63,8 @@ impl TwitchChatManager {
       roomid: Default::default(),
       send_history: Default::default(),
       send_history_ix: None,
-      transient: None
+      transient: None,
+      users: Default::default()
     };
     self.open_channel(&mut channel);
     channel
@@ -78,7 +80,7 @@ impl TwitchChatManager {
   }
 }
 
-async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<IncomingMessage>, mut rx: mpsc::Receiver<OutgoingMessage>) {
+async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessage>, rx: Receiver<OutgoingMessage>) {
   let mut profile = UserProfile::default();
   //let name = channel_name.to_owned();
   //let channels = [format!("#{}", name.to_owned())].to_vec();
@@ -252,7 +254,7 @@ async fn spawn_irc(user_name : String, token: String, tx : mpsc::Sender<Incoming
           Err(e) => info!("IRC Stream error: {:?}", e)
         }
       },
-      Some(out_msg) = rx.recv() => {
+      Ok(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { channel_name, message } => { 
             _ = match &message.chars().next() {

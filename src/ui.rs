@@ -107,7 +107,9 @@ pub struct TemplateApp {
   #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
   pub twitch_chat_manager: Option<TwitchChatManager>,
   #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
-  pub dgg_chat_manager: Option<ChatManager>
+  pub dgg_chat_manager: Option<ChatManager>,
+  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  pub selected_user: Option<String>
 }
 
 #[cfg(feature = "use-bevy")]
@@ -470,11 +472,17 @@ impl TemplateApp {
     if self.twitch_chat_manager.is_none() {
       self.twitch_chat_manager = Some(TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap()));
     }
-    if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+    let mut msgs = 0;
+    while let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
       self.handle_incoming_message(x);
+      msgs += 1;
+      if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
-    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+    msgs = 0;
+    while let Some(chat_mgr) = self.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
       self.handle_incoming_message(x);
+      msgs += 1;
+      if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
     if self.dgg_chat_manager.is_none() && let Some((_, sco)) = self.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
       self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), self.emote_loader.as_ref().log_unwrap()));
@@ -648,7 +656,8 @@ impl TemplateApp {
           }
           else if !self.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
             let cursor = cursor_pos.primary.index;
-            let emotes = self.get_possible_emotes(cursor);
+            let is_user_list = self.draft_message.starts_with('@');
+            let emotes = if is_user_list { self.get_possible_users(cursor) } else { self.get_possible_emotes(cursor) };
             if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
               if enter_emote && let Some(emote_text) = &self.selected_emote {
                 let msg = if self.draft_message.len() <= pos + word.len() || &self.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
@@ -700,34 +709,53 @@ impl TemplateApp {
                   let galley = ui.fonts().layout_job(job);
                   let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
 
-                  let texture = emote.1.as_ref()
-                    .and_then(|f| f.texture.as_ref())
-                    .or_else(|| self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref())
-                    .log_unwrap();
+                  let width = if !is_user_list {
+                    let texture = emote.1.as_ref()
+                      .and_then(|f| f.texture.as_ref())
+                      .or_else(|| self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref())
+                      .log_unwrap();
 
-                  let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
-                  if x + width + text_width > painter_rect.right() {
-                    y -= EMOTE_HEIGHT;
-                    x = painter_rect.left();
-                  }
+                    let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
+                    if x + width + text_width > painter_rect.right() {
+                      y -= EMOTE_HEIGHT;
+                      x = painter_rect.left();
+                    }
 
-                  let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
-                  let rect = egui::Rect { 
-                    min: egui::pos2(painter_rect.left() + x, y - EMOTE_HEIGHT ), 
-                    max: egui::pos2(painter_rect.left() + x + width, y) 
+                    let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
+                    let rect = egui::Rect { 
+                      min: egui::pos2(painter_rect.left() + x, y - EMOTE_HEIGHT ), 
+                      max: egui::pos2(painter_rect.left() + x + width, y) 
+                    };
+
+                    painter.rect_filled(egui::Rect {
+                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      max: egui::pos2(x + width + text_width, y),
+                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+
+                    let mut mesh = egui::Mesh::with_texture(texture.id());
+                    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+                    painter.add(egui::Shape::mesh(mesh));
+                    width
+                  } else {
+                    if x + text_width > painter_rect.right() {
+                      y -= EMOTE_HEIGHT;
+                      x = painter_rect.left();
+                    }
+                    painter.rect_filled(egui::Rect {
+                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      max: egui::pos2(x + text_width + 1., y),
+                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                    0.
                   };
 
-                  painter.rect_filled(egui::Rect {
-                    min: egui::pos2(x, y - EMOTE_HEIGHT),
-                    max: egui::pos2(x + width + text_width, y),
-                  }, Rounding::none(), Color32::from_rgba_unmultiplied(0, 0, 0, 210));
-
-                  let mut mesh = egui::Mesh::with_texture(texture.id());
-                  mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-                  painter.add(egui::Shape::mesh(mesh));
-
                   let disp_text = emote.0.to_owned();
-                  painter.text(egui::pos2(painter_rect.left() + x + width, y), egui::Align2::LEFT_BOTTOM, disp_text, FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), if self.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE });
+                  painter.text(
+                    egui::pos2(painter_rect.left() + x + width, y), 
+                    egui::Align2::LEFT_BOTTOM, 
+                    disp_text, 
+                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                    if self.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE }
+                  );
 
                   x = x + width + text_width;
                 }
@@ -763,7 +791,15 @@ impl TemplateApp {
           .always_show_scroll(true)
           .scroll_offset(self.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
         let area = chat_area.show_viewport(ui, |ui, viewport| {
+          let selected_user_before = self.selected_user.as_ref().map(|x| x.to_owned());
           self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
+
+          if ctx.input().pointer.any_click() 
+              && selected_user_before == self.selected_user
+              && let Some(pos) = ctx.input().pointer.interact_pos() 
+              && viewport.contains(pos) {
+            self.selected_user = None;
+          }
         });
         // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
         self.chat_scroll = Some(area.state.offset);
@@ -880,7 +916,18 @@ impl TemplateApp {
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
-            chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names);
+            let highlight_msg = self.selected_user.as_ref().map(|f| f == &chat_msg.message.username);
+            let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, highlight_msg);
+
+            if user_selected {
+              if self.selected_user.as_ref() == Some(&chat_msg.message.username) {
+                info!("cleared selected user");
+                self.selected_user = None
+              } else {
+                info!("set selected user");
+                self.selected_user = Some(chat_msg.message.username.to_owned())
+              }
+            }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
             chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names);
@@ -899,6 +946,11 @@ impl TemplateApp {
         let rgx = regex::Regex::new("\\s+").log_unwrap();
         message.message = rgx.replace_all(&message.message, " ").to_string();
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
+
+        if let Some(c) = self.channels.get_mut(&channel) {
+          c.users.insert(message.username.to_owned());
+        }
+
         push_history(
           chat_history, 
           message,
@@ -954,7 +1006,16 @@ impl TemplateApp {
               }
             }
           }
-      
+        }
+      },
+      IncomingMessage::UserJoin { channel, username } => {
+        if let Some(c) = self.channels.get_mut(&channel) {
+          c.users.insert(username);
+        }
+      },
+      IncomingMessage::UserLeave { channel, username } => {
+        if let Some(c) = self.channels.get_mut(&channel) {
+          c.users.remove(&username);
         }
       }
     };
@@ -1015,6 +1076,45 @@ impl TemplateApp {
                 false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
               };
             }
+          }
+        }
+      }
+      
+      let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      starts_with.append(&mut contains);
+      Some((input_str.to_owned(), pos, starts_with))
+    }
+    else {
+      None
+    }
+  }
+
+  fn get_possible_users(&mut self, cursor_position: usize) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
+    let msg = &self.draft_message;
+    let word : Option<(usize, &str)> = msg.split_whitespace()
+      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
+      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
+      .next();
+
+    if let Some((pos, input_str)) = word {
+      if input_str.len() < 3  {
+        return None;
+      }
+      let word = &input_str[1..];
+      let word_lower = &word.to_lowercase();
+
+      let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
+      let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
+      // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
+      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
+        for user in &channel.users { // Channel emotes
+          let name_l = user.to_lowercase();
+          if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
+            _ = match name_l.starts_with(word_lower) {
+              true => starts_with_emotes.try_insert(user.to_owned(), None),
+              false => contains_emotes.try_insert(user.to_owned(), None),
+            };
           }
         }
       }
