@@ -923,7 +923,7 @@ impl TemplateApp {
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
-            let highlight_msg = self.selected_user.as_ref().map(|f| f == &chat_msg.message.username);
+            let highlight_msg = self.selected_user.as_ref().map(|f| f == chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username));
             let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, highlight_msg);
 
             if user_selected.is_some() {
@@ -953,7 +953,7 @@ impl TemplateApp {
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(message.username.to_owned());
+          c.users.insert(message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
         }
 
         push_history(
@@ -1178,7 +1178,10 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
 }
 
 fn get_mentions_in_message(row: &ChatMessage, users: &HashSet<String>) -> Option<Vec<String>> {
-  Some(row.message.split(' ').into_iter().filter_map(|f| if users.contains(&f.to_owned()) { Some(f.to_owned()) } else { None } ).collect_vec())
+  Some(row.message.split(' ').into_iter().filter_map(|f| {
+    let word = f.trim_start_matches('@').trim_end_matches(',').to_owned();
+    if users.contains(&word) { Some(word) } else { None } 
+  }).collect_vec())
 }
 
 fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {

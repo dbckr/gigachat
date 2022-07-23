@@ -7,9 +7,9 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
-- Click user (or usernames in chat messages) to see their recent messages in channel
-- Temporarily pin a user's most recent 2-3 messages to top of window when they get a lot of mentions over short duration
-- Cache json/images in a db file instead of loose files
+- Handle "ACTION"
+- Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name (also add option to do this automatically for users that get a lot of mentions over short duration)
+- Cache json/images in a db file instead of loose files (also migrate away from using eframe persistence feature to save state)
 - Poll status (Twitch, DGG)
 - Handle Twitch CLEARCHAT, CLEARMSG commands
 - Handle USERNOTICE command
@@ -17,7 +17,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 ##
 
-- Copying messages into clipboard and/or textbox (partial support -- can click on msg text to copy msg but no visual feedback)
+- Copying messages into clipboard and/or textbox (currently has minimal support -- can click on msg text to copy msg but no visual feedback. right click menu?)
 - Mentions tab
 - Twitch Prediction status
 - Twitch tier-exclusive emote logic
@@ -31,12 +31,13 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Multi-channel tabs?
 - Loading animation image for unloaded emotes?
 - Support/fix twitch modified emotes
-- Combo tooltip to show list of users
 - Better README
 - Twitch Cheer emotes
 
 ##
 
+- ~Select from a user list by starting typing a word with @~
+- ~Click user (or usernames in chat messages) to see their recent messages in channel~
 - ~DGG~
 - ~Zero width emotes~
 - ~Unicode character support~
