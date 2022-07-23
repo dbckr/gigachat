@@ -1,12 +1,11 @@
-use std::{collections::HashMap};
-
-use async_channel::{Sender, Receiver};
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
- 
+
+use std::{collections::HashMap};
+use async_channel::{Sender, Receiver};
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
@@ -16,9 +15,7 @@ use crate::error_util::{LogErrResult, LogErrOption};
 use regex::Regex;
 use tokio::{runtime::Runtime};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
-
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
-
 use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
 
 pub const DGG_CHANNEL_NAME : &str = "Destiny";

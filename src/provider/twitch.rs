@@ -5,7 +5,6 @@
  */
 
 use std::{collections::{HashSet, HashMap}};
-
 use async_channel::{Receiver, Sender};
 use tracing::info;
 use chrono::{DateTime, Utc, NaiveDateTime};
@@ -15,7 +14,6 @@ use itertools::Itertools;
 use tokio::{runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus}, emotes::{fetch::get_json_from_url}};
 use crate::error_util::{LogErrResult, LogErrOption};
-
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;

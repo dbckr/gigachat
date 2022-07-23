@@ -5,7 +5,7 @@
  */
 
 use tracing::info;
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut, HashSet}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
@@ -41,6 +41,7 @@ pub struct UiChatMessage<'a> {
   pub message : &'a ChatMessage,
   pub emotes : HashMap<String, EmoteFrame>,
   pub badges : Option<HashMap<String, EmoteFrame>>,
+  pub mentions : Option<Vec<String>>,
   pub row_data : Vec<UiChatMessageRow>,
   pub msg_height : f32,
   pub is_ascii_art: bool
@@ -790,17 +791,18 @@ impl TemplateApp {
           .stick_to_bottom()
           .always_show_scroll(true)
           .scroll_offset(self.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
-        let area = chat_area.show_viewport(ui, |ui, viewport| {
-          let selected_user_before = self.selected_user.as_ref().map(|x| x.to_owned());
+        let selected_user_before = self.selected_user.as_ref().map(|x| x.to_owned());
+        let area = chat_area.show_viewport(ui, |ui, viewport| {  
           self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
+        });
 
-          if ctx.input().pointer.any_click() 
+        if ctx.input().pointer.any_click()
               && selected_user_before == self.selected_user
               && let Some(pos) = ctx.input().pointer.interact_pos() 
-              && viewport.contains(pos) {
+              && area.inner_rect.contains(pos) {
             self.selected_user = None;
           }
-        });
+
         // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
         self.chat_scroll = Some(area.state.offset);
       });
@@ -863,6 +865,10 @@ impl TemplateApp {
         let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, self.emote_loader.as_mut().log_unwrap());
         let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, row, &emotes, badges.as_ref(), show_channel_names);
 
+        let mentions = if let Some(channel) = self.channels.get(&row.channel) {
+          get_mentions_in_message(row, &channel.users)
+        } else { None };
+
         // DGG user colors are tied to badge/flair
         if row.profile.color.is_none() && user_color.is_some() {
           row.profile.color = user_color;
@@ -899,6 +905,7 @@ impl TemplateApp {
             message: row,
             emotes,
             badges,
+            mentions,
             row_data: lines_to_include,
             msg_height: row_y,
             is_ascii_art
@@ -919,13 +926,11 @@ impl TemplateApp {
             let highlight_msg = self.selected_user.as_ref().map(|f| f == &chat_msg.message.username);
             let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, highlight_msg);
 
-            if user_selected {
-              if self.selected_user.as_ref() == Some(&chat_msg.message.username) {
-                info!("cleared selected user");
+            if user_selected.is_some() {
+              if self.selected_user == user_selected {
                 self.selected_user = None
               } else {
-                info!("set selected user");
-                self.selected_user = Some(chat_msg.message.username.to_owned())
+                self.selected_user = user_selected
               }
             }
           }
@@ -1170,6 +1175,10 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
       is_end: true
     })
   }
+}
+
+fn get_mentions_in_message(row: &ChatMessage, users: &HashSet<String>) -> Option<Vec<String>> {
+  Some(row.message.split(' ').into_iter().filter_map(|f| if users.contains(&f.to_owned()) { Some(f.to_owned()) } else { None } ).collect_vec())
 }
 
 fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {

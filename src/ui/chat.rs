@@ -34,8 +34,8 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool, highlight: Option<bool>) -> (emath::Rect, bool) {
-  let mut user_selected = false;
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, show_channel_names: bool, highlight: Option<bool>) -> (emath::Rect, Option<String>) {
+  let mut user_selected : Option<String> = None;
   let mut message_color : Option<(u8,u8,u8)> = None;
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
     message_color =  Some((99, 151, 37));
@@ -105,7 +105,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             .color(convert_color(chat_msg.message.profile.color.as_ref()));
           let uname = ui.add(egui::Label::new(unametext).sense(egui::Sense::click()));
           if uname.clicked() {
-            user_selected = true;
+            user_selected = Some(chat_msg.message.username.to_owned());
           }
           if uname.hovered() {
             ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
@@ -139,9 +139,20 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                   true => RichText::new(word).family(FontFamily::Monospace),
                   false => RichText::new(word).color(convert_color(message_color.as_ref()))
                 }.size(BODY_TEXT_SIZE);
-                let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                if lbl.clicked() {
-                  ui.output().copied_text = chat_msg.message.message.to_owned();
+
+                if chat_msg.mentions.is_some_and(|f| f.contains(&word.to_owned())) {
+                  let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                  if lbl.clicked() {
+                    user_selected = Some(word.to_owned());
+                  }
+                  if lbl.hovered() {
+                    ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+                  }
+                } else {
+                  let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                  if lbl.clicked() {
+                    ui.output().copied_text = chat_msg.message.message.to_owned();
+                  }
                 }
               }
             };
