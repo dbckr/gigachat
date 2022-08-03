@@ -5,11 +5,10 @@ edition = "2021"
 license = "MPL-2.0"
 
 [features]
-default = ["native-tls", "webp", "use-eframe", "persistence" ]
+default = ["native-tls", "use-eframe", "persistence" ]
 use-eframe = [ "eframe" ]
 use-bevy = [ "bevy", "bevy_egui", "bevy_framepace" ]
 native-tls = ["tokio-tungstenite/native-tls"]
-webp = ["webp-animation"]
 persistence = [ "eframe/persistence" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,7 +32,7 @@ imageproc = "0.23.0"
 glob = "0.3.0"
 itertools = "0.10.3"
 gif = "0.11.3"
-webp-animation = { version = "0.6.0", optional = true }
+webp-animation = "0.6.0"
 gif-dispose = "3.1.1"
 regex = "1.5.5"
 async-channel = "1.6.1"
@@ -61,7 +60,7 @@ opt-level = 2 # fast and small wasm
 #eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #egui = { path = "../egui/egui" }
 #eframe = { path = "../egui/eframe" }
-weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
+#weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 #winit = { path = "../winit" }
 
 # webp compile issue

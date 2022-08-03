@@ -4631,8 +4631,3 @@ name = "xml-rs"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2d7d3948613f75c98fd9328cfdcc45acc4d360655289d0a7d4ec931392200a3"
-
-[[patch.unused]]
-name = "weezl"
-version = "0.1.6"
-source = "git+https://github.com/dbckr/lzw?branch=decode-without-starting-clear-code#45af870d1304a0eac5114701c6ce0f9d453f8fdc"

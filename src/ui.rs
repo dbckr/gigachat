@@ -11,7 +11,7 @@ use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rou
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::imaging::load_file_into_buffer};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::{imaging::load_file_into_buffer}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -1380,27 +1380,51 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
 pub fn load_font() -> FontDefinitions {
   let mut fonts = FontDefinitions::default();
 
-  let font_file = load_file_into_buffer("C:\\Windows\\Fonts\\segoeui.ttf");
-  let font = FontData::from_owned(font_file);
+  // Windows, use Segoe
+  if let Some(font_file) = load_file_into_buffer("C:\\Windows\\Fonts\\segoeui.ttf") {
+    let font = FontData::from_owned(font_file);
+    fonts.font_data.insert("Segoe".into(), font);
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Segoe".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Segoe".into());
 
-  let symbols_font = load_file_into_buffer("C:\\Windows\\Fonts\\seguisym.ttf");
-  let symbols = FontData::from_owned(symbols_font);
+    // More windows specific fallback fonts for extended characters
+    if let Some(symbols_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguisym.ttf") {
+      let symbols = FontData::from_owned(symbols_font);
+      fonts.font_data.insert("symbols".into(), symbols);
+      fonts.families.entry(FontFamily::Proportional).or_default().push("symbols".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("symbols".into());
+    }
+    if let Some(emojis_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf") {
+      let emojis = FontData::from_owned(emojis_font);
+      fonts.font_data.insert("emojis".into(), emojis);
+      fonts.families.entry(FontFamily::Proportional).or_default().push("emojis".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
+    }
+    // Amogus
+    if let Some(nirmala_font) = load_file_into_buffer("C:\\Windows\\Fonts\\Nirmala.ttf") {
+      let nirmala = FontData::from_owned(nirmala_font);
+      fonts.font_data.insert("Nirmala".into(), nirmala);
+      fonts.families.entry(FontFamily::Proportional).or_default().push("Nirmala".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("Nirmala".into());
+    }
+  }
+  // Non-windows, use bundled Roboto font
+  if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
+    let mut font = FontData::from_owned(font_file);
+    // tweak scale to make sizing similiar to Segoe
+    font.tweak.scale = 0.84;
+    fonts.font_data.insert("Roboto".into(), font);
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
 
-  let emojis_font = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf");
-  let emojis = FontData::from_owned(emojis_font);
-
-  fonts.font_data.insert("def_font".into(), font);
-  fonts.font_data.insert("symbols".into(), symbols);
-  fonts.font_data.insert("emojis".into(), emojis);
-
-  fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "def_font".into());
-  fonts.families.entry(FontFamily::Monospace).or_default().push("def_font".into());
-
-  fonts.families.entry(FontFamily::Proportional).or_default().push("symbols".into());
-  fonts.families.entry(FontFamily::Monospace).or_default().push("symbols".into());
-
-  fonts.families.entry(FontFamily::Proportional).or_default().push("emojis".into());
-  fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
+    // Amogus
+    if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
+      let nirmala = FontData::from_owned(nirmala_font);
+      fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
+      fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
+    }
+  }
 
   fonts
 }

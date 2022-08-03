@@ -4,8 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead}};
+use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead, Read}};
 use curl::easy::Easy;
+use tracing::debug;
 use std::io::BufReader;
 use super::{Emote};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -224,4 +225,55 @@ pub fn get_json_from_url(
   }
 
   Ok(json)
+}
+
+pub fn get_binary_from_url(
+  url: &str,
+  filename: Option<&str>,
+  headers: Option<Vec<(&str, &String)>>,
+) -> std::result::Result<Vec<u8>, anyhow::Error> {
+
+  let mut buffer: Vec<u8> = Default::default();
+
+  if filename.is_none() || filename.is_some_and(|f| Path::new(f.to_owned()).exists() == false) {
+    let mut easy = Easy::new();
+    easy.url(url)?;
+    if let Some(headers) = headers {
+      let mut list = curl::easy::List::new();
+      for head in headers {
+        list.append(&format!("{}: {}", head.0, head.1))?;
+      }
+      easy.http_headers(list)?;
+    }
+    let mut transfer = easy.transfer();
+    transfer.write_function(|data| {
+      for byte in data {
+        buffer.push(byte.to_owned());
+      }
+      Ok(data.len())
+    })?;
+    transfer.perform()?;
+  }
+
+  if let Some(filename) = filename {
+    let filename = filename.to_string();
+    let path = Path::new(&filename);
+    if let Some(parent_path) = path.parent() {
+      DirBuilder::new().recursive(true).create(parent_path)?;
+    }
+
+    if path.exists()
+    {
+      let file = File::open(&filename).log_expect("no such file");
+      BufReader::new(file).read_to_end(&mut buffer).log_expect("Failed to read file");
+    }
+    else {
+      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).log_expect("Unable to open file");
+      f.write_all(&buffer).log_expect("Failed to write to file");
+    }
+  }
+
+  debug!("Loaded {} bytes from {:?}", buffer.len(), filename);
+
+  Ok(buffer)
 }

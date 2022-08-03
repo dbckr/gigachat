@@ -38,7 +38,7 @@ pub fn get_image_data(
           let filepath : std::path::PathBuf = x?.as_path().to_owned();
           let buffer = load_file_into_buffer(filepath.to_str().log_unwrap());
           match filepath.extension() {
-            Some(ext) => Ok(load_image(ext.to_str().log_unwrap(), &buffer, css_anim)),
+            Some(ext) => Ok(load_image(ext.to_str().log_unwrap(), &buffer.log_unwrap(), css_anim)),
             None => Ok(None)
           }
         }
@@ -118,7 +118,7 @@ pub fn get_image_data(
 
   match inner() {
     Ok(x) => x,
-    Err(x) => { info!("failed to (down)load emote {} {} {}", id, url, x); None },
+    Err(x) => { warn!("failed to (down)load emote {} {} {}", id, url, x); None },
   }
 }
 
@@ -187,12 +187,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
     None
   }
 }
-#[cfg(not(feature = "webp"))]
-pub fn load_animated_webp(_: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
-  None
-}
 
-#[cfg(feature = "webp")]
 pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   if let Ok(decoder) = webp_animation::Decoder::new(buffer).inspect_err(|f| warn!("{:?}", f)) {
@@ -221,11 +216,14 @@ pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
   }
 }
 
-pub fn load_file_into_buffer (filepath : &str) -> Vec<u8> {
-  let mut file = File::open(filepath).log_unwrap();
-  let mut buf: Vec<u8> = Default::default();
-  file.read_to_end(&mut buf).log_expect("file not found");
-  buf
+pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
+  if let Ok(mut file) = File::open(filepath) {
+    let mut buf: Vec<u8> = Default::default();
+    file.read_to_end(&mut buf).log_expect("file not found");
+    Some(buf)
+  } else {
+    None
+  }
 }
 
 pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
