@@ -214,7 +214,7 @@ fn highlight_ui_row(ui: &mut egui::Ui) {
       y: cursor.top()}, 
     max:  Pos2 {
       x: cursor.left() + ui.available_width(), 
-      y: cursor.bottom()} };
+      y: cursor.bottom() + ui.spacing().item_spacing.y} };
   ui.painter().rect_filled(
     rect, 
     Rounding::none(), 

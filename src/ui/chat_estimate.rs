@@ -63,6 +63,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
       msg_char_range
     ));
   }
+
   (row_data, is_ascii_art.is_some())
 }
 
@@ -118,24 +119,29 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
 }
 
 fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
+  let job = get_text_rect_job(ui.available_width() - ui.spacing().item_spacing.x - 1., word, curr_row_width, is_ascii_art.is_some());
+  let galley = ui.fonts().layout_job(job);
+  galley.rows.clone()
+}
+
+pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_art: bool) -> LayoutJob {
   let mut job = LayoutJob {
     //wrap_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
     //break_on_newline: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
     wrap: egui::epaint::text::TextWrapping { 
-      break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
-      max_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
+      break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art,
+      max_width,
       ..Default::default()
     },
     ..Default::default()
   };
 
-  job.append(word, curr_row_width.to_owned(), egui::TextFormat { 
+  job.append(word, width_used.to_owned(), egui::TextFormat { 
     font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional), 
     ..Default::default() 
   });
 
-  let galley = ui.fonts().layout_job(job);
-  galley.rows.clone()
+  job
 }
 
 pub fn is_ascii_art(msg: &str) -> Option<usize> {

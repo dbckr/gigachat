@@ -4,10 +4,12 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 # Todo
 
+- Own twitch badges inaccurate when swapping between channels
+- Display a "button" to jump back to bottom whenever auto-scroll is off
 - Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
-- Handle "ACTION"
+- Handle "ACTION" (remove the word and display the message with italics)
 - Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name (also add option to do this automatically for users that get a lot of mentions over short duration)
 - Cache json/images in a db file instead of loose files (also migrate away from using eframe persistence feature to save state)
 - Poll status (Twitch, DGG)
@@ -25,6 +27,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 ##
 
+- Forced anti-spam option to supress duplicate message spam from users
 - Used emote stats for ordering selector
 - Allow message headers (stuff up to and including username) to split between rows properly
 - DGG oauth issue - application oauth flow tokens not working but login keys created directly on DGG site work
