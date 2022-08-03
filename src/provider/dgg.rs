@@ -142,12 +142,12 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                       let cmsg = ChatMessage { 
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
-                        username: msg.nick, 
+                        username: msg.nick.to_lowercase(), 
                         timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
                         message: msg.data.log_unwrap(),
                         profile: UserProfile { 
                           badges: if !features.is_empty() { Some(features) } else { None },
-                          display_name: None, 
+                          display_name: Some(msg.nick), 
                           color: None
                         },
                         ..Default::default()
@@ -160,7 +160,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   },
                   "JOIN" => {
                     if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned() }) {
+                      match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick }) {
                         Ok(_) => (),
                         Err(x) => info!("Send failure for JOIN: {}", x)
                       };
@@ -168,7 +168,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   },
                   "QUIT" => {
                     if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      match tx.try_send(IncomingMessage::UserLeave { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned() }) {
+                      match tx.try_send(IncomingMessage::UserLeave { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick }) {
                         Ok(_) => (),
                         Err(x) => info!("Send failure for QUIT: {}", x)
                       };
@@ -177,7 +177,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   "NAMES" => {
                     if let Ok(msg) = serde_json::from_str::<NamesMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
                       for user in msg.users {
-                        match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: user.nick.to_owned() }) {
+                        match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: user.nick }) {
                           Ok(_) => (),
                           Err(x) => info!("Send failure for NAMES: {}", x)
                         };

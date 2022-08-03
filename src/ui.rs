@@ -11,7 +11,7 @@ use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rou
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::{imaging::load_file_into_buffer}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::{imaging::load_file_into_buffer, fetch}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -1097,7 +1097,10 @@ impl TemplateApp {
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+          c.users.insert(message.username.to_lowercase(), message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+          if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
+            c.users.insert(display_name.to_lowercase(), message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+          }
         }
 
         push_history(
@@ -1159,12 +1162,12 @@ impl TemplateApp {
       },
       IncomingMessage::UserJoin { channel, username } => {
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(username);
+          c.users.insert(username.to_lowercase(), username);
         }
       },
       IncomingMessage::UserLeave { channel, username } => {
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.remove(&username);
+          c.users.remove(&username.to_lowercase());
         }
       }
     };
@@ -1255,14 +1258,13 @@ impl TemplateApp {
 
       let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
-      // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
+      
       if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
-        for user in &channel.users { // Channel emotes
-          let name_l = user.to_lowercase();
-          if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-            _ = match name_l.starts_with(word_lower) {
-              true => starts_with_emotes.try_insert(user.to_owned(), None),
-              false => contains_emotes.try_insert(user.to_owned(), None),
+        for (name_lower, display_name) in &channel.users {
+          if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
+            _ = match name_lower.starts_with(word_lower) {
+              true => starts_with_emotes.try_insert(display_name.to_owned(), None),
+              false => contains_emotes.try_insert(display_name.to_owned(), None),
             };
           }
         }
@@ -1321,10 +1323,10 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
   }
 }
 
-fn get_mentions_in_message(row: &ChatMessage, users: &HashSet<String>) -> Option<Vec<String>> {
+fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, String>) -> Option<Vec<String>> {
   Some(row.message.split(' ').into_iter().filter_map(|f| {
-    let word = f.trim_start_matches('@').trim_end_matches(',').to_owned();
-    if users.contains(&word) { Some(word) } else { None } 
+    let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
+    if let Some(display_name) = users.get(&word) { Some(display_name.to_owned()) } else { None } 
   }).collect_vec())
 }
 
@@ -1424,6 +1426,14 @@ pub fn load_font() -> FontDefinitions {
       fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
       fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
     }
+  }
+
+  // Large font to fill in missing extended characters
+  if let Ok(unifont_file) = fetch::get_binary_from_url("https://unifoundry.com/pub/unifont/unifont-14.0.04/font-builds/unifont-14.0.04.otf", Some("unifont-14.0.04.otf"), None) {
+    let unifont = FontData::from_owned(unifont_file);
+    fonts.font_data.insert("unifont".into(), unifont);
+    fonts.families.entry(FontFamily::Proportional).or_default().push("unifont".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().push("unifont".into());
   }
 
   fonts

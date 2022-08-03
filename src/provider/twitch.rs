@@ -6,7 +6,7 @@
 
 use std::{collections::{HashSet, HashMap}};
 use async_channel::{Receiver, Sender};
-use tracing::info;
+use tracing::{info, trace};
 use chrono::{DateTime, Utc, NaiveDateTime};
 use futures::prelude::*;
 use irc::client::{prelude::*};
@@ -142,7 +142,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //info!("{}", message);
+            //tracing::trace!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -201,7 +201,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                   sender.send_pong(target).log_expect("failed to send pong");
               },
               Command::Raw(ref command, ref str_vec) => {
-                info!("Recieved Twitch IRC Command: {}", command);
+                trace!("Recieved Twitch IRC Command: {}", command);
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {
@@ -247,7 +247,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                 }
               },
               _ => ()
-          }
+            }
           },
           Err(e) => info!("IRC Stream error: {:?}", e)
         }

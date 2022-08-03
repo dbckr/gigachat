@@ -87,7 +87,8 @@ pub struct Channel {
   pub send_history_ix: Option<usize>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>,
-  pub users: HashSet<String>
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub users: HashMap<String, String>
 }
 
 #[derive(Clone)]

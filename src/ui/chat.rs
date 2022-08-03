@@ -101,11 +101,12 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
     
-          let unametext = RichText::new(&format!("{}:", &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username)))
+          let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
+          let uname_rich_text = RichText::new(&format!("{}:", uname_text))
             .color(convert_color(chat_msg.message.profile.color.as_ref()));
-          let uname = ui.add(egui::Label::new(unametext).sense(egui::Sense::click()));
+          let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
           if uname.clicked() {
-            user_selected = Some(chat_msg.message.username.to_owned());
+            user_selected = Some(uname_text.to_lowercase());
           }
           if uname.hovered() {
             ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
@@ -140,10 +141,10 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                   false => RichText::new(word).color(convert_color(message_color.as_ref()))
                 }.size(BODY_TEXT_SIZE);
 
-                if chat_msg.mentions.is_some_and(|f| f.contains(&word.trim_start_matches('@').trim_end_matches(',').to_owned())) {
+                if chat_msg.mentions.is_some_and(|f| f.contains(&word.to_owned())) {
                   let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
                   if lbl.clicked() {
-                    user_selected = Some(word.trim_start_matches('@').trim_end_matches(',').to_owned());
+                    user_selected = Some(word.trim_start_matches('@').trim_end_matches(',').to_lowercase());
                   }
                   if lbl.hovered() {
                     ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
