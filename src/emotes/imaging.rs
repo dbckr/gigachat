@@ -235,7 +235,7 @@ pub fn load_image_into_texture_handle(
   image: ColorImage,
 ) -> TextureHandle {
   let uid = rand::random::<u64>(); //TODO: hash the image to create uid
-  ctx.load_texture(uid.to_string(), image)
+  ctx.load_texture(uid.to_string(), image, egui::TextureFilter::Linear)
 }
 
 pub fn to_egui_image(

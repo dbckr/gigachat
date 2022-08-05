@@ -184,7 +184,7 @@ impl eframe::App for TemplateApp {
     true
   }
 
-  fn on_exit(&mut self, _ctx : &eframe::glow::Context) {
+  fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
     self.emote_loader.as_ref().log_unwrap().close();
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
@@ -788,7 +788,7 @@ impl TemplateApp {
         ui.style_mut().visuals.override_text_color = Some(egui::Color32::LIGHT_GRAY);
         let chat_area = egui::ScrollArea::vertical()
           .auto_shrink([false; 2])
-          .stick_to_bottom()
+          .stick_to_bottom(true)
           .always_show_scroll(true)
           .scroll_offset(self.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
         let selected_user_before = self.selected_user.as_ref().map(|x| x.to_owned());

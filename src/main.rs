@@ -17,12 +17,15 @@ use gigachat::ui;
 
 #[cfg(all(not(feature = "use-bevy"), not(target_arch = "wasm32")))]
 fn main() {
+    use eframe::Renderer;
+
   let _guard = init_logging();
 
   let native_options = eframe::NativeOptions { 
     transparent: true, 
     decorated: true,
     vsync: true,
+    renderer: Renderer::Wgpu,
     ..Default::default() 
   };
 

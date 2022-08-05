@@ -7,17 +7,18 @@ license = "MPL-2.0"
 [features]
 default = ["native-tls", "use-eframe", "persistence" ]
 use-eframe = [ "eframe" ]
-use-bevy = [ "bevy", "bevy_egui", "bevy_framepace" ]
+#use-bevy = [ "bevy", "bevy_egui", "bevy_framepace" ]
 native-tls = ["tokio-tungstenite/native-tls"]
 persistence = [ "eframe/persistence" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+web-sys = "0.3.58"
 futures = "0.3.0"
 tokio = { version = "1.17.0", features = ["full"] }
 egui = { version = "0.18" }
-eframe = { version = "0.18.0", optional = true }
+eframe = { version = "0.18.0", optional = true, features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = "1.0.58"
 args = "2.0.0"
@@ -47,9 +48,9 @@ tracing = "0.1.35"
 tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
 
-bevy = { version = "0.7", default-features = false, features = ["bevy_render", "bevy_core_pipeline", "bevy_winit"], optional = true }
-bevy_egui = { path = "../bevy_egui", optional = true }
-bevy_framepace = { version = "0.4.0", optional = true }
+#bevy = { version = "0.7", default-features = false, features = ["bevy_render", "bevy_core_pipeline", "bevy_winit"], optional = true }
+#bevy_egui = { path = "../bevy_egui", optional = true }
+#bevy_framepace = { version = "0.4.0", optional = true }
 #winit = { path = "../winit" }
 
 [profile.release]
@@ -58,8 +59,8 @@ opt-level = 2 # fast and small wasm
 [patch.crates-io]
 #egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
-#egui = { path = "../egui/egui" }
-#eframe = { path = "../egui/eframe" }
+egui = { path = "../egui/egui" }
+eframe = { path = "../egui/eframe" }
 #weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 #winit = { path = "../winit" }
 
