@@ -113,7 +113,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           }
         }
         for word in message.split(' ') {
-        let link_url = is_url(word).then(|| word.to_owned());
+          let link_url = chat_msg.message.message.split_ascii_whitespace().find_or_first(|f| f.contains(word)).and_then(|f| if is_url(f) { Some(f) } else { None });
           let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(transparent_img);
@@ -121,7 +121,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           }
           else {
             last_emote_width = None;
-            match &link_url {
+            match link_url {
               Some(url) => {
                 let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
                 if link.hovered() {
@@ -130,7 +130,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                 if link.clicked() {
                   let modifiers = ui.ctx().input().modifiers;
                   ui.ctx().output().open_url = Some(egui::output::OpenUrl {
-                    url: url.clone(),
+                    url: url.to_owned(),
                     new_tab: modifiers.any(),
                   });
                 }

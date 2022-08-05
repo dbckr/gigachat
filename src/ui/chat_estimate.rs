@@ -33,7 +33,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, TextRange)> = Default::default();
-  let is_ascii_art = is_ascii_art(&row.message);
+  let is_ascii_art = is_ascii_art(&row.message, emotes);
   //info!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, show_channel_names);
@@ -144,9 +144,13 @@ pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_
   job
 }
 
-pub fn is_ascii_art(msg: &str) -> Option<usize> {
+pub fn is_ascii_art(msg: &str, emotes: &HashMap<String, EmoteFrame>) -> Option<usize> {
+  if msg.split_ascii_whitespace().any(|f| emotes.contains_key(f)) {
+    return None;
+  }
+
   let words = msg.split_ascii_whitespace().map(|w| w.len()).collect_vec();
-  if words.len() > 1 && words.iter().all_equal() && let Some(len) = words.first() && len > &15 {
+  if words.len() > 1 && words.iter().all_equal() && let Some(len) = words.first() && len > &15 && words.len() > 3 {
     Some(len.to_owned())
   }
   else {

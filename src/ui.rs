@@ -5,7 +5,7 @@
  */
 
 use tracing::info;
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut, HashSet}, ops::{Add}, iter::Peekable};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
