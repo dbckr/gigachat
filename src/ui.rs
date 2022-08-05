@@ -75,69 +75,45 @@ pub struct AuthTokens {
 }
 
 #[derive(Default)]
-#[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), derive(serde::Deserialize, serde::Serialize))]
-#[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(default))]
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
   pub providers: HashMap<ProviderName, Provider>,
   channels: HashMap<String, Channel>,
   selected_channel: Option<String>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   chat_histories: HashMap<String, VecDeque<(ChatMessage, Option<f32>)>>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   draft_message: String,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   show_add_channel_menu: bool,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   add_channel_menu: AddChannelMenu,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_emotes: HashMap<String, Emote>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub emote_loader: Option<EmoteLoader>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_emote: Option<String>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   show_auth_ui: bool,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   show_channel_options: bool,
   pub auth_tokens: AuthTokens,
   chat_frame: Option<Rect>,
   chat_scroll: Option<Vec2>,
   enable_combos: bool,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub twitch_chat_manager: Option<TwitchChatManager>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub dgg_chat_manager: Option<ChatManager>,
-  #[cfg_attr(all(feature = "persistence", not(feature = "use-bevy")), serde(skip))]
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_user: Option<String>
 }
 
-#[cfg(feature = "use-bevy")]
-pub fn bevy_update(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>,
-  mut ui_state: bevy::prelude::ResMut<TemplateApp>) {
-    ui_state.update_inner(egui_ctx.ctx_mut())
-}
-
-#[cfg(feature = "use-bevy")]
-pub fn bevy_configure_visuals(mut egui_ctx: bevy::prelude::ResMut<bevy_egui::EguiContext>) {
-  egui_ctx.ctx_mut().set_visuals(egui::Visuals::dark());
-  egui_ctx.ctx_mut().set_fonts(load_font());
-  egui_ctx.ctx_mut().set_pixels_per_point(1.0);
-}
-
-#[cfg(feature = "use-bevy")]
-pub fn bevy_update_ui_scale_factor(
-  _keyboard_input: bevy::prelude::Res<bevy::input::Input<bevy::prelude::KeyCode>>,
-  mut _toggle_scale_factor: bevy::prelude::Local<Option<bool>>,
-  mut egui_settings: bevy::prelude::ResMut<bevy_egui::EguiSettings>,
-  _windows: bevy::prelude::Res<bevy::window::Windows>,) 
-{
-    egui_settings.scale_factor = 0.80;
-}
-
 impl TemplateApp {
-  #[cfg(not(feature = "use-bevy"))]
   pub fn new(cc: &eframe::CreationContext<'_>, title: String, runtime: tokio::runtime::Runtime) -> Self {
     cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
     let mut r = TemplateApp {
@@ -154,22 +130,8 @@ impl TemplateApp {
     info!("{} channels", r.channels.len());
     r
   }
-
-  #[cfg(feature = "use-bevy")]
-  pub fn new(title: String, runtime: tokio::runtime::Runtime) -> Self {
-    let mut r = TemplateApp {
-      ..Default::default()
-    };
-    
-    let loader = EmoteLoader::new(&title, &runtime);
-    r.runtime = Some(runtime);
-    r.emote_loader = Some(loader);
-    info!("{} channels", r.channels.len());
-    r
-  }
 }
 
-#[cfg(not(feature = "use-bevy"))]
 impl eframe::App for TemplateApp {
   #[cfg(feature = "persistence")]
   fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -226,7 +188,7 @@ impl TemplateApp {
       self.emote_loader.as_mut().log_unwrap().transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     }
 
-    #[cfg(not(feature="use-bevy"))]
+    // workaround for odd rounding issues at certain DPI(s?)
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }

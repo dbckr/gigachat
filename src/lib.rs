@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), deny(warnings))]
-#![feature(let_chains)]
 #![feature(is_some_with)]
 #![feature(map_try_insert)]
 #![feature(result_option_inspect)]
