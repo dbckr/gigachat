@@ -141,10 +141,10 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                   false => RichText::new(word).color(convert_color(message_color.as_ref()))
                 }.size(BODY_TEXT_SIZE);
 
-                if chat_msg.mentions.is_some_and(|f| f.contains(&word.to_owned())) {
+                if let Some (mention) = chat_msg.mentions.as_ref().and_then(|f| f.iter().find(|m| word.to_lowercase().contains(&m.to_lowercase()))) {
                   let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
                   if lbl.clicked() {
-                    user_selected = Some(word.trim_start_matches('@').trim_end_matches(',').to_lowercase());
+                    user_selected = Some(mention.to_owned());
                   }
                   if lbl.hovered() {
                     ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;

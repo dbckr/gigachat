@@ -822,7 +822,7 @@ impl TemplateApp {
           let mut x = painter_rect.left();
 
           let mut msgs = self.chat_histories.get(channel).unwrap().iter().rev()
-          .filter_map(|(msg, _)| if &msg.username == username { Some(msg) } else { None })
+          .filter_map(|(msg, _)| if &msg.username == username || msg.profile.display_name.is_some_and(|f| f == username) { Some(msg) } else { None })
           .take(4)
           .collect_vec();
           msgs.reverse();
@@ -1067,7 +1067,7 @@ impl TemplateApp {
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !self.enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
-            let highlight_msg = self.selected_user.as_ref().map(|f| f == &chat_msg.message.username);
+            let highlight_msg = self.selected_user.as_ref().map(|f| f == chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username));
             let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, highlight_msg);
 
             if user_selected.is_some() {
@@ -1098,8 +1098,9 @@ impl TemplateApp {
 
         if let Some(c) = self.channels.get_mut(&channel) {
           c.users.insert(message.username.to_lowercase(), message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+          // Twitch has some usernames that have completely different display names (e.g. Japanese character display names)
           if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
-            c.users.insert(display_name.to_lowercase(), message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+            c.users.insert(display_name.to_lowercase(), display_name.to_owned());
           }
         }
 
@@ -1256,22 +1257,22 @@ impl TemplateApp {
       let word = &input_str[1..];
       let word_lower = &word.to_lowercase();
 
-      let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
-      let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
+      let mut starts_with_users : HashMap<String, Option<EmoteFrame>> = Default::default();
+      let mut contains_users : HashMap<String, Option<EmoteFrame>> = Default::default();
       
       if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
         for (name_lower, display_name) in &channel.users {
           if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
             _ = match name_lower.starts_with(word_lower) {
-              true => starts_with_emotes.try_insert(display_name.to_owned(), None),
-              false => contains_emotes.try_insert(display_name.to_owned(), None),
+              true => starts_with_users.try_insert(display_name.to_owned(), None),
+              false => contains_users.try_insert(display_name.to_owned(), None),
             };
           }
         }
       }
       
-      let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
-      let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      let mut starts_with = starts_with_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      let mut contains = contains_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       starts_with.append(&mut contains);
       Some((input_str.to_owned(), pos, starts_with))
     }
@@ -1332,7 +1333,7 @@ fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, String>) -
 
 fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&mut HashMap<String, Emote>>, channel_emotes: Option<&mut HashMap<String, Emote>>, global_emotes: &mut HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
-  for word in row.message.to_owned().split(' ') {
+  for word in row.message.to_owned().split(' ').map(|f| f.trim_start_matches(':')) {
     let emote = 
       if let Some(&mut ref mut channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get_mut(word) {
         Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_request(emote, &row.channel)))

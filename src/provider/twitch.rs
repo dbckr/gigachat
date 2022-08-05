@@ -79,7 +79,7 @@ impl TwitchChatManager {
 }
 
 async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessage>, rx: Receiver<OutgoingMessage>) {
-  let mut profile = UserProfile::default();
+  let mut profiles : HashMap<String, UserProfile> = Default::default();
   //let name = channel_name.to_owned();
   //let channels = [format!("#{}", name.to_owned())].to_vec();
   let mut client = Client::from_config(Config { 
@@ -142,7 +142,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            //tracing::trace!("{}", message);
+            tracing::trace!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -205,7 +205,8 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {
-                      profile = get_user_profile(&tags);
+                      let channel = str_vec.first().log_unwrap().trim_start_matches('#').to_owned();
+                      profiles.insert(channel, get_user_profile(&tags));
                       tx.try_send(IncomingMessage::EmoteSets { 
                         provider: ProviderName::Twitch,
                         emote_sets: get_tag_value(&tags, "emote-sets").log_unwrap().split(',').map(|x| x.to_owned()).collect::<Vec<String>>() 
@@ -259,13 +260,14 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
               Some(x) if *x == ':' => sender.send_privmsg(&channel_name, format!(" {}", &message)),
               _ => sender.send_privmsg(&format!("#{channel_name}"), &message),
             }.inspect_err(|e| { info!("Error sending twitch IRC message: {}", e)});
+            let profile = profiles.get(&channel_name).map(|f| f.to_owned()).unwrap_or_default();
             let cmsg = ChatMessage { 
               provider: ProviderName::Twitch,
               channel: channel_name,
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 
               message, 
-              profile: profile.to_owned(),
+              profile,
               ..Default::default()
             };
             match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
