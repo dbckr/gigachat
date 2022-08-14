@@ -45,7 +45,9 @@ pub struct UiChatMessage<'a> {
   pub row_data : Vec<UiChatMessageRow>,
   pub msg_height : f32,
   pub is_ascii_art: bool,
-  pub user_color: Option<(u8,u8,u8)>
+  pub user_color: Option<(u8,u8,u8)>,
+  pub show_channel_name: bool,
+  pub show_timestamp: bool
 }
 
 pub struct AddChannelMenu {
@@ -111,7 +113,8 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub dgg_chat_manager: Option<ChatManager>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub selected_user: Option<String>
+  pub selected_user: Option<String>,
+  pub show_timestamps: bool
 }
 
 impl TemplateApp {
@@ -465,6 +468,7 @@ impl TemplateApp {
           ui.separator();
           ui.menu_button(RichText::new("Options").size(SMALL_TEXT_SIZE), |ui| {
             ui.checkbox(&mut self.enable_combos, "Enable Combos");
+            ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps");
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
@@ -826,8 +830,8 @@ impl TemplateApp {
           msgs.reverse();
           for msg in &msgs {
             let transparent_texture = self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref().log_unwrap().to_owned();
-            let est = Self::create_uichatmessage(msg, ui, painter_rect.width() - ui.spacing().item_spacing.x, false, &self.providers, &self.channels, &self.global_emotes, self.emote_loader.as_ref());
-            chat::create_chat_message(ui, &est, &transparent_texture, false, None);
+            let est = Self::create_uichatmessage(msg, ui, painter_rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, self.emote_loader.as_ref());
+            chat::create_chat_message(ui, &est, &transparent_texture, None);
           }
         });
       });
@@ -999,6 +1003,7 @@ impl TemplateApp {
         twitch_chat_manager : _,
         dgg_chat_manager : _,
         selected_user,
+        show_timestamps
     } = self;
 
     let mut y_pos = 0.0;
@@ -1046,7 +1051,7 @@ impl TemplateApp {
             continue;
         }
 
-        let mut uimsg = Self::create_uichatmessage(row, ui, ui.available_width(), show_channel_names, providers, channels, global_emotes, emote_loader.as_ref());
+        let mut uimsg = Self::create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes, emote_loader.as_ref());
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
@@ -1089,7 +1094,7 @@ impl TemplateApp {
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
             let highlight_msg = selected_user.as_ref().map(|f| f == &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase());
-            let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, highlight_msg);
+            let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
 
             if user_selected.is_some() {
               if *selected_user == user_selected {
@@ -1100,7 +1105,7 @@ impl TemplateApp {
             }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-            chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names);
+            chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, *show_timestamps);
           }
         }
       });
@@ -1113,7 +1118,8 @@ fn create_uichatmessage<'a>(
   row: &'a ChatMessage,
   ui: &mut egui::Ui, 
   ui_width: f32,
-  show_channel_names: bool,
+  show_channel_name: bool,
+  show_timestamp: bool,
   providers: &HashMap<ProviderName, Provider>,
   channels: &HashMap<String, Channel>,
   global_emotes: &HashMap<String, Emote>,
@@ -1125,7 +1131,7 @@ fn create_uichatmessage<'a>(
       .map(|t| (t.channel_emotes.as_ref(), t.badge_emotes.as_ref())).unwrap_or((None, None));
     let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &global_emotes, emote_loader);
     let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, emote_loader);
-    let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_names);
+    let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
     let mentions = if let Some(channel) = channels.get(&row.channel) {
       get_mentions_in_message(row, &channel.users)
     } else { None };
@@ -1145,7 +1151,9 @@ fn create_uichatmessage<'a>(
       row_data,
       msg_height,
       is_ascii_art,
-      user_color: color
+      user_color: color,
+      show_channel_name,
+      show_timestamp
     }
   }
 

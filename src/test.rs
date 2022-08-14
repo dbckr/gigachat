@@ -204,7 +204,7 @@ use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_Subscrib
     let emotes : HashMap<String, EmoteFrame> = Default::default();
     let badges : HashMap<String, EmoteFrame> = Default::default();
     let ui_width = ui.available_width();
-    let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), true);
+    let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), true, true);
     
     x.0.iter().map(|item| {
       let rng = match &item.1 {
