@@ -4,13 +4,11 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 # Todo
 
-- Own twitch badges inaccurate when swapping between channels
 - Display a "button" to jump back to bottom whenever auto-scroll is off
 - Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
 - Handle "ACTION" (remove the word and display the message with italics)
-- Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name (also add option to do this automatically for users that get a lot of mentions over short duration)
 - Cache json/images in a db file instead of loose files (also migrate away from using eframe persistence feature to save state)
 - Poll status (Twitch, DGG)
 - Handle Twitch CLEARCHAT, CLEARMSG commands
@@ -23,7 +21,6 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Mentions tab
 - Twitch Prediction status
 - Twitch tier-exclusive emote logic
-- Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
 
 ##
 
@@ -36,9 +33,12 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Support/fix twitch modified emotes
 - Better README
 - Twitch Cheer emotes
+- Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
 
 ##
 
+- ~Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name~ 
+  - Add option to do this automatically for users that get a lot of mentions over short duration
 - ~Select from a user list by starting typing a word with @~
 - ~Click user (or usernames in chat messages) to see their recent messages in channel~
 - ~DGG~

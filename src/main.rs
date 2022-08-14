@@ -4,6 +4,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+#![windows_subsystem = "windows"]
+
 use gigachat::TemplateApp;
 use gigachat::provider::ProviderName;
 use gigachat::error_util::{LogErrResult, LogErrOption};
@@ -61,6 +63,7 @@ fn init_logging() -> WorkerGuard {
     .with_line_number(true)
     .with_ansi(false)
     .with_writer(non_blocking)
+    .with_filter(tracing::level_filters::LevelFilter::DEBUG)
     .boxed();
 
   let subscriber = Registry::default().with(console).with(file);

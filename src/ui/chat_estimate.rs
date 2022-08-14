@@ -28,7 +28,7 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_names: bool) -> (Vec<(f32, TextRange)>, bool) {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_names: bool) -> (Vec<(f32, TextRange)>, bool) {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
@@ -53,7 +53,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
       msg_char_range = TextRange::Range { range: (ix..ix) };
     }
 
-    msg_char_range = get_word_size(ui, &mut ix, emotes, word, &mut curr_row_width, &mut curr_row_height, &mut row_data, &msg_char_range, is_ascii_art);
+    msg_char_range = get_word_size(ui, ui_width, &mut ix, emotes, word, &mut curr_row_width, &mut curr_row_height, &mut row_data, &msg_char_range, is_ascii_art);
     ix += 1;
   }
   if curr_row_width > 0.0 {
@@ -67,7 +67,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, row: &ChatMessage, emotes: &HashMap<
   (row_data, is_ascii_art.is_some())
 }
 
-fn get_word_size(ui: &mut egui::Ui, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
+fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
   curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
   let mut row_start_char_ix = curr_row_range.start();
@@ -82,12 +82,12 @@ fn get_word_size(ui: &mut egui::Ui, ix: &mut usize, emotes: &HashMap<String, Emo
       [(word.len(), egui::vec2(EMOTE_HEIGHT, EMOTE_HEIGHT))].to_vec()
     }
   } else {
-    get_text_rect(ui, word, curr_row_width, is_ascii_art).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
+    get_text_rect(ui, ui_width, word, curr_row_width, is_ascii_art).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
   };
   let mut row_iter = rows.iter();
   while let Some((char_len, row)) = row_iter.next() {
     let row_char_range = TextRange::Range { range: (row_start_char_ix..*ix) };
-    let new_row = process_word_result(ui.available_width(), &ui.spacing().item_spacing, &ui.spacing().interact_size, row, curr_row_width, curr_row_height, row_data, row_char_range);
+    let new_row = process_word_result(ui_width, &ui.spacing().item_spacing, &ui.spacing().interact_size, row, curr_row_width, curr_row_height, row_data, row_char_range);
     if new_row {
       row_start_char_ix = *ix;
     }
@@ -118,15 +118,15 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
   }
 }
 
-fn get_text_rect(ui: &mut egui::Ui, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
-  let job = get_text_rect_job(ui.available_width() - ui.spacing().item_spacing.x - 1., word, curr_row_width, is_ascii_art.is_some());
+fn get_text_rect(ui: &mut egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
+  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, is_ascii_art.is_some());
   let galley = ui.fonts().layout_job(job);
   galley.rows.clone()
 }
 
 pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_art: bool) -> LayoutJob {
   let mut job = LayoutJob {
-    //wrap_width: ui.available_width() - ui.spacing().item_spacing.x - 1.,
+    //wrap_width: max_width,
     //break_on_newline: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
     wrap: egui::epaint::text::TextWrapping { 
       break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art,

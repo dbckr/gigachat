@@ -11,7 +11,7 @@ use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
 
 use tokio::{runtime::Runtime, task::JoinHandle};
-use std::{collections::HashMap, time::Duration, path::PathBuf};
+use std::{collections::{HashMap, HashSet}, time::Duration, path::PathBuf};
 use std::str;
 use crate::error_util::{LogErrOption};
 
@@ -83,7 +83,6 @@ pub enum EmoteResponse {
 pub enum EmoteStatus {
   #[default]
   NotLoaded,
-  Loading,
   Loaded,
 }
 
@@ -116,14 +115,14 @@ pub struct EmoteLoader {
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
   pub transparent_img: Option<TextureHandle>,
-  pub base_path: PathBuf
+  pub base_path: PathBuf,
+  pub loading_emotes: HashSet<String>
 }
 
 impl EmoteLoader {
   pub fn new(app_name: &str, runtime: &Runtime) -> Self {
     let (in_tx, in_rx) = async_channel::unbounded::<EmoteRequest>();
     let (out_tx, out_rx) = async_channel::unbounded::<EmoteResponse>();
-    //let (out_tx, out_rx) = tokio::sync::mpsc::channel::<EmoteResponse>(256);
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..5 {
@@ -187,7 +186,8 @@ impl EmoteLoader {
       rx: out_rx,
       handle: tasks,
       transparent_img: None,
-      base_path: cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files")
+      base_path: cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files"),
+      loading_emotes: Default::default()
      }
   }
 

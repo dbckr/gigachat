@@ -142,7 +142,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
       Some(result) = stream.next()  => {
         match result {
           Ok(message) => {
-            tracing::trace!("{}", message);
+            trace!("{}", message);
             match message.command {
               Command::PRIVMSG(ref _target, ref msg) => {
                 let sender_name = match message.source_nickname() {
@@ -201,7 +201,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                   sender.send_pong(target).log_expect("failed to send pong");
               },
               Command::Raw(ref command, ref str_vec) => {
-                trace!("Recieved Twitch IRC Command: {}", command);
+                //trace!("Recieved Twitch IRC Command: {}", command);
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {

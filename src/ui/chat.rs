@@ -103,7 +103,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
     
           let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
           let uname_rich_text = RichText::new(&format!("{}:", uname_text))
-            .color(convert_color(chat_msg.message.profile.color.as_ref()));
+            .color(convert_color(chat_msg.user_color.as_ref()));
           let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
           if uname.clicked() {
             user_selected = Some(uname_text.to_lowercase());
@@ -315,40 +315,45 @@ pub struct EmoteFrame {
   pub zero_width: bool
 }
 
-pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &mut Emote, request : EmoteRequest) -> EmoteFrame {
-  match emote.loaded {
-    EmoteStatus::NotLoaded => {
-      if let Err(e) = emote_loader.tx.try_send(request) {
-        info!("Error sending emote load request: {}", e);
-      }
-      emote.loaded = EmoteStatus::Loading;
-      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-    },
-    EmoteStatus::Loading => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width},
-    EmoteStatus::Loaded => {
-      let frames_opt = emote.data.as_ref();
-      match frames_opt {
-        Some(frames) => {
-          if emote.duration_msec > 0 {
-            let time = chrono::Utc::now();
-            let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
-            let mut progress_msec : u16 = 0;
-            for (frame, msec) in frames {
-              progress_msec += msec; 
-              if progress_msec >= target_progress {
-                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
+pub fn get_texture(emote_loader: Option<&EmoteLoader>, emote : &Emote, request : EmoteRequest) -> EmoteFrame {
+  if let Some(emote_loader) = emote_loader {
+    match emote.loaded {
+      EmoteStatus::NotLoaded => {
+        if !emote_loader.loading_emotes.contains(&emote.name) {
+          if let Err(e) = emote_loader.tx.try_send(request) {
+            info!("Error sending emote load request: {}", e);
+          }
+          //emote_loader.loading_emotes.insert(emote.name.to_owned());
+        }
+        EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+      },
+      EmoteStatus::Loaded => {
+        let frames_opt = emote.data.as_ref();
+        match frames_opt {
+          Some(frames) => {
+            if emote.duration_msec > 0 {
+              let time = chrono::Utc::now();
+              let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
+              let mut progress_msec : u16 = 0;
+              for (frame, msec) in frames {
+                progress_msec += msec; 
+                if progress_msec >= target_progress {
+                  return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
+                }
               }
+              EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
             }
-            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-          }
-          else {
-            let (frame, _delay) = frames.get(0).log_unwrap();
-            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
-          }
-        },
-        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+            else {
+              let (frame, _delay) = frames.get(0).log_unwrap();
+              EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
+            }
+          },
+          None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+        }
       }
     }
+  } else {
+    EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
   }
 }
 
