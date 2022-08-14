@@ -34,7 +34,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<bool>) -> (emath::Rect, Option<String>) {
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>) {
   let mut user_selected : Option<String> = None;
   let mut message_color : Option<(u8,u8,u8)> = None;
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
@@ -61,12 +61,16 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
         ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
         ui.set_row_height(row_height);
 
-        if highlight.unwrap_or(false) {
-          highlight_ui_row(ui);
+        if let Some(highlight) = highlight {
+          highlight_ui_row(ui, highlight);
+        } else if chat_msg.message.is_server_msg {
+          highlight_ui_row(ui, Color32::from_rgba_unmultiplied(90, 75, 0, 90));
         }
 
         if row_ix == 0 {
-          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, Some(&chat_msg.message.username), &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
+          let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
+          let username = if !chat_msg.message.is_server_msg { Some(uname_text) } else { None };
+          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
           ui.label(job);
           if let Some(user_badges) = &chat_msg.message.profile.badges {
             for badge in user_badges {
@@ -101,15 +105,17 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
     
-          let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
-          let uname_rich_text = RichText::new(&format!("{}:", uname_text))
-            .color(convert_color(chat_msg.user_color.as_ref()));
-          let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
-          if uname.clicked() {
-            user_selected = Some(uname_text.to_lowercase());
-          }
-          if uname.hovered() {
-            ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+          if !chat_msg.message.is_server_msg {
+            let uname_rich_text = RichText::new(&format!("{}:", uname_text))
+              .size(BODY_TEXT_SIZE)
+              .color(convert_color(chat_msg.user_color.as_ref()));
+            let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
+            if uname.clicked() {
+              user_selected = Some(uname_text.to_lowercase());
+            }
+            if uname.hovered() {
+              ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+            }
           }
         }
         for word in message.split(' ') {
@@ -207,7 +213,7 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zer
   }
 }*/
 
-fn highlight_ui_row(ui: &mut egui::Ui) {
+fn highlight_ui_row(ui: &mut egui::Ui, color: Color32) {
   let cursor = ui.cursor().to_owned();
   let rect = egui::epaint::Rect { 
     min: Pos2 {
@@ -219,7 +225,9 @@ fn highlight_ui_row(ui: &mut egui::Ui) {
   ui.painter().rect_filled(
     rect, 
     Rounding::none(), 
-    Color32::from_rgba_unmultiplied(90, 90, 90, 90));
+    //Color32::from_rgba_unmultiplied(90, 90, 90, 90)
+    color
+  );
 }
 
 fn is_url(word: &str) -> bool {
@@ -234,7 +242,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
     ..Default::default()
   };
   if show_channel_name {
-    job.append(&format!("#{channel_name}"), 0., egui::TextFormat { 
+    job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
         font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
         color: channel_color.linear_multiply(0.6), 
         valign: Align::Center,
@@ -242,7 +250,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
       });
   }
   if show_timestamp {
-    job.append(&format!("[{}]", timestamp.with_timezone(&chrono::Local).format("%H:%M")), if show_channel_name { 3.0 } else { 0. }, egui::TextFormat { 
+    job.append(&format!("[{}] ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
       font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
       color: Color32::DARK_GRAY, 
       valign: Align::Center,
@@ -251,11 +259,8 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   }
   if for_display { return job; }
 
-  let badge_count = profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
-  let spacing = 3.0 + badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
-
   if let Some(username) = username {
-    job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), spacing, egui::TextFormat {
+    job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), ui.spacing().item_spacing.x, egui::TextFormat {
       font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
       color: convert_color(profile.color.as_ref()),
       valign: Align::Center,
@@ -317,49 +322,45 @@ pub struct EmoteFrame {
   pub zero_width: bool
 }
 
-pub fn get_texture(emote_loader: Option<&EmoteLoader>, emote : &Emote, request : EmoteRequest) -> EmoteFrame {
-  if let Some(emote_loader) = emote_loader {
-    match emote.loaded {
-      EmoteStatus::NotLoaded => {
-        if !emote_loader.loading_emotes.contains(&emote.name) {
-          if let Err(e) = emote_loader.tx.try_send(request) {
-            info!("Error sending emote load request: {}", e);
-          }
-          //emote_loader.loading_emotes.insert(emote.name.to_owned());
+pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &Emote, request : EmoteRequest) -> EmoteFrame {
+  match emote.loaded {
+    EmoteStatus::NotLoaded => {
+      if !emote_loader.loading_emotes.contains_key(&emote.name) {
+        if let Err(e) = emote_loader.tx.try_send(request) {
+          info!("Error sending emote load request: {}", e);
         }
-        EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-      },
-      EmoteStatus::Loaded => {
-        let frames_opt = emote.data.as_ref();
-        match frames_opt {
-          Some(frames) => {
-            if emote.duration_msec > 0 {
-              let time = chrono::Utc::now();
-              let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
-              let mut progress_msec : u16 = 0;
-              for (frame, msec) in frames {
-                progress_msec += msec; 
-                if progress_msec >= target_progress {
-                  return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
-                }
+        emote_loader.loading_emotes.insert(emote.name.to_owned(), chrono::Utc::now());
+      }
+      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+    },
+    EmoteStatus::Loaded => {
+      let frames_opt = emote.data.as_ref();
+      match frames_opt {
+        Some(frames) => {
+          if emote.duration_msec > 0 {
+            let time = chrono::Utc::now();
+            let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
+            let mut progress_msec : u16 = 0;
+            for (frame, msec) in frames {
+              progress_msec += msec; 
+              if progress_msec >= target_progress {
+                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
               }
-              EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
             }
-            else {
-              let (frame, _delay) = frames.get(0).log_unwrap();
-              EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
-            }
-          },
-          None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-        }
+            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
+          }
+          else {
+            let (frame, _delay) = frames.get(0).log_unwrap();
+            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
+          }
+        },
+        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
       }
     }
-  } else {
-    EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
   }
 }
 
-fn get_provider_color(provider : &ProviderName) -> Color32 {
+pub fn get_provider_color(provider : &ProviderName) -> Color32 {
   match provider {
     //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
     ProviderName::Twitch => Color32::from_rgba_unmultiplied(169, 112, 255, 255),

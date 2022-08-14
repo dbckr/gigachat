@@ -7,7 +7,7 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
-use crate::error_util::{LogErrOption};
+use crate::{error_util::{LogErrOption}, ui::BADGE_HEIGHT};
 
 use crate::provider::*;
 
@@ -34,6 +34,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   let mut curr_row_width : f32 = 0.0;
   let mut row_data : Vec<(f32, TextRange)> = Default::default();
   let is_ascii_art = is_ascii_art(&row.message, emotes);
+  let margin_width = 1. + ui.spacing().item_spacing.x; // single pixel image that starts each row
   //info!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
@@ -41,7 +42,10 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));
   }
-  curr_row_width += 1. + ui.spacing().item_spacing.x + header_rows.last().log_unwrap().rect.size().x + ui.spacing().item_spacing.x;
+  let badge_count = row.profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
+  let badge_spacing = badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
+  let header_width = header_rows.last().log_unwrap().rect.size().x;
+  curr_row_width += margin_width + header_width + ui.spacing().item_spacing.x + badge_spacing;
   let mut curr_row_height = header_rows.last().log_unwrap().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
 
   let mut ix = 0;
@@ -49,7 +53,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
     if is_ascii_art.is_some() {
       row_data.insert(row_data.len(), (curr_row_height, msg_char_range));
       curr_row_height = ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT);
-      curr_row_width = 1. + ui.spacing().item_spacing.x;
+      curr_row_width = margin_width;
       msg_char_range = TextRange::Range { range: (ix..ix) };
     }
 
@@ -67,7 +71,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   (row_data, is_ascii_art.is_some())
 }
 
-fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
+pub fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
   curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
   let mut row_start_char_ix = curr_row_range.start();
@@ -113,12 +117,12 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
   else {
     row_data.insert(row_data.len(), (*curr_row_height, row_char_range));
     *curr_row_height = rect.y.max(interact_size.y).max(MIN_LINE_HEIGHT);
-    *curr_row_width = 1. + item_spacing.x + rect.x +item_spacing.x;
+    *curr_row_width = 1. + item_spacing.x + rect.x + item_spacing.x;
     true
   }
 }
 
-fn get_text_rect(ui: &mut egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
+pub fn get_text_rect(ui: &mut egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
   let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, is_ascii_art.is_some());
   let galley = ui.fonts().layout_job(job);
   galley.rows.clone()

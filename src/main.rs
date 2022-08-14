@@ -32,7 +32,7 @@ fn main() {
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());
     let runtime = tokio::runtime::Runtime::new().log_expect("new tokio Runtime");
     let mut app = TemplateApp::new(cc, title, runtime);
-    let loader = app.emote_loader.as_ref().log_unwrap();
+    let loader = &mut app.emote_loader;
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
       twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)

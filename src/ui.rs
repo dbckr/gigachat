@@ -97,7 +97,7 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_emotes: HashMap<String, Emote>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub emote_loader: Option<EmoteLoader>,
+  pub emote_loader: EmoteLoader,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_emote: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -114,7 +114,9 @@ pub struct TemplateApp {
   pub dgg_chat_manager: Option<ChatManager>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_user: Option<String>,
-  pub show_timestamps: bool
+  pub show_timestamps: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub show_timestamps_changed: bool
 }
 
 impl TemplateApp {
@@ -130,7 +132,7 @@ impl TemplateApp {
     let mut loader = EmoteLoader::new(&title, &runtime);
     loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     r.runtime = Some(runtime);
-    r.emote_loader = Some(loader);
+    r.emote_loader = loader;
     info!("{} channels", r.channels.len());
     r
   }
@@ -151,7 +153,7 @@ impl eframe::App for TemplateApp {
   }
 
   fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
-    self.emote_loader.as_ref().log_unwrap().close();
+    self.emote_loader.close();
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
     }
@@ -188,8 +190,8 @@ impl eframe::App for TemplateApp {
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
 
-    if self.emote_loader.as_ref().log_unwrap().transparent_img == None {
-      self.emote_loader.as_mut().log_unwrap().transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    if self.emote_loader.transparent_img == None {
+      self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     }
 
     // workaround for odd rounding issues at certain DPI(s?)
@@ -197,43 +199,45 @@ impl TemplateApp {
       ctx.set_pixels_per_point(1.50);
     }
 
-    let set_emote_texture_data = |emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>| {
+    let set_emote_texture_data = |emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>| {
       emote.data = load_to_texture_handles(ctx, data);
       emote.duration_msec = match emote.data.as_ref() {
         Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
         _ => 0,
       };
       emote.loaded = EmoteStatus::Loaded;
+      loading_emotes.remove(&emote.name);
     };
 
-    if let Ok(event) = self.emote_loader.as_mut().log_unwrap().rx.try_recv() {
+    if let Ok(event) = self.emote_loader.rx.try_recv() {
+      let loading_emotes = &mut self.emote_loader.loading_emotes;
       match event {
         EmoteResponse::GlobalEmoteImageLoaded { name, data } => {
           if let Some(emote) = self.global_emotes.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data);
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::GlobalBadgeImageLoaded { name, data } => {
           if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) 
           && let Some(global_badges) = &mut provider.global_badges && let Some(emote) = global_badges.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data);
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data } => {
           if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut()
           .and_then(|t| t.channel_emotes.as_mut()).and_then(|f| { f.get_mut(&name)}) {
-            set_emote_texture_data(emote, ctx, data);
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data } => {
           if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut()
           .and_then(|t| t.badge_emotes.as_mut()).and_then(|f| { f.get_mut(&name)}) {
-            set_emote_texture_data(emote, ctx, data);
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::TwitchMsgEmoteLoaded { name, id: _, data } => {
           if let Some(p) = self.providers.get_mut(&ProviderName::Twitch) && let Some(emote) = p.emotes.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data);
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         }
       }
@@ -390,7 +394,7 @@ impl TemplateApp {
         }*/
         
         if name_input.log_unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
-          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, self.emote_loader.as_mut().log_unwrap()); 
+          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, &mut self.emote_loader); 
           self.show_add_channel_menu = false;
         }
         if ui.button("Cancel").clicked() {
@@ -452,7 +456,7 @@ impl TemplateApp {
       if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
     if self.dgg_chat_manager.is_none() && let Some((_, sco)) = self.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
-      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), self.emote_loader.as_ref().log_unwrap()));
+      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), &mut self.emote_loader));
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -468,7 +472,9 @@ impl TemplateApp {
           ui.separator();
           ui.menu_button(RichText::new("Options").size(SMALL_TEXT_SIZE), |ui| {
             ui.checkbox(&mut self.enable_combos, "Enable Combos");
-            ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps");
+            if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
+              self.show_timestamps_changed = true;
+            };
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
@@ -680,7 +686,7 @@ impl TemplateApp {
                   let width = if !is_user_list {
                     let texture = emote.1.as_ref()
                       .and_then(|f| f.texture.as_ref())
-                      .or_else(|| self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref())
+                      .or_else(|| self.emote_loader.transparent_img.as_ref())
                       .log_unwrap();
 
                     let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
@@ -829,8 +835,8 @@ impl TemplateApp {
           .collect_vec();
           msgs.reverse();
           for msg in &msgs {
-            let transparent_texture = self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref().log_unwrap().to_owned();
-            let est = Self::create_uichatmessage(msg, ui, painter_rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, self.emote_loader.as_ref());
+            let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
+            let est = Self::create_uichatmessage(msg, ui, painter_rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
             chat::create_chat_message(ui, &est, &transparent_texture, None);
           }
         });
@@ -906,7 +912,7 @@ impl TemplateApp {
         for word in msg.message.split_whitespace() {
           if let Some(emote) = emotes.get(word) {
             let texture = emote.texture.as_ref()
-              .or_else(|| self.emote_loader.as_ref().log_unwrap().transparent_img.as_ref())
+              .or_else(|| &mut self.emote_loader.transparent_img.as_ref())
               .log_unwrap();
 
             let width = texture.size_vec2().x + 1.;
@@ -1003,7 +1009,8 @@ impl TemplateApp {
         twitch_chat_manager : _,
         dgg_chat_manager : _,
         selected_user,
-        show_timestamps
+        show_timestamps,
+        show_timestamps_changed
     } = self;
 
     let mut y_pos = 0.0;
@@ -1036,7 +1043,7 @@ impl TemplateApp {
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
-        if let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
+        if !*show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
             if *enable_combos && combo.is_some_and(|c| !c.is_end) {
               // add nothing to y_pos
@@ -1051,7 +1058,7 @@ impl TemplateApp {
             continue;
         }
 
-        let mut uimsg = Self::create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes, emote_loader.as_ref());
+        let mut uimsg = Self::create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes, emote_loader);
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
@@ -1083,7 +1090,9 @@ impl TemplateApp {
         }
       }
 
-      let transparent_texture = emote_loader.as_ref().log_unwrap().transparent_img.as_ref().log_unwrap();
+      *show_timestamps_changed = true;
+
+      let transparent_texture = emote_loader.transparent_img.as_ref().log_unwrap();
       *chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
@@ -1093,7 +1102,13 @@ impl TemplateApp {
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
-            let highlight_msg = selected_user.as_ref().map(|f| f == &chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase());
+            let highlight_msg = if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
+              Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
+            } else if chat_msg.message.is_server_msg {
+              Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.5))
+            } else {
+              None
+            };
             let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
 
             if user_selected.is_some() {
@@ -1123,7 +1138,7 @@ fn create_uichatmessage<'a>(
   providers: &HashMap<ProviderName, Provider>,
   channels: &HashMap<String, Channel>,
   global_emotes: &HashMap<String, Emote>,
-  emote_loader: Option<&EmoteLoader>) -> UiChatMessage<'a> {
+  emote_loader: &mut EmoteLoader) -> UiChatMessage<'a> {
     let (provider_emotes, provider_badges) = providers.get(&ProviderName::Twitch)
       .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
     let (channel_emotes, channel_badges) = channels.get(&row.channel)
@@ -1181,7 +1196,7 @@ fn create_uichatmessage<'a>(
           provider_emotes, 
           self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
           &mut self.global_emotes, 
-          self.emote_loader.as_ref());
+          &mut self.emote_loader);
       },
       IncomingMessage::StreamingStatus { channel, status } => {
         if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
@@ -1200,7 +1215,7 @@ fn create_uichatmessage<'a>(
       IncomingMessage::RoomId { channel, room_id } => {
         if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
           sco.roomid = room_id;
-          match self.emote_loader.as_mut().log_unwrap().load_channel_emotes(&sco.roomid, match &sco.provider {
+          match self.emote_loader.load_channel_emotes(&sco.roomid, match &sco.provider {
             ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
             ProviderName::DGG => &self.auth_tokens.dgg_auth_token
             //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
@@ -1213,7 +1228,7 @@ fn create_uichatmessage<'a>(
               Default::default()
             }
           };
-          t.badge_emotes = self.emote_loader.as_mut().log_unwrap().twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
+          t.badge_emotes = self.emote_loader.twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
           info!("loaded channel badges for {}:{}", channel, sco.roomid);
           //break;
         }
@@ -1221,7 +1236,7 @@ fn create_uichatmessage<'a>(
       IncomingMessage::EmoteSets { provider,  emote_sets } => {
         if let Some(provider) = self.providers.get_mut(&provider) {
           for set in emote_sets {
-            if let Some(set_list) = self.emote_loader.as_mut().log_unwrap().twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
+            if let Some(set_list) = self.emote_loader.twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
               for (_id, emote) in set_list {
                 provider.my_sub_emotes.insert(emote.name.to_owned());
                 if !provider.emotes.contains_key(&emote.name) {
@@ -1267,7 +1282,7 @@ fn create_uichatmessage<'a>(
           for (name, emote) in channel_emotes { // Channel emotes
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-              let tex = chat::get_texture(self.emote_loader.as_ref(), emote, EmoteRequest::new_channel_request(emote, channel_name));
+              let tex = chat::get_texture(&mut self.emote_loader, emote, EmoteRequest::new_channel_request(emote, channel_name));
               _ = match name_l.starts_with(word_lower) {
                 true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                 false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -1280,7 +1295,7 @@ fn create_uichatmessage<'a>(
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
               if let Some(emote) = provider.emotes.get_mut(name) {
-                let tex = chat::get_texture(self.emote_loader.as_ref(), emote, EmoteRequest::new_twitch_emote_request(emote));
+                let tex = chat::get_texture(&mut self.emote_loader, emote, EmoteRequest::new_twitch_emote_request(emote));
                 _ = match name_l.starts_with(word_lower) {
                   true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                   false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -1294,7 +1309,7 @@ fn create_uichatmessage<'a>(
           for (name, emote) in &mut self.global_emotes { 
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
-              let tex = chat::get_texture(self.emote_loader.as_ref(), emote, EmoteRequest::new_global_request(emote));
+              let tex = chat::get_texture(&mut self.emote_loader, emote, EmoteRequest::new_global_request(emote));
               _ = match name_l.starts_with(word_lower) {
                 true => starts_with_emotes.try_insert(name.to_owned(), Some(tex)),
                 false => contains_emotes.try_insert(name.to_owned(), Some(tex)),
@@ -1353,7 +1368,7 @@ fn create_uichatmessage<'a>(
   }
 }
 
-fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut message: ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: Option<&EmoteLoader>) {
+fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut message: ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
   let is_emote = !get_emotes_for_message(&message, provider_emotes, channel_emotes, global_emotes, emote_loader).is_empty();
   let last = chat_history.iter_mut().rev().find_or_first(|f| f.0.channel == message.channel);
   if let Some(last) = last && is_emote {
@@ -1402,7 +1417,7 @@ fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, String>) -
   }).collect_vec())
 }
 
-fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: Option<&EmoteLoader>) -> HashMap<String, EmoteFrame> {
+fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(' ') {
     let emote = 
@@ -1426,7 +1441,7 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<St
   result
 }
 
-fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: Option<&EmoteLoader>) -> (Option<HashMap<String, EmoteFrame>>, Option<(u8,u8,u8)>) {
+fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<HashMap<String, EmoteFrame>>, Option<(u8,u8,u8)>) {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   if badges.is_none() { return (None, None); }
   let mut greatest_badge : Option<(isize, (u8,u8, u8))> = None;

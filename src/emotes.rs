@@ -5,13 +5,14 @@
  */
 
 use async_channel::Receiver;
+use chrono::{DateTime, Utc};
 use tracing::info;
 use curl::easy::Easy;
 use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
 
 use tokio::{runtime::Runtime, task::JoinHandle};
-use std::{collections::{HashMap, HashSet}, time::Duration, path::PathBuf};
+use std::{collections::{HashMap}, time::Duration, path::PathBuf};
 use std::str;
 use crate::error_util::{LogErrOption};
 
@@ -116,7 +117,20 @@ pub struct EmoteLoader {
   handle: Vec<JoinHandle<()>>,
   pub transparent_img: Option<TextureHandle>,
   pub base_path: PathBuf,
-  pub loading_emotes: HashSet<String>
+  pub loading_emotes: HashMap<String, DateTime<Utc>>
+}
+
+impl Default for EmoteLoader {
+  fn default() -> Self {
+    Self { 
+      tx: async_channel::unbounded::<EmoteRequest>().0,
+      rx: async_channel::unbounded::<EmoteResponse>().1, 
+      handle: Default::default(), 
+      transparent_img: None,
+      base_path: Default::default(), 
+      loading_emotes: Default::default() 
+    }
+  }
 }
 
 impl EmoteLoader {

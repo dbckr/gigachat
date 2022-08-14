@@ -10,7 +10,7 @@ use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
-use tracing::{info,warn,error};
+use tracing::{trace, info,warn,error};
 use crate::error_util::{LogErrResult, LogErrOption};
 use regex::Regex;
 use tokio::{runtime::Runtime};
@@ -133,7 +133,16 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| info!("websocket error: {}", f)) 
+            if message.is_ping() {
+              trace!("Received Ping: {:?}", message);
+              socket.send(Message::Pong(message.into_data())).await
+              .inspect_err(|f| info!("socket send Pong error: {}", f))
+              .log_expect("Error sending websocket Pong message");
+            }
+            else if !message.is_text() {
+              warn!("{:?}", message);
+            }
+            else if message.is_text() && let Ok(message) = message.into_text().inspect_err(|f| info!("websocket error: {}", f)) 
               && let Some((command, msg)) = message.split_once(' ') {
                 match command {
                   "MSG" => {
@@ -157,6 +166,25 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                         Err(x) => info!("Send failure for MSG: {}", x)
                       };
                     }
+                  },
+                  "BROADCAST" => {
+                    if let Ok(msg) = serde_json::from_str::<BroadcastMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      let cmsg = ChatMessage { 
+                        provider: ProviderName::DGG,
+                        channel: DGG_CHANNEL_NAME.to_owned(),
+                        timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
+                        message: msg.data.log_unwrap(),
+                        is_server_msg: true,
+                        ..Default::default()
+                      };
+                      match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for MSG: {}", x)
+                      };
+                    }
+                  },
+                  "REFRESH" => {
+                    // REFRESH {\"nick\":\"Bob\",\"features\":[\"subscriber\",\"flair1\"],\"timestamp\":1660506127552}
                   },
                   "JOIN" => {
                     if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
@@ -436,6 +464,12 @@ struct PartialMsgMessage {
 struct MsgMessage {
   nick: String,
   features: Vec<String>,
+  timestamp: usize,
+  data: Option<String>
+}
+
+#[derive(serde::Deserialize)]
+struct BroadcastMessage {
   timestamp: usize,
   data: Option<String>
 }

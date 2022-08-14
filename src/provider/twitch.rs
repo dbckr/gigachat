@@ -221,22 +221,32 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                         room_id: get_tag_value(&tags, "room-id").log_unwrap().to_owned() })
                     },
                     "NOTICE" => {
-                      if str_vec.contains(&"Login unsuccessful".to_string()) {
+                      //if str_vec.contains(&"Login unsuccessful".to_string()) {
                         //panic!("Failed to login to IRC");
                         tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage { 
                           provider: ProviderName::Twitch, 
-                          channel: "".to_owned(), 
-                          username: "SYSTEM_MSG".to_owned(), 
+                          channel: str_vec.last().log_unwrap().trim_start_matches('#').to_owned(), 
                           timestamp: chrono::Utc::now(), 
-                          message: str_vec.join(", ").to_string(), 
-                          profile: UserProfile { 
-                            color: Some((255, 0, 0)),
-                            ..Default::default() 
-                          },
+                          message: str_vec.join(", ").to_string(),
+                          is_server_msg: true,
                           ..Default::default()
                         }})
-                      }
-                      else {
+                      //}
+                      //else {
+                      //  Ok(())
+                      //}
+                    },
+                    "USERNOTICE" => {
+                      if let Some(sys_msg) = get_tag_value(&tags, "system-msg") {
+                        tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage { 
+                          provider: ProviderName::Twitch, 
+                          channel: str_vec.last().log_unwrap().trim_start_matches('#').to_owned(), 
+                          timestamp: chrono::Utc::now(), 
+                          message: sys_msg,
+                          is_server_msg: true,
+                          ..Default::default()
+                        }})
+                      } else {
                         Ok(())
                       }
                     },

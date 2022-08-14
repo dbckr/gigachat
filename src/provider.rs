@@ -108,7 +108,8 @@ pub struct ChatMessage {
   pub message: String,
   pub profile: UserProfile,
   pub combo_data: Option<ComboCounter>,
-  pub is_removed: bool
+  pub is_removed: bool,
+  pub is_server_msg: bool
 }
 
 impl Default for ChatMessage {
@@ -121,7 +122,8 @@ impl Default for ChatMessage {
       message: Default::default(), 
       profile: Default::default(),
       combo_data: None,
-      is_removed: false
+      is_removed: false,
+      is_server_msg: false
     }
   }
 }
