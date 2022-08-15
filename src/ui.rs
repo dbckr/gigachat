@@ -772,22 +772,15 @@ impl TemplateApp {
           y_size = self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
         });
 
-        if ctx.input().pointer.any_click()
-            && selected_user_before == self.selected_user
-            && let Some(pos) = ctx.input().pointer.interact_pos() 
-            && area.inner_rect.contains(pos) {
-          self.selected_user = None;
-        }
-
         // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
         self.chat_scroll = Some(area.state.offset);
 
-        if area.state.offset.y != y_size - area.inner_rect.height() && y_size > area.inner_rect.height() {
+        let jump_rect = if area.state.offset.y != y_size - area.inner_rect.height() && y_size > area.inner_rect.height() {
           let rect = Rect {
             min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 60. },
             max: area.inner_rect.max,
           };
-          egui::Window::new("JumpToBottom")
+          let jumpwin = egui::Window::new("JumpToBottom")
           .fixed_rect(rect)
           .title_bar(false)
           .frame(egui::Frame { 
@@ -803,26 +796,35 @@ impl TemplateApp {
               self.chat_scroll = Some(Vec2 { x: 0., y: y_size });
             }
           });
-        }
+          jumpwin.unwrap().response.rect
+        } else { Rect::NOTHING };
 
         // Overlay for selected chatter's history
         //self.selected_user_chat_history_overlay(area.inner_rect, ui);
         // Window for selected chatter's history
-        self.selected_user_chat_history_window(area.inner_rect, ctx);
+        let history_rect = self.selected_user_chat_history_window(area.inner_rect, ctx);
+
+        if ctx.input().pointer.any_click()
+            && selected_user_before == self.selected_user
+            && let Some(pos) = ctx.input().pointer.interact_pos() 
+            && area.inner_rect.contains(pos)
+            && !history_rect.contains(pos)
+            && !jump_rect.contains(pos) {
+          self.selected_user = None;
+        }
       });
     });
 
-    //std::thread::sleep(Duration::from_millis(10));
     ctx.request_repaint();
   }
 
-  fn selected_user_chat_history_window(&mut self, area: Rect, ctx: &egui::Context) {
-    if let Some(username) = self.selected_user.as_ref() && let Some(channel) = self.selected_channel.as_ref() {
-      let painter_rect = area.to_owned()
-        .shrink2(Vec2 { x: area.width() / 7., y: 5.})
-        .translate(egui::vec2(area.width() / 9., 0.));
-      egui::Window::new(format!("History: {}", username))
-      .fixed_rect(painter_rect)
+  fn selected_user_chat_history_window(&mut self, area: Rect, ctx: &egui::Context) -> Rect {
+    let rect = area.to_owned()
+        .shrink2(Vec2 { x: area.width() / 7., y: area.height() / 4.})
+        .translate(egui::vec2(area.width() / 9., area.height() * -0.25));
+    if self.selected_user.is_some() && let Some(channel) = self.selected_channel.as_ref() {
+      let window = egui::Window::new("Selected User History")
+      .fixed_rect(rect)
       .title_bar(false)
       .show(ctx, |ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
@@ -830,17 +832,32 @@ impl TemplateApp {
           .auto_shrink([false, true]);
         chat_area.show_viewport(ui, |ui, _viewport| {  
           let mut msgs = self.chat_histories.get(channel).unwrap().iter().rev()
-          .filter_map(|(msg, _)| if &msg.username == username || msg.profile.display_name.is_some_and(|f| f == username) { Some(msg.to_owned()) } else { None })
+          .filter_map(|(msg, _)| if self.selected_user.as_ref() == Some(&msg.username) || self.selected_user.as_ref() == msg.profile.display_name.as_ref() { Some(msg.to_owned()) } else { None })
           .take(4)
           .collect_vec();
-          msgs.reverse();
-          for msg in &msgs {
-            let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
-            let est = Self::create_uichatmessage(msg, ui, painter_rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
-            chat::create_chat_message(ui, &est, &transparent_texture, None);
+          if msgs.is_empty() {
+            ui.label(format!("No recent messages for user: {}", self.selected_user.as_ref().unwrap()));
+          } else {
+            msgs.reverse();
+            for msg in &msgs {
+              let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
+              let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
+              let (_, user_selected) = chat::create_chat_message(ui, &est, &transparent_texture, None);
+  
+              if user_selected.is_some() {
+                if self.selected_user == user_selected {
+                  self.selected_user = None;
+                } else {
+                  self.selected_user = user_selected;
+                }
+              }
+            }
           }
         });
       });
+      window.unwrap().response.rect
+    } else {
+      Rect::NOTHING
     }
   }
 
@@ -1105,7 +1122,7 @@ impl TemplateApp {
             let highlight_msg = if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
               Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
             } else if chat_msg.message.is_server_msg {
-              Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.5))
+              Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25))
             } else {
               None
             };
