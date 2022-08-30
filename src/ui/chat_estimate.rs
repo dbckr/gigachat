@@ -123,7 +123,7 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
 }
 
 pub fn get_text_rect(ui: &mut egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
-  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, is_ascii_art.is_some());
+  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1. , word, curr_row_width, is_ascii_art.is_some());
   let galley = ui.fonts().layout_job(job);
   galley.rows.clone()
 }

@@ -11,7 +11,7 @@ use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rou
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager}, emotes::{imaging::load_file_into_buffer, fetch}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser}, emotes::{imaging::load_file_into_buffer, fetch}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -20,8 +20,8 @@ pub mod chat;
 pub mod chat_estimate;
 
 const BUTTON_TEXT_SIZE : f32 = 20.0;
-const BODY_TEXT_SIZE : f32 = 18.0;
-const SMALL_TEXT_SIZE : f32 = 15.0;
+const BODY_TEXT_SIZE : f32 = 20.0;
+const SMALL_TEXT_SIZE : f32 = 16.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
 /// Emotes in chat messages will be scaled to this height
@@ -116,7 +116,9 @@ pub struct TemplateApp {
   pub selected_user: Option<String>,
   pub show_timestamps: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub show_timestamps_changed: bool
+  pub show_timestamps_changed: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_msg: Option<(Vec2, ChatMessage)>
 }
 
 impl TemplateApp {
@@ -171,7 +173,7 @@ impl eframe::App for TemplateApp {
   }
 
   fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> eframe::egui::Rgba {
-    eframe::egui::Color32::from_rgba_premultiplied(0, 0, 0, 200).into()
+    eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200).into()
   }
 
   fn persist_native_window(&self) -> bool {
@@ -566,7 +568,7 @@ impl TemplateApp {
 
     let cframe = egui::Frame { 
       inner_margin: egui::style::Margin::same(5.0), 
-      fill: egui::Color32::from_rgba_unmultiplied(50, 50, 50, 50),
+      fill: egui::Color32::from_rgba_unmultiplied(40, 40, 40, 50),
       ..Default::default() 
     };
     
@@ -614,6 +616,7 @@ impl TemplateApp {
                   _ => {
                     sco.send_history.push_front(self.draft_message.to_owned());
                     self.draft_message = String::new();
+                    sco.send_history_ix = None;
                   }
                 }
               } 
@@ -623,6 +626,7 @@ impl TemplateApp {
                   _ => {
                     sco.send_history.push_front(self.draft_message.to_owned());
                     self.draft_message = String::new();
+                    sco.send_history_ix = None;
                   }
                 }
               }
@@ -660,7 +664,7 @@ impl TemplateApp {
 
                 // Overlay style emote selector
                 let msg_rect = outgoing_msg.response.rect.to_owned();
-                let ovl_height = ui.available_height() / 4.;
+                let ovl_height = ui.available_height() / 2.;
                 let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
                 let mut painter = ui.painter_at(painter_rect);
                 let painter_rect = painter.clip_rect();
@@ -829,7 +833,8 @@ impl TemplateApp {
       .show(ctx, |ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         let chat_area = egui::ScrollArea::vertical()
-          .auto_shrink([false, true]);
+          .auto_shrink([false, true])
+          .stick_to_bottom(true);
         chat_area.show_viewport(ui, |ui, _viewport| {  
           let mut msgs = self.chat_histories.get(channel).unwrap().iter().rev()
           .filter_map(|(msg, _)| if self.selected_user.as_ref() == Some(&msg.username) || self.selected_user.as_ref() == msg.profile.display_name.as_ref() { Some(msg.to_owned()) } else { None })
@@ -839,10 +844,11 @@ impl TemplateApp {
             ui.label(format!("No recent messages for user: {}", self.selected_user.as_ref().unwrap()));
           } else {
             msgs.reverse();
+            let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
               let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
-              let (_, user_selected) = chat::create_chat_message(ui, &est, &transparent_texture, None);
+              let (_, user_selected, msg_right_clicked) = chat::create_chat_message(ui, &est, &transparent_texture, None);
   
               if user_selected.is_some() {
                 if self.selected_user == user_selected {
@@ -851,158 +857,21 @@ impl TemplateApp {
                   self.selected_user = user_selected;
                 }
               }
+              if msg_right_clicked {
+                set_selected_msg = Some(msg.to_owned());
+              }
             }
+
+            set_selected_message(set_selected_msg, ui, &mut self.selected_msg);
           }
         });
       });
+
       window.unwrap().response.rect
     } else {
       Rect::NOTHING
     }
   }
-
-  /*fn selected_user_chat_history_overlay(&mut self, area: Rect, ui: &mut egui::Ui) {
-    if let Some(username) = self.selected_user.as_ref() && let Some(channel) = self.selected_channel.as_ref() {
-      let painter_rect = area.to_owned()
-        .shrink2(Vec2 { x: area.width() / 6., y: 5.})
-        .translate(egui::vec2(area.width() / 9., 0.));
-      let mut painter = ui.painter_at(painter_rect);
-      let painter_rect = painter.clip_rect();
-      painter.set_layer_id(egui::LayerId::debug());
-
-      let margin = 6.;
-      let mut y = painter_rect.top();
-      let mut x = painter_rect.left();
-
-      let mut msgs = self.chat_histories.get(channel).unwrap().iter().rev()
-      .filter_map(|(msg, _)| if &msg.username == username || msg.profile.display_name.is_some_and(|f| f == username) { Some(msg) } else { None })
-      .take(4)
-      .collect_vec();
-      msgs.reverse();
-      for msg in &msgs {
-
-        painter.rect_filled(egui::Rect {
-          min: egui::pos2(painter_rect.left(), y),
-          max: egui::pos2(painter_rect.right(), y + MIN_LINE_HEIGHT + margin * 2.),
-        }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 255));
-        if y == painter_rect.top() {
-          y += margin;
-        }
-
-        let channel_obj = self.channels.get_mut(channel).unwrap();
-        let provider_emotes = self.providers.get(&channel_obj.provider).map(|f| &f.emotes);
-        let channel_emotes = channel_obj.transient.as_ref().unwrap().channel_emotes.as_ref();
-        let global_emotes = &mut self.global_emotes;
-        let emote_loader = self.emote_loader.as_ref();
-        let emotes = get_emotes_for_message(msg, provider_emotes, channel_emotes, global_emotes, emote_loader);
-
-        let timestamp = &format!("[{}]", msg.timestamp.with_timezone(&chrono::Local).format("%H:%M"));
-
-        let job = chat_estimate::get_text_rect_job(painter_rect.width(), timestamp, &x, false);
-        let header_width = ui.fonts().layout_job(job).rows
-          .iter().map(|r| r.rect.width()).next().unwrap_or(0.) + 3.;
-
-        x += margin;
-        painter.text(
-          egui::pos2(x, y), 
-          egui::Align2::LEFT_TOP, 
-          timestamp, 
-          FontId::new(SMALL_TEXT_SIZE, egui::FontFamily::Proportional), 
-          Color32::DARK_GRAY
-        );
-        x += header_width;
-
-        let username = &format!("{}:", &msg.profile.display_name.as_ref().unwrap_or(username));
-        let job = chat_estimate::get_text_rect_job(painter_rect.width(), username, &x, false);
-        let header_width = ui.fonts().layout_job(job).rows
-          .iter().map(|r| r.rect.width()).next().unwrap_or(0.) + 3.;
-
-        painter.text(
-          egui::pos2(x, y), 
-          egui::Align2::LEFT_TOP, 
-          username, 
-          FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
-          chat::convert_color(msg.profile.color.as_ref())
-        );
-        x += header_width;
-
-        for word in msg.message.split_whitespace() {
-          if let Some(emote) = emotes.get(word) {
-            let texture = emote.texture.as_ref()
-              .or_else(|| &mut self.emote_loader.transparent_img.as_ref())
-              .log_unwrap();
-
-            let width = texture.size_vec2().x + 1.;
-            if x + width > painter_rect.right() {
-              y += MIN_LINE_HEIGHT;
-              x = painter_rect.left();
-            }
-
-            let width = texture.size_vec2().x * (MIN_LINE_HEIGHT / texture.size_vec2().y);
-            if x + width > painter_rect.right() {
-              y += MIN_LINE_HEIGHT;
-              x = painter_rect.left();
-
-              painter.rect_filled(egui::Rect {
-                min: egui::pos2(painter_rect.left(), y),
-                max: egui::pos2(painter_rect.right(), y + MIN_LINE_HEIGHT + margin),
-              }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 255));
-
-              x += margin;
-            }
-
-            let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
-            let rect = egui::Rect { 
-              min: egui::pos2(x, y), 
-              max: egui::pos2(x + width, y + MIN_LINE_HEIGHT) 
-            };
-
-            let mut mesh = egui::Mesh::with_texture(texture.id());
-            mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-            painter.add(egui::Shape::mesh(mesh));
-
-            x += width + 3.;
-          }
-          else {
-            let job = chat_estimate::get_text_rect_job(painter_rect.width(), word, &0., false);
-            let width = ui.fonts().layout_job(job).rows
-              .iter().map(|r| r.rect.width()).next().unwrap_or(0.) + 3.;
-
-            if x + width > painter_rect.right() {
-              y += MIN_LINE_HEIGHT;
-              x = painter_rect.left();
-
-              painter.rect_filled(egui::Rect {
-                min: egui::pos2(painter_rect.left(), y),
-                max: egui::pos2(painter_rect.right(), y + MIN_LINE_HEIGHT + margin),
-              }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 255));
-
-              x += margin;
-            }
-
-            painter.text(
-              egui::pos2(x, y), 
-              egui::Align2::LEFT_TOP, 
-              word, 
-              FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
-              Color32::WHITE
-            );
-
-            x += width;
-          }
-        }
-        y += MIN_LINE_HEIGHT;
-        x = painter_rect.left();
-      }
-
-      if !msgs.is_empty() {
-        painter.rect_stroke(egui::Rect {
-          min: egui::pos2(painter_rect.left(), painter_rect.top()),
-          max: egui::pos2(painter_rect.right(), y + margin),
-        }, Rounding::none(), Stroke::new(2., Color32::from_rgba_unmultiplied(120, 120, 120, 255)));
-      }
-    }
-  }*/
 
   fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: Rect, _channel_name: &Option<String>) -> f32 {
     let TemplateApp {
@@ -1027,10 +896,12 @@ impl TemplateApp {
         dgg_chat_manager : _,
         selected_user,
         show_timestamps,
-        show_timestamps_changed
+        show_timestamps_changed,
+        selected_msg
     } = self;
 
     let mut y_pos = 0.0;
+    let mut set_selected_msg : Option<ChatMessage> = None;
 
     ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
@@ -1116,6 +987,7 @@ impl TemplateApp {
       //if *is_swap {
       //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
       //}
+
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
@@ -1126,7 +998,7 @@ impl TemplateApp {
             } else {
               None
             };
-            let (_rect, user_selected) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
+            let (_rect, user_selected, msg_right_clicked) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
 
             if user_selected.is_some() {
               if *selected_user == user_selected {
@@ -1135,13 +1007,18 @@ impl TemplateApp {
                 *selected_user = user_selected
               }
             }
+            if msg_right_clicked {
+              set_selected_msg = Some(chat_msg.message.to_owned());
+            }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
             chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, *show_timestamps);
           }
         }
-      });
+      });      
     });
+
+    set_selected_message(set_selected_msg, ui, selected_msg);
 
     y_pos
   }
@@ -1200,10 +1077,18 @@ fn create_uichatmessage<'a>(
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(message.username.to_lowercase(), message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned());
+          c.users.insert(message.username.to_lowercase(), ChannelUser {
+            username: message.username.to_owned(),
+            display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
+            is_active: true
+          });
           // Twitch has some usernames that have completely different display names (e.g. Japanese character display names)
           if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
-            c.users.insert(display_name.to_lowercase(), display_name.to_owned());
+            c.users.insert(display_name.to_lowercase(), ChannelUser {
+              username: message.username.to_owned(),
+              display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
+              is_active: true
+            });
           }
         }
 
@@ -1264,14 +1149,38 @@ fn create_uichatmessage<'a>(
           }
         }
       },
-      IncomingMessage::UserJoin { channel, username } => {
+      IncomingMessage::UserJoin { channel, username, display_name } => {
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(username.to_lowercase(), username);
+          // Usernames may have completely different display names (e.g. Japanese character display names)
+          if display_name.to_lowercase() != username.to_lowercase() {
+            c.users.insert(display_name.to_lowercase(), ChannelUser {
+              username: username.to_owned(),
+              display_name: display_name.to_owned(),
+              is_active: true
+            });
+          }
+          c.users.insert(username.to_lowercase(), ChannelUser {
+            username,
+            display_name,
+            is_active: true
+          });
         }
       },
-      IncomingMessage::UserLeave { channel, username } => {
+      IncomingMessage::UserLeave { channel, username, display_name } => {
         if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.remove(&username.to_lowercase());
+          // Usernames may have completely different display names (e.g. Japanese character display names)
+          if display_name.to_lowercase() != username.to_lowercase() {
+            c.users.insert(display_name.to_lowercase(), ChannelUser {
+              username: username.to_owned(),
+              display_name: display_name.to_owned(),
+              is_active: false
+            });
+          }
+          c.users.insert(username.to_lowercase(), ChannelUser {
+            username,
+            display_name,
+            is_active: false
+          });
         }
       }
     };
@@ -1364,11 +1273,11 @@ fn create_uichatmessage<'a>(
       let mut contains_users : HashMap<String, Option<EmoteFrame>> = Default::default();
       
       if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
-        for (name_lower, display_name) in &channel.users {
+        for (name_lower, user) in channel.users.iter().filter(|(_k, v)| v.is_active) {
           if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
             _ = match name_lower.starts_with(word_lower) {
-              true => starts_with_users.try_insert(display_name.to_owned(), None),
-              false => contains_users.try_insert(display_name.to_owned(), None),
+              true => starts_with_users.try_insert(user.display_name.to_owned(), None),
+              false => contains_users.try_insert(user.display_name.to_owned(), None),
             };
           }
         }
@@ -1383,6 +1292,41 @@ fn create_uichatmessage<'a>(
       None
     }
   }
+}
+
+fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &mut egui::Ui, selected_msg: &mut Option<(Vec2, ChatMessage)>) {
+    let mut area = Rect::NOTHING;
+    let mut clicked = false;
+    if let Some(x) = set_selected_msg.as_ref() {
+      let pos = ui.ctx().pointer_hover_pos().unwrap().to_vec2();
+      *selected_msg = Some((Vec2 { x: pos.x, y: pos.y - ui.clip_rect().min.y}, x.to_owned()));
+    }
+    if let Some((pos, msg)) = selected_msg.as_ref() {
+      (area, clicked) = msg_context_menu(ui, pos, msg);
+    }
+    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && !area.contains(ui.ctx().pointer_latest_pos().unwrap()) {
+      *selected_msg = None;
+    }
+}
+
+fn msg_context_menu(ui: &egui::Ui, point: &Vec2, msg: &ChatMessage) -> (Rect, bool) {
+  let mut clicked = false;
+  let window = egui::Window::new("ContextMenu")
+  .anchor(egui::Align2::LEFT_TOP, point.to_owned())
+  .title_bar(false)
+  .show(ui.ctx(), |ui| {
+    ui.spacing_mut().item_spacing.x = 4.0;
+    let chat_area = egui::ScrollArea::vertical()
+      .auto_shrink([true, true])
+      .stick_to_bottom(true);
+    chat_area.show_viewport(ui, |ui, _viewport| {  
+      if ui.button("Copy Message").clicked() {
+        ui.output().copied_text = msg.message.to_owned();
+        clicked = true;
+      }
+    });
+  });
+  (window.unwrap().response.rect, clicked)
 }
 
 fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut message: ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
@@ -1427,10 +1371,10 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
   }
 }
 
-fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, String>) -> Option<Vec<String>> {
+fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUser>) -> Option<Vec<String>> {
   Some(row.message.split(' ').into_iter().filter_map(|f| {
     let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
-    if let Some(display_name) = users.get(&word) { Some(display_name.to_owned()) } else { None } 
+    if let Some(user) = users.get(&word) { Some(user.display_name.to_owned()) } else { None } 
   }).collect_vec())
 }
 
@@ -1515,23 +1459,25 @@ pub fn load_font() -> FontDefinitions {
       fonts.families.entry(FontFamily::Monospace).or_default().push("Nirmala".into());
     }
   }
-  // Non-windows, use bundled Roboto font
-  if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
-    let mut font = FontData::from_owned(font_file);
-    // tweak scale to make sizing similiar to Segoe
-    font.tweak.scale = 0.84;
-    fonts.font_data.insert("Roboto".into(), font);
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
+  
+    // Non-windows, use bundled Roboto font
+    /*if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
+      let mut font = FontData::from_owned(font_file);
+      // tweak scale to make sizing similiar to Segoe
+      font.tweak.scale = 0.88;
+      fonts.font_data.insert("Roboto".into(), font);
+      fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
 
-    // Amogus
-    if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
-      let nirmala = FontData::from_owned(nirmala_font);
-      fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
-      fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
-    }
-  }
+      // Amogus
+      if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
+        let nirmala = FontData::from_owned(nirmala_font);
+        fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
+        fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
+        fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
+      }
+    }*/
+  
 
   // Large font to fill in missing extended characters
   if let Ok(unifont_file) = fetch::get_binary_from_url("https://unifoundry.com/pub/unifont/unifont-14.0.04/font-builds/unifont-14.0.04.otf", Some("unifont-14.0.04.otf"), None) {

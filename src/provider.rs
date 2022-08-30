@@ -25,8 +25,8 @@ pub enum IncomingMessage {
   MsgEmotes { provider: ProviderName, emote_ids: Vec<(String, String)> },
   RoomId { channel: String, room_id: String },
   StreamingStatus { channel: String, status: Option<ChannelStatus>},
-  UserJoin { channel: String, username: String },
-  UserLeave { channel: String, username: String }
+  UserJoin { channel: String, username: String, display_name: String },
+  UserLeave { channel: String, username: String, display_name: String }
 }
 
 impl Default for IncomingMessage {
@@ -88,7 +88,13 @@ pub struct Channel {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub users: HashMap<String, String>
+  pub users: HashMap<String, ChannelUser>
+}
+
+pub struct ChannelUser {
+  pub username: String,
+  pub display_name: String,
+  pub is_active: bool
 }
 
 #[derive(Clone)]

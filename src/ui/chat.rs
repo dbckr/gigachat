@@ -15,6 +15,8 @@ use crate::{emotes::*, provider::{ProviderName, UserProfile}};
 
 use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
 
+const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
+
 pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle, show_channel_name: bool, show_timestamp: bool) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
   let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
@@ -34,13 +36,14 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>) {
+pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>, bool) {
   let mut user_selected : Option<String> = None;
-  let mut message_color : Option<(u8,u8,u8)> = None;
+  let mut message_color : (u8,u8,u8) = (210,210,210);
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
-    message_color =  Some((99, 151, 37));
+    message_color =  (99, 151, 37);
   }
 
+  let mut msg_right_clicked = false;
   let channel_color = get_provider_color(&chat_msg.message.provider);
   let ui_row = ui.horizontal_wrapped(|ui| {
     let mut row_ix = 0;
@@ -108,7 +111,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           if !chat_msg.message.is_server_msg {
             let uname_rich_text = RichText::new(&format!("{}:", uname_text))
               .size(BODY_TEXT_SIZE)
-              .color(convert_color(chat_msg.user_color.as_ref()));
+              .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
             if uname.clicked() {
               user_selected = Some(uname_text.to_lowercase());
@@ -119,7 +122,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           }
         }
         for word in message.split(' ') {
-          let link_url = chat_msg.message.message.split_ascii_whitespace().find_or_first(|f| f.contains(word)).and_then(|f| if is_url(f) { Some(f) } else { None });
+          let link_url = chat_msg.message.message.split_ascii_whitespace().find_or_first(|f| f.starts_with(word) || f.ends_with(word) || f.contains(word) && word.len() > 16).and_then(|f| if is_url(f) { Some(f) } else { None });
           let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(transparent_img);
@@ -135,8 +138,19 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                 }
                 if link.clicked() {
                   let modifiers = ui.ctx().input().modifiers;
+
+                  let url = if chat_msg.message.provider == ProviderName::DGG && let Some((prefix, suffix)) = url.split('/').collect_tuple() {
+                    match prefix {
+                      "#twitch" => format!("https://twitch.tv/{suffix}"),
+                      "#youtube" => format!("https://www.youtube.com/watch?v={suffix}"),
+                      _ => url.to_string()
+                    }
+                  } else {
+                    url.to_string()
+                  };
+
                   ui.ctx().output().open_url = Some(egui::output::OpenUrl {
-                    url: url.to_owned(),
+                    url,
                     new_tab: modifiers.any(),
                   });
                 }
@@ -144,7 +158,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
               None => {
                 let text = match chat_msg.is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
-                  false => RichText::new(word).color(convert_color(message_color.as_ref()))
+                  false => RichText::new(word).color(convert_color(&message_color))
                 }.size(BODY_TEXT_SIZE);
 
                 if let Some (mention) = chat_msg.mentions.as_ref().and_then(|f| f.iter().find(|m| word.to_lowercase().contains(&m.to_lowercase()))) {
@@ -157,8 +171,9 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                   }
                 } else {
                   let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                  if lbl.clicked() {
-                    ui.output().copied_text = chat_msg.message.message.to_owned();
+
+                  if lbl.secondary_clicked() {
+                    msg_right_clicked = true;
                   }
                 }
               }
@@ -175,7 +190,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   if actual != expected {
     info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   }
-  (ui_row.response.rect, user_selected)
+  (ui_row.response.rect, user_selected, msg_right_clicked)
 }
 
 fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
@@ -217,7 +232,7 @@ fn highlight_ui_row(ui: &mut egui::Ui, color: Color32) {
   let cursor = ui.cursor().to_owned();
   let rect = egui::epaint::Rect { 
     min: Pos2 {
-      x: cursor.left(), 
+      x: cursor.left() - 3., 
       y: cursor.top()}, 
     max:  Pos2 {
       x: cursor.left() + ui.available_width(), 
@@ -232,7 +247,7 @@ fn highlight_ui_row(ui: &mut egui::Ui, color: Color32) {
 
 fn is_url(word: &str) -> bool {
     //TODO: regex?
-    word.starts_with("http")
+    word.starts_with("http") || word.starts_with("#twitch") || word.starts_with("#youtube")
 }
 
 pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
@@ -262,7 +277,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   if let Some(username) = username {
     job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), ui.spacing().item_spacing.x, egui::TextFormat {
       font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
-      color: convert_color(profile.color.as_ref()),
+      color: convert_color(profile.color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)),
       valign: Align::Center,
       ..Default::default()
     });
@@ -270,12 +285,11 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   job
 }
 
-pub fn convert_color(input : Option<&(u8, u8, u8)>) -> Color32 {
+pub fn convert_color(input : &(u8, u8, u8)) -> Color32 {
   // return white
-  if input.is_none() || input.is_some_and(|x| x == &&(255u8, 255u8, 255u8)) {
+  if input == &(255u8, 255u8, 255u8) {
     return Color32::WHITE;
   }
-  let input = input.log_unwrap();
 
   // normalize brightness
   let target = 150;

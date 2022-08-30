@@ -188,7 +188,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   },
                   "JOIN" => {
                     if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick }) {
+                      match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned(), display_name: msg.nick }) {
                         Ok(_) => (),
                         Err(x) => info!("Send failure for JOIN: {}", x)
                       };
@@ -196,7 +196,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   },
                   "QUIT" => {
                     if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      match tx.try_send(IncomingMessage::UserLeave { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick }) {
+                      match tx.try_send(IncomingMessage::UserLeave { channel: DGG_CHANNEL_NAME.to_owned(), username: msg.nick.to_owned(), display_name: msg.nick }) {
                         Ok(_) => (),
                         Err(x) => info!("Send failure for QUIT: {}", x)
                       };
@@ -205,7 +205,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                   "NAMES" => {
                     if let Ok(msg) = serde_json::from_str::<NamesMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
                       for user in msg.users {
-                        match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: user.nick }) {
+                        match tx.try_send(IncomingMessage::UserJoin { channel: DGG_CHANNEL_NAME.to_owned(), username: user.nick.to_owned(), display_name: user.nick }) {
                           Ok(_) => (),
                           Err(x) => info!("Send failure for NAMES: {}", x)
                         };

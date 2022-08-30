@@ -4,16 +4,14 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 # Todo
 
-- Display a "button" to jump back to bottom whenever auto-scroll is off
 - Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes
 - Handle "ACTION" (remove the word and display the message with italics)
-- Cache json/images in a db file instead of loose files (also migrate away from using eframe persistence feature to save state)
 - Poll status (Twitch, DGG)
 - Handle Twitch CLEARCHAT, CLEARMSG commands
 - Handle USERNOTICE command
-- Twitch live status does not toggle off when stream goes offline
+- Twitch live status does not always toggle off when stream goes offline
 
 ##
 
@@ -37,6 +35,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 ##
 
+- ~Display a "button" to jump back to bottom whenever auto-scroll is off~
 - ~Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name~ 
   - Add option to do this automatically for users that get a lot of mentions over short duration
 - ~Select from a user list by starting typing a word with @~
