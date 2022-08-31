@@ -51,7 +51,8 @@ pub struct Provider {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub my_sub_emotes: HashSet<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub global_badges: Option<HashMap<String, Emote>>
+  pub global_badges: Option<HashMap<String, Emote>>,
+  pub username: String
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -66,6 +67,7 @@ pub enum ProviderName {
 
 pub struct ChatManager {
   handles: Vec<tokio::task::JoinHandle<()>>,
+  pub username: String,
   pub in_tx: Sender<OutgoingMessage>,
   pub out_rx: Receiver<IncomingMessage>,
 }
@@ -81,7 +83,7 @@ pub struct Channel {
   pub channel_name: String,
   pub roomid: String,
   pub provider: ProviderName,
-  pub show_in_all: bool,
+  pub show_in_mentions_tab: bool,
   pub send_history: VecDeque<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history_ix: Option<usize>,

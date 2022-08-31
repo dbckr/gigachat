@@ -20,6 +20,7 @@ const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
 pub struct TwitchChatManager {
   handle: tokio::task::JoinHandle<()>,
+  pub username: String,
   pub in_tx: Sender<OutgoingMessage>,
   pub out_rx: Receiver<IncomingMessage>,
 }
@@ -37,6 +38,7 @@ impl TwitchChatManager {
     });
 
     Self {
+        username: username.to_owned(),
         handle: task,
         in_tx,
         out_rx,
@@ -57,7 +59,7 @@ impl TwitchChatManager {
     let mut channel = Channel {  
       provider: ProviderName::Twitch, 
       channel_name: channel_name.to_lowercase(),
-      show_in_all: true,
+      show_in_mentions_tab: true,
       roomid: Default::default(),
       send_history: Default::default(),
       send_history_ix: None,

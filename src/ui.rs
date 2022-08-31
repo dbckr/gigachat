@@ -73,6 +73,7 @@ pub struct AuthTokens {
   pub show_twitch_auth_token: bool,
   pub youtube_auth_token: String,
   pub show_dgg_auth_token: bool,
+  pub dgg_username: String,
   pub dgg_auth_token: String,
   pub dgg_verifier: String
 }
@@ -148,10 +149,6 @@ impl eframe::App for TemplateApp {
 
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     self.update_inner(ctx)
-  }
-
-  fn on_exit_event(&mut self) -> bool {
-    true
   }
 
   fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
@@ -265,7 +262,8 @@ impl TemplateApp {
               name: "twitch".to_owned(),
               my_sub_emotes: Default::default(),
               emotes: Default::default(),
-              global_badges: emote_loader.twitch_get_global_badges(&auth_tokens.twitch_auth_token)
+              global_badges: emote_loader.twitch_get_global_badges(&auth_tokens.twitch_auth_token),
+              username: Default::default()
           });
           if self.twitch_chat_manager.is_none() {
             self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap()));
@@ -318,6 +316,10 @@ impl TemplateApp {
         });
         ui.separator();
         ui.horizontal(|ui| {
+          ui.label("DGG Username:");
+          ui.text_edit_singleline(&mut self.auth_tokens.dgg_username);
+        });
+        ui.horizontal(|ui| {
           ui.label("DGG Token:");
           if self.auth_tokens.show_dgg_auth_token {
             ui.text_edit_singleline(&mut self.auth_tokens.dgg_auth_token);
@@ -359,6 +361,9 @@ impl TemplateApp {
               self.auth_tokens.dgg_verifier = Default::default();
               self.auth_tokens.show_dgg_auth_token = false;
             }
+          }
+          else if !dgg_token.is_empty() {
+            self.auth_tokens.show_dgg_auth_token = false;
           }
           self.show_auth_ui = false;
         }
@@ -428,7 +433,7 @@ impl TemplateApp {
           }
         } else {
           for (name, channel) in channels {
-            ui.checkbox(&mut channel.show_in_all, name);
+            ui.checkbox(&mut channel.show_in_mentions_tab, name);
           }
         }
       }).log_unwrap();
@@ -458,7 +463,7 @@ impl TemplateApp {
       if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
     if self.dgg_chat_manager.is_none() && let Some((_, sco)) = self.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
-      self.dgg_chat_manager = Some(dgg::open_channel(&"NullGex".to_owned(), &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), &mut self.emote_loader));
+      self.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().log_unwrap(), &mut self.emote_loader));
     }
 
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -487,7 +492,7 @@ impl TemplateApp {
       ui.separator();
 
       ui.horizontal_wrapped(|ui| {
-        let label = RichText::new("All Channels").size(BUTTON_TEXT_SIZE);
+        let label = RichText::new("Mentions").size(BUTTON_TEXT_SIZE);
         let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
         if clbl.clicked() {
           channel_swap = true;
@@ -634,8 +639,13 @@ impl TemplateApp {
           }
           else if !self.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
             let cursor = cursor_pos.primary.index;
-            let is_user_list = self.draft_message.starts_with('@');
-            let emotes = if is_user_list { self.get_possible_users(cursor) } else { self.get_possible_emotes(cursor) };
+            let msg = &self.draft_message.to_owned();
+            let word : Option<(usize, &str)> = msg.split_whitespace()
+              .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
+              .filter_map(|p| if p.0 <= cursor && cursor <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
+              .next();
+            let is_user_list = word.as_ref().is_some_and(|f| f.1.starts_with('@'));
+            let emotes = if is_user_list { self.get_possible_users(word) } else { self.get_possible_emotes(word) };
             if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
               if enter_emote && let Some(emote_text) = &self.selected_emote {
                 let msg = if self.draft_message.len() <= pos + word.len() || &self.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
@@ -847,7 +857,7 @@ impl TemplateApp {
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
-              let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, false, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
+              let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
               let (_, user_selected, msg_right_clicked) = chat::create_chat_message(ui, &est, &transparent_texture, None);
   
               if user_selected.is_some() {
@@ -917,17 +927,26 @@ impl TemplateApp {
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
         if selected_channel.is_some_and(|channel| channel == cname) 
-          || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_all) {
+          || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }
 
       let mut history_iters = HistoryIterator {
         iterators: history_iters,
+        //mentions_only: selected_channel.is_none(),
+        //usernames: HashMap::default()// HashMap::from_iter(providers.iter().map(|(k, v)| (k.to_owned(), v.username.to_lowercase())))
       };
+      let mut usernames : HashMap<ProviderName, String> = HashMap::default();
+      usernames.insert(ProviderName::Twitch, self.twitch_chat_manager.as_ref().unwrap().username.to_lowercase());
+      usernames.insert(ProviderName::DGG, self.dgg_chat_manager.as_ref().unwrap().username.to_lowercase());
       let show_channel_names = history_iters.iterators.len() > 1;
 
       while let Some((row, cached_y)) = history_iters.get_next() {
+        if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
+          continue;
+        }
+
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
@@ -1186,13 +1205,7 @@ fn create_uichatmessage<'a>(
     };
   }
 
-  fn get_possible_emotes(&mut self, cursor_position: usize) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
-    let msg = &self.draft_message;
-    let word : Option<(usize, &str)> = msg.split_whitespace()
-      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
-      .next();
-
+  fn get_possible_emotes(&mut self, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 2  {
         return None;
@@ -1255,13 +1268,7 @@ fn create_uichatmessage<'a>(
     }
   }
 
-  fn get_possible_users(&mut self, cursor_position: usize) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
-    let msg = &self.draft_message;
-    let word : Option<(usize, &str)> = msg.split_whitespace()
-      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-      .filter_map(|p| if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
-      .next();
-
+  fn get_possible_users(&mut self, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 3  {
         return None;
@@ -1501,22 +1508,36 @@ pub fn load_font() -> FontDefinitions {
 struct HistoryIterator<'a> {
   //histories: Vec<VecDeque<(ChatMessage, Option<f32>)>>,
   iterators: Vec<Peekable<IterMut<'a, (ChatMessage, Option<f32>)>>>,
+  //mentions_only: bool,
+  //usernames: HashMap<ProviderName, String>
 }
 
 impl<'a> HistoryIterator<'a> {
   fn get_next(&mut self) -> Option<&'a mut (ChatMessage, Option<f32>)> {
     let mut min_i = 0;
     let mut ts = Utc::now();
-
+    //let usernames = &mut self.usernames;
+    //let filtered_iters = self.iterators.iter_mut().map(|x| x.filter(|(msg, _)| !self.mentions_only || mentioned_in_message(usernames, &msg.provider, &msg.message)).peekable());
+    let filtered_iters = self.iterators.iter_mut();
     let mut i = 0;
-    for iter in self.iterators.iter_mut() {
+    for iter in filtered_iters {
       if let Some((msg, _y)) = iter.peek() && msg.timestamp < ts {
-        ts = msg.timestamp;
+        ts = msg.timestamp.to_owned();
         min_i = i;
       }
       i += 1;
     }
 
     self.iterators.get_mut(min_i).and_then(|x| x.next())
+  }
+}
+
+fn mentioned_in_message(usernames: &HashMap<ProviderName, String>, provider: &ProviderName, message : &String) -> bool {
+  if let Some(username) = usernames.get(provider) {
+    message.split(' ').into_iter().map(|f| {
+      f.trim_start_matches('@').trim_end_matches(',').to_lowercase()
+    }).any(|f| username == &f)
+  } else {
+    false
   }
 }

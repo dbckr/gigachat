@@ -4,6 +4,8 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 # Todo
 
+- Emote textures can go missing after some time (did a recent egui update add texture expiration??)
+  - `WARN egui_wgpu::renderer: 395: Missing texture: Managed(17100)`
 - Twitch IRC sometimes fails to init/connect on startup
 - Ability to quickly open/navigate browser to a stream
 - Reload emotes

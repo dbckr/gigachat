@@ -265,7 +265,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
       });
   }
   if show_timestamp {
-    job.append(&format!("[{}] ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
+    job.append(&format!("{} ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
       font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
       color: Color32::DARK_GRAY, 
       valign: Align::Center,

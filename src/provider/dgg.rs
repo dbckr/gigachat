@@ -24,7 +24,7 @@ pub fn init_channel() -> Channel {
   Channel {  
     provider: ProviderName::DGG,  
     channel_name: DGG_CHANNEL_NAME.to_owned(),
-    show_in_all: true,
+    show_in_mentions_tab: true,
     roomid: Default::default(),
     send_history: Default::default(),
     send_history_ix: None,
@@ -61,6 +61,7 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let handles = vec![ handle, handle2 ];
 
   ChatManager {
+    username: user_name.to_owned(),
     handles,
     in_tx,
     out_rx,
