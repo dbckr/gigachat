@@ -6,7 +6,7 @@
 
 use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead, Read}};
 use curl::easy::Easy;
-use tracing::debug;
+use tracing::{debug, warn};
 use std::io::BufReader;
 use super::{Emote};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -174,8 +174,7 @@ pub fn get_json_from_url(
 ) -> std::result::Result<String, anyhow::Error> {
 
   let mut buffer: Vec<u8> = Default::default();
-  let mut json: String = Default::default();
-  
+  let mut json: String = Default::default();  
 
   if filename.is_none() || filename.is_some_and(|f| Path::new(&format!("{}.json", f)).exists() == false) {
     let mut easy = Easy::new();
@@ -213,14 +212,15 @@ pub fn get_json_from_url(
 
     if path.exists()
     {
-      let file = File::open(filename).log_expect("no such file");
-      for line in BufReader::new(file).lines().filter_map(|result| result.ok()) {
+      let name = filename.to_owned();
+      let file = File::open(filename)?;
+      for line in BufReader::new(file).lines().enumerate().filter_map(|(ix, result)| result.inspect_err(|err| warn!("Failed to parse line {} from file {} due to error: {:?}", &ix, &name, err)).ok()) {
         json.push_str(&line);
       }
     }
     else {
-      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).log_expect("Unable to open file");
-      f.write_all(&buffer).log_expect("Failed to write to file");
+      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename)?;
+      f.write_all(&buffer)?;
     }
   }
 

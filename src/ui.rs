@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use tracing::info;
+use tracing::{info, error};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2};
@@ -133,7 +133,7 @@ impl TemplateApp {
         r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
     }
     let mut loader = EmoteLoader::new(&title, &runtime);
-    loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
     r.runtime = Some(runtime);
     r.emote_loader = loader;
     info!("{} channels", r.channels.len());
@@ -421,7 +421,6 @@ impl TemplateApp {
     
     let mut channel_removed = false;
     if self.show_channel_options {
-      let channels = self.channels.iter_mut();
       let add_menu = egui::Window::new(format!("Configure Channel: {}", self.selected_channel.as_ref().unwrap_or(&"".to_owned()))).collapsible(false).show(ctx, |ui| {
         if let Some(channel) = self.selected_channel.as_ref() {
           if ui.button("Remove channel").clicked() {
@@ -431,7 +430,34 @@ impl TemplateApp {
               self.show_channel_options = false;
             }
           }
+          if ui.button("Reload channel emotes").clicked() {
+            if let Some(ch) = self.channels.get_mut(channel) {
+              match ch.provider {
+                ProviderName::Twitch => {
+                  match self.emote_loader.load_channel_emotes(&ch.roomid, &self.auth_tokens.twitch_auth_token) {
+                    Ok(emotes) => {
+                      let transient = ch.transient.as_mut().unwrap();
+                      transient.channel_emotes = Some(emotes)
+                    },
+                    Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
+                  }
+                },
+                ProviderName::DGG => {
+                  match dgg::load_dgg_emotes(&self.emote_loader) {
+                    Ok(emotes) => {
+                      let transient = ch.transient.as_mut().unwrap();
+                      transient.channel_emotes = Some(emotes)
+                    },
+                    Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
+                  }
+                }
+              };
+            }
+            self.show_channel_options = false;
+          }
         } else {
+          let channels = self.channels.iter_mut();
+          ui.label("Show mentions from:");
           for (name, channel) in channels {
             ui.checkbox(&mut channel.show_in_mentions_tab, name);
           }
@@ -1138,7 +1164,7 @@ fn create_uichatmessage<'a>(
           sco.roomid = room_id;
           match self.emote_loader.load_channel_emotes(&sco.roomid, match &sco.provider {
             ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
-            ProviderName::DGG => &self.auth_tokens.dgg_auth_token
+            ProviderName::DGG => &self.auth_tokens.dgg_auth_token,
             //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
           }) {
             Ok(x) => {

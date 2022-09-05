@@ -338,7 +338,7 @@ fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<Twitc
       Ok(json) => json,
       Err(e) => { info!("failed getting twitch statuses: {}", e); return Default::default(); }
     };
-  info!("{}", json);
+  //info!("{}", json);
   parse_channel_status_json(channel_ids, json)
 }
 

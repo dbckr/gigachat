@@ -11,12 +11,13 @@ use egui::{TextureHandle, ColorImage};
 use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
-use tracing::{info, warn};
+use tracing::{info, error};
 use crate::error_util::{LogErrResult, LogErrOption};
 
 use super::CssAnimationData;
 
 pub fn get_image_data(
+  name: &str,
   url: &str,
   path: PathBuf,
   id: &str,
@@ -25,7 +26,7 @@ pub fn get_image_data(
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let inner =
-    || -> std::result::Result<Option<Vec<(ColorImage, u16)>>, anyhow::Error> {
+    || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
       DirBuilder::new().recursive(true).create(&path)?;
 
       let paths = match glob(&format!("{}{}.*", &path.to_str().log_expect("path to string failed"), id)) {
@@ -37,10 +38,7 @@ pub fn get_image_data(
         Some(x) => {
           let filepath : std::path::PathBuf = x?.as_path().to_owned();
           let buffer = load_file_into_buffer(filepath.to_str().log_unwrap());
-          match filepath.extension() {
-            Some(ext) => Ok(load_image(ext.to_str().log_unwrap(), &buffer.log_unwrap(), css_anim)),
-            None => Ok(None)
-          }
+          load_image(filepath.extension().log_unwrap().to_str().log_unwrap(), &buffer.log_unwrap(), css_anim)
         }
         None => {
           let mut extension = extension.as_ref().map(|f| f.to_owned());
@@ -83,16 +81,16 @@ pub fn get_image_data(
           drop(transfer);
 
           if !success {
-            return Ok(None);
+            return Err(anyhow::Error::msg("Bad HTTP response or unable to read file extension from HTTP header"))
           }
 
           // If 7TV or unknown extension, try loading it as gif and webp to determine format
           // (7TV is completely unreliable for determining format)
           if path.as_os_str().to_str().and_then(|f| Some(f.contains("7tv"))) == Some(true) || extension.is_none() {
-            if load_animated_gif(&buffer).is_some() {
+            if load_animated_gif(&buffer).is_ok_and(|f| !f.is_empty()) {
               extension = Some("gif".to_owned())
             }
-            else if load_animated_webp(&buffer).is_some() {
+            else if load_animated_webp(&buffer).is_ok_and(|f| !f.is_empty()) {
               extension = Some("webp".to_owned())
             }
             else {
@@ -108,17 +106,17 @@ pub fn get_image_data(
               .open(path.join(format!("{}.{}", id, ext)))?;
 
               f.write_all(&buffer)?;
-              Ok(load_image(&ext, &buffer, css_anim))
+              load_image(&ext, &buffer, css_anim)
             },
-            None => Ok(None)
+            None => Err(anyhow::Error::msg("Unable to determine image extension"))
           }
         } 
       }
     };
 
   match inner() {
-    Ok(x) => x,
-    Err(x) => { warn!("failed to (down)load emote {} {} {}", id, url, x); None },
+    Ok(x) => Some(x),
+    Err(x) => { error!("Failed to load emote {} from url {} due to error: {}", name, url, x); None },
   }
 }
 
@@ -126,24 +124,22 @@ fn load_image(
   extension: &str,
   buffer: &[u8],
   css_anim: Option<CssAnimationData>
-) -> Option<Vec<(ColorImage, u16)>> {
+) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   match extension {
-    "png" => match image::load_from_memory(buffer) {
-      Ok(img) => {
-        match css_anim {
-          None => Some([(to_egui_image(img), 0)].to_vec()),
-          Some(data) => process_dgg_sprite_png(img, data)
-        }
-      },
-      _ => None,
+    "png" => {
+      let img = image::load_from_memory(buffer)?;
+      match css_anim {
+        None => Ok([(to_egui_image(img), 0)].to_vec()),
+        Some(data) => process_dgg_sprite_png(img, data)
+      }
     },
     "gif" => load_animated_gif(buffer),
     "webp" => load_animated_webp(buffer),
-    _ => None
+    _ => Err(anyhow::Error::msg("Extension argument must be png, gif, or webp"))
   }
 }
 
-fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Option<Vec<(ColorImage, u16)>> {
+fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
   let frame_time = (data.cycle_time_msec / data.steps) as u16;
@@ -152,68 +148,56 @@ fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Option<V
     frames.push((to_egui_image(frame), frame_time));
     x_start += data.width;
   }
-  Some(frames)
+  Ok(frames)
 }
 
-pub fn load_animated_gif(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
+pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let mut gif_opts = gif::DecodeOptions::new();
   gif_opts.set_color_output(gif::ColorOutput::Indexed);
 
-  if let Ok(mut decoder) = gif_opts.read_info(buffer).inspect_err(|f| warn!("{:?}", f)) {
-    let mut screen = gif_dispose::Screen::new_decoder(&decoder);
+  let mut decoder = gif_opts.read_info(buffer)?;
+  let mut screen = gif_dispose::Screen::new_decoder(&decoder);
 
-    while let Ok(frame) = decoder.read_next_frame() && let Some(frame) = frame {
-      let frametime = match frame.delay {
-        x if x <= 1 => 100,
-        x => x * 10
-      };
-      match screen.blit_frame(frame) {
-        Ok(_) => {
-          let x = screen.pixels.pixels().flat_map(|px| [px.r, px.g, px.b, px.a]).collect_vec();
-          let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
-            image::ImageBuffer::from_raw(screen.pixels.width() as u32, screen.pixels.height() as u32, x);
-          let image = DynamicImage::from(imgbufopt.log_unwrap());
-          loaded_frames.push((to_egui_image(image), frametime));
-        },
-        Err(e) => info!("Error processing gif: {}", e)
-      }
-    }
+  while let Ok(frame) = decoder.read_next_frame() && let Some(frame) = frame {
+    let frametime = match frame.delay {
+      x if x <= 1 => 100,
+      x => x * 10
+    };
+    screen.blit_frame(frame)?;
+    let x = screen.pixels.pixels().flat_map(|px| [px.r, px.g, px.b, px.a]).collect_vec();
+    let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
+      image::ImageBuffer::from_raw(screen.pixels.width() as u32, screen.pixels.height() as u32, x);
+    let image = DynamicImage::from(imgbufopt.log_unwrap());
+    loaded_frames.push((to_egui_image(image), frametime));
   }
-
-  if !loaded_frames.is_empty() {
-    Some(loaded_frames)
-  } else {
-    None
-  }
+  Ok(loaded_frames)
 }
 
-pub fn load_animated_webp(buffer: &[u8]) -> Option<Vec<(ColorImage, u16)>> {
+pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
-  if let Ok(decoder) = webp_animation::Decoder::new(buffer).inspect_err(|f| warn!("{:?}", f)) {
+  let decoder = match webp_animation::Decoder::new(buffer) {
+    Ok(x) => x,
+    Err(e) => { return Err(anyhow::Error::msg(format!("{:?}", e))) }
+  };
   let mut last_timestamp: u16 = 0;
-    for frame in decoder.into_iter() {
-      let (width, height) = frame.dimensions();
-      let frametime = match frame.timestamp() as u16 - last_timestamp {
-        x if x <= 10 => 100,
-        x => x
-      };
-      last_timestamp = frame.timestamp() as u16;
-      let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, _>> =
-        image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
-      if let Some(imgbuf) = imgbufopt {
-        let handle = to_egui_image(DynamicImage::from(imgbuf));
-        loaded_frames.push((handle, frametime));
-      } else {
-        info!("failed frame load webp");
-      }
+  for frame in decoder.into_iter() {
+    let (width, height) = frame.dimensions();
+    let frametime = match frame.timestamp() as u16 - last_timestamp {
+      x if x <= 10 => 100,
+      x => x
+    };
+    last_timestamp = frame.timestamp() as u16;
+    let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, _>> =
+      image::ImageBuffer::from_raw(width, height, frame.data().to_vec());
+    if let Some(imgbuf) = imgbufopt {
+      let handle = to_egui_image(DynamicImage::from(imgbuf));
+      loaded_frames.push((handle, frametime));
+    } else {
+      info!("failed frame load webp");
     }
   }
-  if !loaded_frames.is_empty() {
-    Some(loaded_frames)
-  } else {
-    None
-  }
+  Ok(loaded_frames)
 }
 
 pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {

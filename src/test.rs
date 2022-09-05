@@ -2,12 +2,14 @@
 
 #[cfg(test)]
 mod test {
+  use tracing::info;
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
   use std::{ops::Range, path::PathBuf};
   use curl::easy::Easy;
   use itertools::Itertools;
   use regex::Regex;
   use crate::{emotes::fetch, provider::dgg, error_util::LogErrOption};
+  use tracing_test::traced_test;
 
   #[test]
   fn cursor_pos_test() {
@@ -118,10 +120,16 @@ mod test {
   }
 
   #[test]
+  #[traced_test]
   fn load_emote() {
     let mut easy = Easy::new();
-    let img = crate::emotes::imaging::get_image_data("https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("cache/bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
+    let img = crate::emotes::imaging::get_image_data("KEKW", "https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("cache/bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
     assert!(img.is_some());
+
+    logs_assert(|lines: &[&str]| {
+      lines.iter().for_each(|f| println!("{}", f));
+      Ok(())
+    });
   }
 
   #[test]

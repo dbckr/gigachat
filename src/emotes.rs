@@ -6,7 +6,7 @@
 
 use async_channel::Receiver;
 use chrono::{DateTime, Utc};
-use tracing::info;
+use tracing::{info, debug};
 use curl::easy::Easy;
 use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
@@ -145,7 +145,7 @@ impl EmoteLoader {
       let out_tx = out_tx.clone();
       let n = n;
       let task : JoinHandle<()> = runtime.spawn(async move { 
-        info!("emote thread {n}");
+        debug!("starting emote thread {n}");
         let mut easy = Easy::new();
         loop {
           let recv_msg = in_rx.recv().await;
@@ -153,29 +153,29 @@ impl EmoteLoader {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
                 //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, css_anim);
+                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, css_anim);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 //info!("{n} loading global emote {} '{}'", name, url);
-                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name, data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 //info!("{n} loading global badge {}", name);
-                let data = imaging::get_image_data(&url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name, data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //info!("{n} loading twitch emote {} '{}'", name, id);
-                let mut data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None);
+                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None);
                 if data.is_none() {
-                  data = imaging::get_image_data(&format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
+                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
                 }
                 out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data })
               }
