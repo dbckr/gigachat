@@ -114,7 +114,8 @@ pub struct Emote {
   pub extension: Option<String>,
   pub zero_width: bool,
   pub css_anim: Option<CssAnimationData>,
-  pub priority: isize
+  pub priority: isize,
+  pub texture_expiration: Option<DateTime<Utc>>
 }
 
 pub struct EmoteLoader {

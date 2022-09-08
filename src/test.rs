@@ -2,7 +2,6 @@
 
 #[cfg(test)]
 mod test {
-  use tracing::info;
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
   use std::{ops::Range, path::PathBuf};
   use curl::easy::Easy;
@@ -197,8 +196,7 @@ mod test {
     use std::collections::HashMap;
     use chrono::Utc;
     use egui::{LayerId, Order, Pos2, Rect, Id};
-    use itertools::Itertools;
-    use crate::{provider::{UserProfile, ChatMessage}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size, self}, load_font}};
+    use crate::{provider::{UserProfile, ChatMessage}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size}, load_font}};
 
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());

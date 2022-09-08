@@ -40,7 +40,9 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let mut out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
     loop {
-      spawn_websocket_live_client(&mut out_tx_2).await
+      if spawn_websocket_live_client(&mut out_tx_2).await {
+        break;
+      }
     }
   });
 
@@ -48,7 +50,9 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let token1 = token.to_owned();
   let handle = runtime.spawn(async move { 
     loop {
-      spawn_websocket_chat_client(&name1, &token1, &mut out_tx, &mut in_rx).await
+      if spawn_websocket_chat_client(&name1, &token1, &mut out_tx, &mut in_rx).await {
+        break;
+      }
     }
   });
 
@@ -84,7 +88,7 @@ impl ChatManager {
   }
 }
 
-async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) {
+async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) -> bool {
   let request = "wss://live.destiny.gg/ws".into_client_request().log_expect("failed to build request");
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
 
@@ -105,15 +109,15 @@ async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) {
                   is_live: yt_data.live.unwrap_or(false), 
                   title: yt_data.status_text,  
                   viewer_count: yt_data.viewers, 
-                  started_at: yt_data.started_at, 
-                  ..Default::default() }) };
+                  started_at: yt_data.started_at 
+                }) };
 
-                if let Err(e) = tx.try_send(status_msg) { info!("error sending status: {}",e) }
+                if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
             }
           },
           Err(e) => {
             error!("Websocket error: {:?}", e);
-            return;
+            return false;
           }
         }
       }
@@ -121,7 +125,7 @@ async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) {
   }
 }
 
-async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) {
+async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> bool {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
@@ -225,7 +229,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
           },
           Err(e) => {
             error!("Websocket error: {:?}", e);
-            return;
+            return false;
           }
         }
       },
@@ -244,6 +248,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
       }
     };
   }
+  true
 }
 
 const REDIRECT_URI : &str = "https://dbckr.github.io/GigachatAuth";
@@ -327,7 +332,8 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
       extension: Some(extension.to_owned()), 
       zero_width: false,
       css_anim: None,
-      priority: emote.priority });
+      priority: emote.priority,
+      texture_expiration: None });
   }
   Ok(result)
 }
@@ -362,7 +368,8 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
         zero_width: false,
         css_anim: css_anim.map(|x| x.to_owned()),
         display_name: None,
-        priority: 0 });
+        priority: 0,
+        texture_expiration: None });
     }
     Ok(result)
 }
