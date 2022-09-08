@@ -307,7 +307,7 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
 
 pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &emote_loader.base_path.join("cache/dgg-flairs.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None)?;
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None, true)?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {
@@ -334,11 +334,11 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
 
 pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &emote_loader.base_path.join("cache/dgg-emotes.css");
-  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None)?;
+  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None, true)?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
   let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None)?;
+  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None, true)?;
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
     let mut result : HashMap<String, Emote> = Default::default();
     for emote in emotes {

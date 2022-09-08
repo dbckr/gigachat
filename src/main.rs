@@ -35,9 +35,9 @@ fn main() {
     let loader = &mut app.emote_loader;
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
-      twitch.global_badges = loader.twitch_get_global_badges(&app.auth_tokens.twitch_auth_token)
+      twitch.global_badges = gigachat::emotes::twitch_get_global_badges(&app.auth_tokens.twitch_auth_token, &loader.base_path, true)
     }
-    match loader.load_global_emotes() {
+    match gigachat::emotes::load_global_emotes(&loader.base_path, true) {
       Ok(x) => {
         for (name, emote) in x {
           emotes.insert(name, emote);

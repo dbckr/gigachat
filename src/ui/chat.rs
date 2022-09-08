@@ -128,6 +128,20 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             let tex = texture.as_ref().unwrap_or(transparent_img);
             add_ui_emote_image(word, path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
           }
+          /*else if word == "👍" {
+            // Can use a font rendering crate directly
+            //   to output emoji chars as images scaled to emote size.
+            // But waiting for one with rbg support (embedded svg/png)
+            let font = include_bytes!("../../Roboto-Regular.ttf") as &[u8];
+            let font = fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
+            let (metrics, bitmap) = font.rasterize('👍', EMOTE_HEIGHT);
+            let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
+              image::ImageBuffer::from_raw(metrics.width as u32, metrics.height as u32, bitmap);
+            let image = image::DynamicImage::from(imgbufopt.log_unwrap());
+            let tx = imaging::load_image_into_texture_handle(ui.ctx(), imaging::to_egui_image(image));
+            let (x, y) = (tx.size_vec2().x * (EMOTE_HEIGHT / tx.size_vec2().y), EMOTE_HEIGHT);
+            ui.image(&tx, egui::vec2(x, y));
+          }*/
           else {
             last_emote_width = None;
             match link_url {

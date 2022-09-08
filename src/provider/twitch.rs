@@ -334,7 +334,7 @@ fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<Twitc
   let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
   let json = match get_json_from_url(&url, None, Some([
     ("Authorization", &format!("Bearer {}", token)),
-    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec())) {
+    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), true) {
       Ok(json) => json,
       Err(e) => { info!("failed getting twitch statuses: {}", e); return Default::default(); }
     };

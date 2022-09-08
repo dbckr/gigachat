@@ -4,14 +4,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser}, emotes::{imaging::load_file_into_buffer, fetch}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser}, emotes::{imaging::load_file_into_buffer}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 use crate::error_util::{LogErrResult, LogErrOption};
@@ -238,6 +238,26 @@ impl TemplateApp {
           if let Some(p) = self.providers.get_mut(&ProviderName::Twitch) && let Some(emote) = p.emotes.get_mut(&name) {
             set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
+        },
+        EmoteResponse::TwitchEmoteSetResponse { emote_set_id: _, response } => {
+          if let Ok(set_list) = response && let Some(provider) = self.providers.get_mut(&ProviderName::Twitch)  {
+            for (_id, emote) in set_list {
+              provider.my_sub_emotes.insert(emote.name.to_owned());
+              if !provider.emotes.contains_key(&emote.name) {
+                provider.emotes.insert(emote.name.to_owned(), emote);
+              }
+            }
+          }
+        },
+        EmoteResponse::ChannelEmoteListResponse { channel_id, channel_name, response } => {
+          match response {
+            Ok(emotes) => {
+              if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(t) = channel.transient.as_mut() {
+                t.channel_emotes = Some(emotes)
+              }
+            },
+            Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel_id, e); }
+          }
         }
       }
     }
@@ -262,7 +282,7 @@ impl TemplateApp {
               name: "twitch".to_owned(),
               my_sub_emotes: Default::default(),
               emotes: Default::default(),
-              global_badges: emote_loader.twitch_get_global_badges(&auth_tokens.twitch_auth_token),
+              global_badges: emotes::twitch_get_global_badges(&auth_tokens.twitch_auth_token, &emote_loader.base_path, true),
               username: Default::default()
           });
           if self.twitch_chat_manager.is_none() {
@@ -434,13 +454,22 @@ impl TemplateApp {
             if let Some(ch) = self.channels.get_mut(channel) {
               match ch.provider {
                 ProviderName::Twitch => {
-                  match self.emote_loader.load_channel_emotes(&ch.roomid, &self.auth_tokens.twitch_auth_token) {
+                  /*match self.emote_loader.load_channel_emotes(&ch.roomid, &self.auth_tokens.twitch_auth_token, true) {
                     Ok(emotes) => {
                       let transient = ch.transient.as_mut().unwrap();
                       transient.channel_emotes = Some(emotes)
                     },
                     Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
-                  }
+                  }*/
+                  match self.emote_loader.tx.try_send(EmoteRequest::ChannelEmoteListRequest { 
+                    channel_id: ch.roomid.to_owned(), 
+                    channel_name: ch.channel_name.to_owned(),
+                    token: self.auth_tokens.twitch_auth_token.to_owned(), 
+                    force_redownload: true
+                  }) {  
+                    Ok(_) => {},
+                    Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
+                  };
                 },
                 ProviderName::DGG => {
                   match dgg::load_dgg_emotes(&self.emote_loader) {
@@ -449,7 +478,7 @@ impl TemplateApp {
                       transient.channel_emotes = Some(emotes)
                     },
                     Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
-                  }
+                  };
                 }
               };
             }
@@ -1142,7 +1171,7 @@ fn create_uichatmessage<'a>(
           message,
           provider_emotes, 
           self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
-          &mut self.global_emotes, 
+          &self.global_emotes, 
           &mut self.emote_loader);
       },
       IncomingMessage::StreamingStatus { channel, status } => {
@@ -1162,35 +1191,41 @@ fn create_uichatmessage<'a>(
       IncomingMessage::RoomId { channel, room_id } => {
         if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
           sco.roomid = room_id;
-          match self.emote_loader.load_channel_emotes(&sco.roomid, match &sco.provider {
-            ProviderName::Twitch => &self.auth_tokens.twitch_auth_token,
-            ProviderName::DGG => &self.auth_tokens.dgg_auth_token,
-            //ProviderName::YouTube => &self.auth_tokens.youtube_auth_token
+          match self.emote_loader.tx.try_send(EmoteRequest::ChannelEmoteListRequest { 
+            channel_id: sco.roomid.to_owned(), 
+            channel_name: sco.channel_name.to_owned(),
+            token: self.auth_tokens.twitch_auth_token.to_owned(), 
+            force_redownload: true
           }) {
-            Ok(x) => {
-              t.channel_emotes = Some(x);
-            },
-            Err(x) => { 
-              info!("ERROR LOADING CHANNEL EMOTES: {}", x); 
-              Default::default()
-            }
+            Ok(_) => {},
+            Err(e) => warn!("Failed to load channel emote list for {} due to error: {:?}", &channel, e)
           };
-          t.badge_emotes = self.emote_loader.twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid);
+
+          t.badge_emotes = emotes::twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid, &self.emote_loader.base_path, true);
           info!("loaded channel badges for {}:{}", channel, sco.roomid);
           //break;
         }
       },
       IncomingMessage::EmoteSets { provider,  emote_sets } => {
-        if let Some(provider) = self.providers.get_mut(&provider) {
+        //if let Some(provider) = self.providers.get_mut(&provider) {
+        if provider == ProviderName::Twitch {
           for set in emote_sets {
-            if let Some(set_list) = self.emote_loader.twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set) {
+            match self.emote_loader.tx.try_send(EmoteRequest::TwitchEmoteSetRequest { 
+              token: self.auth_tokens.twitch_auth_token.to_owned(), 
+              emote_set_id: set.to_owned(), 
+              force_redownload: true 
+            }) {
+              Ok(_) => {},
+              Err(e) => warn!("Failed to load twitch emote set {} due to error: {:?}", &set, e)
+            };
+            /*if let Some(set_list) = self.emote_loader.twitch_get_emote_set(&self.auth_tokens.twitch_auth_token, &set, false) {
               for (_id, emote) in set_list {
                 provider.my_sub_emotes.insert(emote.name.to_owned());
                 if !provider.emotes.contains_key(&emote.name) {
                   provider.emotes.insert(emote.name.to_owned(), emote);
                 }
               }
-            }
+            }*/
           }
         }
       },
@@ -1470,12 +1505,12 @@ pub fn load_font() -> FontDefinitions {
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Segoe".into());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Segoe".into());
 
-    /*if let Some(emojis_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf") {
+    if let Some(emojis_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf") {
       let emojis = FontData::from_owned(emojis_font);
       fonts.font_data.insert("emojis".into(), emojis);
-      fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "emojis".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "emojis".into());
-    }*/
+      fonts.families.entry(FontFamily::Proportional).or_default().push("emojis".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
+    }
 
     // More windows specific fallback fonts for extended characters
     if let Some(symbols_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguisym.ttf") {
@@ -1492,33 +1527,32 @@ pub fn load_font() -> FontDefinitions {
       fonts.families.entry(FontFamily::Monospace).or_default().push("Nirmala".into());
     }
   }
-  
-    // Non-windows, use bundled Roboto font
-    /*if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
-      let mut font = FontData::from_owned(font_file);
-      // tweak scale to make sizing similiar to Segoe
-      font.tweak.scale = 0.88;
-      fonts.font_data.insert("Roboto".into(), font);
-      fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
+  // Non-windows, use bundled Roboto font
+  else if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
+    let mut font = FontData::from_owned(font_file);
+    // tweak scale to make sizing similiar to Segoe
+    font.tweak.scale = 0.88;
+    fonts.font_data.insert("Roboto".into(), font);
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
 
-      // Amogus
-      if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
-        let nirmala = FontData::from_owned(nirmala_font);
-        fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
-        fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
-        fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
-      }
-    }*/
+    // Amogus
+    if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
+      let nirmala = FontData::from_owned(nirmala_font);
+      fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
+      fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
+    }
+  }
   
 
   // Large font to fill in missing extended characters
-  if let Ok(unifont_file) = fetch::get_binary_from_url("https://unifoundry.com/pub/unifont/unifont-14.0.04/font-builds/unifont-14.0.04.otf", Some("unifont-14.0.04.otf"), None) {
+  /*if let Ok(unifont_file) = fetch::get_binary_from_url("https://unifoundry.com/pub/unifont/unifont-14.0.04/font-builds/unifont-14.0.04.otf", Some("unifont-14.0.04.otf"), None) {
     let unifont = FontData::from_owned(unifont_file);
     fonts.font_data.insert("unifont".into(), unifont);
     fonts.families.entry(FontFamily::Proportional).or_default().push("unifont".into());
     fonts.families.entry(FontFamily::Monospace).or_default().push("unifont".into());
-  }
+  }*/
 
   // Emoji font
   if let Some(emoji) = load_file_into_buffer("EmojiOneColor.otf") {
