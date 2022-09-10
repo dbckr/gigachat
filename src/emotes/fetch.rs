@@ -9,7 +9,7 @@ use curl::easy::Easy;
 use tracing::{debug, warn};
 use std::io::BufReader;
 use super::{Emote};
-use crate::error_util::{LogErrResult, LogErrOption};
+use tracing_unwrap::{OptionExt, ResultExt};
 
 pub fn process_badge_json(
   room_id: &str,
@@ -22,13 +22,13 @@ pub fn process_badge_json(
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() { // Twitch Badges
-    for set in v["data"].as_array_mut().log_unwrap() {
-      let set_id = set["set_id"].as_str().log_unwrap().to_owned();
-      for v in set["versions"].as_array_mut().log_unwrap() {
-        let id = v["id"].as_str().log_unwrap();
+    for set in v["data"].as_array_mut().unwrap_or_log() {
+      let set_id = set["set_id"].as_str().unwrap_or_log().to_owned();
+      for v in set["versions"].as_array_mut().unwrap_or_log() {
+        let id = v["id"].as_str().unwrap_or_log();
         let name = format!("{}/{}", set_id, id);
         let id = format!("{}__{}__{}", room_id, &set_id, &id);
-        let imgurl = v["image_url_4x"].as_str().log_unwrap();
+        let imgurl = v["image_url_4x"].as_str().unwrap_or_log();
         emotes.push(Emote {
           name,
           id,
@@ -54,12 +54,12 @@ pub fn process_twitch_follower_emote_json(
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
     // Twitch Global
-    for i in v["data"].as_array_mut().log_unwrap() {
+    for i in v["data"].as_array_mut().unwrap_or_log() {
       if let Some(emote_type) = i["emote_type"].as_str() && emote_type == "follower" { 
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let extension;
-        let wtf = i["format"].as_array().log_unwrap();
+        let wtf = i["format"].as_array().unwrap_or_log();
         let imgurl = if wtf.len() == 2 {
           extension = Some("gif".to_owned());
           i["images"]["url_4x"]
@@ -90,11 +90,11 @@ pub fn process_emote_json(
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
     // Twitch Global
-    for i in v["data"].as_array_mut().log_unwrap() {
+    for i in v["data"].as_array_mut().unwrap_or_log() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let extension;
-      let wtf = i["format"].as_array().log_unwrap();
+      let wtf = i["format"].as_array().unwrap_or_log();
       let imgurl = if wtf.len() == 2 {
         extension = Some("gif".to_owned());
         i["images"]["url_4x"]
@@ -110,14 +110,14 @@ pub fn process_emote_json(
     }
   } else if v["channelEmotes"].is_null() == false {
     // BTTV
-    for i in v["channelEmotes"].as_array_mut().log_unwrap() {
+    for i in v["channelEmotes"].as_array_mut().unwrap_or_log() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
       let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
       emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
-    for i in v["sharedEmotes"].as_array_mut().log_unwrap() {
+    for i in v["sharedEmotes"].as_array_mut().unwrap_or_log() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
@@ -127,17 +127,17 @@ pub fn process_emote_json(
   } else if v["room"].is_null() == false {
     // FFZ
     let setid = v["room"]["set"].to_string();
-    for i in v["sets"][&setid]["emoticons"].as_array_mut().log_unwrap() {
+    for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap_or_log() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let imgurl = format!(
         "https:{}",
-        i["urls"].as_object_mut().log_unwrap().values().last().log_unwrap().to_string().trim_matches('"')
+        i["urls"].as_object_mut().unwrap_or_log().values().last().unwrap_or_log().to_string().trim_matches('"')
       );
       emotes.push(Emote {name, id, url: imgurl, path: "ffz/".to_owned(), ..Default::default()});
     }
   } else if v[0].is_null() == false {
-    for i in v.as_array_mut().log_unwrap() {
+    for i in v.as_array_mut().unwrap_or_log() {
       if i["code"].is_null() == false {
         // BTTV Global
         let name = i["code"].to_string().trim_matches('"').to_owned();
@@ -151,8 +151,8 @@ pub fn process_emote_json(
         let id = i["id"].to_string().trim_matches('"').to_owned();
         // 7TV just says webp for everything, derp
         //let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
-        let x = i["urls"].as_array().log_unwrap().last().log_unwrap().as_array().log_unwrap().last().log_unwrap();
-        let imgurl = x.as_str().log_unwrap();
+        let x = i["urls"].as_array().unwrap_or_log().last().unwrap_or_log().as_array().unwrap_or_log().last().unwrap_or_log();
+        let imgurl = x.as_str().unwrap_or_log();
         let zero_width = i["visibility_simple"].as_array().map(|f| f.iter().any(|f| f.as_str().unwrap_or_default() == "ZERO_WIDTH")).unwrap_or(false);
         emotes.push(Emote {
           name,
@@ -268,12 +268,12 @@ pub fn get_binary_from_url(
 
     if path.exists()
     {
-      let file = File::open(&filename).log_expect("no such file");
-      BufReader::new(file).read_to_end(&mut buffer).log_expect("Failed to read file");
+      let file = File::open(&filename).expect_or_log("no such file");
+      BufReader::new(file).read_to_end(&mut buffer).expect_or_log("Failed to read file");
     }
     else {
-      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).log_expect("Unable to open file");
-      f.write_all(&buffer).log_expect("Failed to write to file");
+      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).expect_or_log("Unable to open file");
+      f.write_all(&buffer).expect_or_log("Failed to write to file");
     }
   }
 

@@ -5,6 +5,7 @@
  */
 
 use tracing::{info, error, warn};
+use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2};
@@ -14,7 +15,6 @@ use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType}, emotes::{imaging::load_file_into_buffer}};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
-use crate::error_util::{LogErrResult, LogErrOption};
 
 pub mod chat;
 pub mod chat_estimate;
@@ -141,11 +141,11 @@ impl TemplateApp {
     info!("{} channels", r.channels.len());
 
     if r.twitch_chat_manager.is_none() && !r.auth_tokens.twitch_username.is_empty() && !r.auth_tokens.twitch_auth_token.is_empty() {
-      r.twitch_chat_manager = Some(TwitchChatManager::new(&r.auth_tokens.twitch_username, &r.auth_tokens.twitch_auth_token, r.runtime.as_ref().log_unwrap()));
+      r.twitch_chat_manager = Some(TwitchChatManager::new(&r.auth_tokens.twitch_username, &r.auth_tokens.twitch_auth_token, r.runtime.as_ref().unwrap_or_log()));
     }
 
     if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
-      r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().log_unwrap(), &r.emote_loader));
+      r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
     }
 
     r
@@ -199,7 +199,6 @@ impl eframe::App for TemplateApp {
 
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
-
     if self.emote_loader.transparent_img == None {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     }
@@ -338,7 +337,7 @@ impl TemplateApp {
           channel_swap = true;
         }
         else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
-          self.show_channel_options = Some((ctx.pointer_hover_pos().log_unwrap().to_vec2().to_owned(), "".to_owned()));
+          self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), "".to_owned()));
         }
 
         let channels = &mut self.channels;
@@ -366,7 +365,7 @@ impl TemplateApp {
                 channel_swap = true;
               }
               else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
-                self.show_channel_options = Some((ctx.pointer_hover_pos().log_unwrap().to_vec2().to_owned(), channel.to_owned()));
+                self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), channel.to_owned()));
               }
               else if clbl.middle_clicked() {
                 channel_removed = Some(channel.to_owned());
@@ -545,7 +544,7 @@ impl TemplateApp {
                     let texture = emote.1.as_ref()
                       .and_then(|f| f.texture.as_ref())
                       .or_else(|| self.emote_loader.transparent_img.as_ref())
-                      .log_unwrap();
+                      .unwrap_or_log();
 
                     let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
                     if x + width + text_width > painter_rect.right() {
@@ -654,7 +653,7 @@ impl TemplateApp {
               self.chat_scroll = Some(Vec2 { x: 0., y: y_size });
             }
           });
-          jumpwin.log_unwrap().response.rect
+          jumpwin.unwrap_or_log().response.rect
         } else { Rect::NOTHING };
 
         // Overlay for selected chatter's history
@@ -679,7 +678,7 @@ impl TemplateApp {
 fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
     let mut channel_removed : Option<String> = None;
     if self.show_channel_options.is_some() {
-      let (pointer_vec, channel) = self.show_channel_options.to_owned().log_unwrap();
+      let (pointer_vec, channel) = self.show_channel_options.to_owned().unwrap_or_log();
       let add_menu = egui::Window::new(format!("Configure Channel: {}", channel))
       .anchor(egui::Align2::LEFT_TOP, pointer_vec)
       .collapsible(false)
@@ -706,7 +705,7 @@ fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
                 ProviderName::DGG => {
                   match dgg::load_dgg_emotes(&self.emote_loader) {
                     Ok(emotes) => {
-                      let transient = ch.transient.as_mut().log_unwrap();
+                      let transient = ch.transient.as_mut().unwrap_or_log();
                       transient.channel_emotes = Some(emotes)
                     },
                     Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
@@ -723,7 +722,7 @@ fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
             ui.checkbox(&mut channel.show_in_mentions_tab, name);
           }
         }
-      }).log_unwrap();
+      }).unwrap_or_log();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !add_menu.response.rect.contains(pos) {
@@ -759,7 +758,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
           if ui.button("Log In").clicked() {
             self.auth_tokens.twitch_auth_token = "".to_owned();
             self.auth_tokens.show_twitch_auth_token = true;
-            twitch::authenticate(ctx, self.runtime.as_ref().log_unwrap());
+            twitch::authenticate(ctx, self.runtime.as_ref().unwrap_or_log());
           }
         });
         ui.separator();
@@ -799,8 +798,8 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
           changed_dgg_token = self.auth_tokens.show_dgg_auth_token;
           let twitch_token = self.auth_tokens.twitch_auth_token.to_owned();
           if twitch_token.starts_with('#') || twitch_token.starts_with("access") {
-            let rgx = regex::Regex::new("access_token=(.*?)&").log_unwrap();
-            let cleaned = rgx.captures(twitch_token.as_str()).log_unwrap().get(1).map_or("", |x| x.as_str());
+            let rgx = regex::Regex::new("access_token=(.*?)&").unwrap_or_log();
+            let cleaned = rgx.captures(twitch_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
             self.auth_tokens.twitch_auth_token = cleaned.to_owned();
             if !cleaned.is_empty() {
               self.auth_tokens.show_twitch_auth_token = false;
@@ -808,11 +807,11 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
           }
           let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
           if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
-            let rgx = regex::Regex::new("code=(.*?)&").log_unwrap();
-            let cleaned = rgx.captures(dgg_token.as_str()).log_unwrap().get(1).map_or("", |x| x.as_str());
+            let rgx = regex::Regex::new("code=(.*?)&").unwrap_or_log();
+            let cleaned = rgx.captures(dgg_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
             if !cleaned.is_empty() {
               let token = dgg::complete_authenticate(cleaned, &self.auth_tokens.dgg_verifier);
-              self.auth_tokens.dgg_auth_token = token.log_expect("failed to get dgg token");
+              self.auth_tokens.dgg_auth_token = token.expect_or_log("failed to get dgg token");
               self.auth_tokens.dgg_verifier = Default::default();
               self.auth_tokens.show_dgg_auth_token = false;
             }
@@ -824,7 +823,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
 
       
         }
-      }).log_unwrap();
+      }).unwrap_or_log();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !auth_menu.response.rect.contains(pos) {
@@ -839,7 +838,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
         mgr.close();
       }
       if !self.auth_tokens.twitch_auth_token.is_empty() {
-        let mut mgr = TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap());
+        let mut mgr = TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap_or_log());
         for (_, channel) in self.channels.iter_mut().filter(|(_, c)| c.provider == ProviderName::Twitch) {
           mgr.open_channel(channel);
         }
@@ -852,7 +851,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
       }
 
       if let Some((_, channel)) = self.channels.iter_mut().find(|(_, c)| c.provider == ProviderName::DGG) {
-        let mgr = dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, channel, self.runtime.as_ref().log_unwrap(), &self.emote_loader);
+        let mgr = dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, channel, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader);
         self.dgg_chat_manager = Some(mgr);
       }            
     }
@@ -870,9 +869,9 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
               username: Default::default()
           });
           if self.twitch_chat_manager.is_none() {
-            self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().log_unwrap()));
+            self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap_or_log()));
           }
-          self.twitch_chat_manager.as_mut().log_unwrap().init_channel(&channel_options.channel_name)
+          self.twitch_chat_manager.as_mut().unwrap_or_log().init_channel(&channel_options.channel_name)
         },
         ProviderName::DGG => dgg::init_channel()
         /*ProviderName::YouTube => {
@@ -884,7 +883,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
                 global_badges: Default::default()
             });
           }
-          youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), self.runtime.as_ref().log_unwrap())
+          youtube::init_channel(channel_options.channel_name.to_owned(), channel_options.channel_id.to_owned(), auth_tokens.youtube_auth_token.to_owned(), self.runtime.as_ref().unwrap_or_log())
         }*/
       };
 
@@ -916,14 +915,14 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           });
         }*/
     
-        if name_input.log_unwrap().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+        if name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, &mut self.emote_loader); 
           self.show_add_channel_menu = false;
         }
         if ui.button("Cancel").clicked() {
           self.show_add_channel_menu = false;
         }
-      }).log_unwrap();
+      }).unwrap_or_log();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
           && !add_menu.response.rect.contains(pos) {
@@ -949,17 +948,17 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           .auto_shrink([false, true])
           .stick_to_bottom(true);
         chat_area.show_viewport(ui, |ui, _viewport| {  
-          let mut msgs = self.chat_histories.get(channel).log_unwrap().iter().rev()
+          let mut msgs = self.chat_histories.get(channel).unwrap_or_log().iter().rev()
           .filter_map(|(msg, _)| if self.selected_user.as_ref() == Some(&msg.username) || self.selected_user.as_ref() == msg.profile.display_name.as_ref() { Some(msg.to_owned()) } else { None })
           .take(4)
           .collect_vec();
           if msgs.is_empty() {
-            ui.label(format!("No recent messages for user: {}", self.selected_user.as_ref().log_unwrap()));
+            ui.label(format!("No recent messages for user: {}", self.selected_user.as_ref().unwrap_or_log()));
           } else {
             msgs.reverse();
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
-              let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().log_unwrap().to_owned();
+              let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().unwrap_or_log().to_owned();
               let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
               let (_, user_selected, msg_right_clicked) = chat::create_chat_message(ui, &est, &transparent_texture, None);
   
@@ -980,7 +979,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         });
       });
 
-      window.log_unwrap().response.rect
+      window.unwrap_or_log().response.rect
     } else {
       Rect::NOTHING
     }
@@ -1107,7 +1106,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
 
       *show_timestamps_changed = true;
 
-      let transparent_texture = emote_loader.transparent_img.as_ref().log_unwrap();
+      let transparent_texture = emote_loader.transparent_img.as_ref().unwrap_or_log();
       *chat_frame = Some(viewport.to_owned());
       ui.set_height(y_pos);
       ui.skip_ahead_auto_ids(skipped_rows);
@@ -1201,7 +1200,7 @@ fn create_uichatmessage<'a>(
         let provider_emotes = self.providers.get(&message.provider).map(|f| &f.emotes);
         let channel = message.channel.to_owned();
         // remove any extra whitespace between words
-        let rgx = regex::Regex::new("\\s+").log_unwrap();
+        let rgx = regex::Regex::new("\\s+").unwrap_or_log();
         message.message = rgx.replace_all(&message.message, " ").to_string();
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
@@ -1413,13 +1412,13 @@ fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &mut egui::Ui
     let mut area = Rect::NOTHING;
     let mut clicked = false;
     if let Some(x) = set_selected_msg.as_ref() {
-      let pos = ui.ctx().pointer_hover_pos().log_unwrap().to_vec2();
+      let pos = ui.ctx().pointer_hover_pos().unwrap_or_log().to_vec2();
       *selected_msg = Some((Vec2 { x: pos.x, y: pos.y - ui.clip_rect().min.y}, x.to_owned()));
     }
     if let Some((pos, msg)) = selected_msg.as_ref() {
       (area, clicked) = msg_context_menu(ui, pos, msg);
     }
-    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && !area.contains(ui.ctx().pointer_latest_pos().log_unwrap()) {
+    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && !area.contains(ui.ctx().pointer_latest_pos().unwrap_or_log()) {
       *selected_msg = None;
     }
 }
@@ -1441,7 +1440,7 @@ fn msg_context_menu(ui: &egui::Ui, point: &Vec2, msg: &ChatMessage) -> (Rect, bo
       }
     });
   });
-  (window.log_unwrap().response.rect, clicked)
+  (window.unwrap_or_log().response.rect, clicked)
 }
 
 fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut message: ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) {
@@ -1521,11 +1520,11 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   if badges.is_none() { return (None, None); }
   let mut greatest_badge : Option<(isize, (u8,u8, u8))> = None;
-  for badge in badges.log_unwrap() {
+  for badge in badges.unwrap_or_log() {
     let emote = 
       if let Some(channel_badges) = channel_badges && let Some(emote) = channel_badges.get(badge) {
         if channel_name == dgg::DGG_CHANNEL_NAME && emote.color.is_some() && (greatest_badge.is_none() || greatest_badge.is_some_and(|b| b.0 < emote.priority)) {
-          greatest_badge = Some((emote.priority, emote.color.log_unwrap()))
+          greatest_badge = Some((emote.priority, emote.color.unwrap_or_log()))
         }
         chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_badge_request(emote, channel_name))
       }

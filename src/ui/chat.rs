@@ -9,7 +9,7 @@ use chrono::{Timelike, DateTime, Utc};
 use egui::{emath, Rounding};
 use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
-use crate::error_util::{LogErrOption};
+use tracing_unwrap::OptionExt;
 
 use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
 
@@ -145,7 +145,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             let (metrics, bitmap) = font.rasterize('👍', EMOTE_HEIGHT);
             let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
               image::ImageBuffer::from_raw(metrics.width as u32, metrics.height as u32, bitmap);
-            let image = image::DynamicImage::from(imgbufopt.log_unwrap());
+            let image = image::DynamicImage::from(imgbufopt.unwrap_or_log());
             let tx = imaging::load_image_into_texture_handle(ui.ctx(), imaging::to_egui_image(image));
             let (x, y) = (tx.size_vec2().x * (EMOTE_HEIGHT / tx.size_vec2().y), EMOTE_HEIGHT);
             ui.image(&tx, egui::vec2(x, y));
@@ -396,7 +396,7 @@ pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &Emote, request : Emo
             EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
           }
           else {
-            let (frame, _delay) = frames.get(0).log_unwrap();
+            let (frame, _delay) = frames.get(0).unwrap_or_log();
             EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
           }
         },

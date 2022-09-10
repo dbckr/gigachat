@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque, HashSet};
 
 use chrono::{DateTime, Utc};
 use curl::easy::Easy;
-use crate::error_util::{LogErrResult};
+use tracing_unwrap::{ResultExt};
 
 use crate::emotes::{Emote};
 
@@ -183,7 +183,7 @@ pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).log_expect("failed to build string from http response body");
+      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).expect_or_log("failed to build string from http response body");
       Ok(data.len())
     })?;
     transfer.perform()?;

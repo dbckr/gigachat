@@ -7,7 +7,8 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, FontFamily};
 use itertools::Itertools;
-use crate::{error_util::{LogErrOption}, ui::BADGE_HEIGHT};
+use crate::{ui::BADGE_HEIGHT};
+use tracing_unwrap::{OptionExt};
 
 use crate::provider::*;
 
@@ -44,9 +45,9 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   }
   let badge_count = row.profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
   let badge_spacing = badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
-  let header_width = header_rows.last().log_unwrap().rect.size().x;
+  let header_width = header_rows.last().unwrap_or_log().rect.size().x;
   curr_row_width += margin_width + header_width + ui.spacing().item_spacing.x + badge_spacing;
-  let mut curr_row_height = header_rows.last().log_unwrap().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
+  let mut curr_row_height = header_rows.last().unwrap_or_log().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
 
   let mut ix = 0;
   for word in row.message.to_owned().split_ascii_whitespace() {

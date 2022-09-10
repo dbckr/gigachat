@@ -126,16 +126,16 @@ fn get_chat_messages(token: &String, livestreamchat_id: &String, channel_name: &
       match serde_json::from_str::<Value>(&data){
         Ok(v) => {
           let token = v["nextPageToken"].as_str().and_then(|x| Some(x.to_owned()));
-          (token, Some(v["items"].as_array().log_unwrap().into_iter().filter_map(|item| { Some(ChatMessage { 
+          (token, Some(v["items"].as_array().unwrap_or_log().into_iter().filter_map(|item| { Some(ChatMessage { 
             provider: ProviderName::YouTube, 
             channel: channel_name.to_owned(), 
             username: item["authorDetails"]["displayName"].as_str()
               .and_then(|x| Some(x.to_owned()))
-              .or_else(|| Some("unknown1".to_owned())).log_unwrap(), 
-            timestamp: item["snippet"]["publishedAt"].as_str().and_then(|x| Some(Utc.datetime_from_str(x, "%+").log_unwrap())).or_else(|| Some(Utc::now())).log_unwrap().into(),
+              .or_else(|| Some("unknown1".to_owned())).unwrap_or_log(), 
+            timestamp: item["snippet"]["publishedAt"].as_str().and_then(|x| Some(Utc.datetime_from_str(x, "%+").unwrap_or_log())).or_else(|| Some(Utc::now())).unwrap_or_log().into(),
             message: item["snippet"]["displayMessage"].as_str()
               .and_then(|x| Some(x.to_owned()))
-              .or_else(|| Some("".to_owned())).log_unwrap(), 
+              .or_else(|| Some("".to_owned())).unwrap_or_log(), 
             ..Default::default() }) }).collect_vec()))
         },
         Err(e) => { info!("JSON Error: {}", e); (None, None) }

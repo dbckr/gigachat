@@ -7,8 +7,9 @@ mod test {
   use curl::easy::Easy;
   use itertools::Itertools;
   use regex::Regex;
-  use crate::{emotes::fetch, provider::dgg, error_util::LogErrOption};
+  use crate::{emotes::fetch, provider::dgg};
   use tracing_test::traced_test;
+  use tracing_unwrap::{OptionExt};
 
   #[test]
   fn cursor_pos_test() {
@@ -78,42 +79,42 @@ mod test {
     let subscriber = Registry::default().with(console);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
 
-    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60420a8b77137b000de9e66e.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60420a8b77137b000de9e66e.gif").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 60);
   }
 
   #[test]
   fn cummies() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/6129ca7da4d049e179751fe5.webp").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/6129ca7da4d049e179751fe5.webp").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
     assert_eq!(frames.unwrap().len(), 9);
   }
 
   #[test]
   fn gigachad() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/609431bc39b5010444d0cbdc.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/609431bc39b5010444d0cbdc.gif").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 198);
   }
 
   #[test]
   fn pokismash() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5f0901cba2ac620530368579.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5f0901cba2ac620530368579.gif").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 25);
   }
 
   #[test]
   fn peepoLeave() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60b056f5b254a5e16b929707.webp").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60b056f5b254a5e16b929707.webp").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
     assert_eq!(frames.unwrap().len(), 11);
   }
 
   #[test]
   fn peepoLeave2() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5d324913ff6ed36801311fd2.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5d324913ff6ed36801311fd2.gif").unwrap_or_log();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 35);
   }

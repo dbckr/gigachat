@@ -12,7 +12,7 @@ use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
 use tracing::{info, error};
-use crate::error_util::{LogErrResult, LogErrOption};
+use tracing_unwrap::{OptionExt, ResultExt};
 
 use super::CssAnimationData;
 
@@ -29,7 +29,7 @@ pub fn get_image_data(
     || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
       DirBuilder::new().recursive(true).create(&path)?;
 
-      let paths = match glob(&format!("{}{}.*", &path.to_str().log_expect("path to string failed"), id)) {
+      let paths = match glob(&format!("{}{}.*", &path.to_str().expect_or_log("path to string failed"), id)) {
         Ok(paths) => paths,
         Err(e) => panic!("{}", e)
       };
@@ -37,8 +37,8 @@ pub fn get_image_data(
       match paths.last() {
         Some(x) => {
           let filepath : std::path::PathBuf = x?.as_path().to_owned();
-          let buffer = load_file_into_buffer(filepath.to_str().log_unwrap());
-          load_image(filepath.extension().log_unwrap().to_str().log_unwrap(), &buffer.log_unwrap(), css_anim)
+          let buffer = load_file_into_buffer(filepath.to_str().unwrap_or_log());
+          load_image(filepath.extension().unwrap_or_log().to_str().unwrap_or_log(), &buffer.unwrap_or_log(), css_anim)
         }
         None => {
           let mut extension = extension.as_ref().map(|f| f.to_owned());
@@ -168,7 +168,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow
     let x = screen.pixels.pixels().flat_map(|px| [px.r, px.g, px.b, px.a]).collect_vec();
     let imgbufopt: Option<image::ImageBuffer<image::Rgba<u8>, Vec<u8>>> =
       image::ImageBuffer::from_raw(screen.pixels.width() as u32, screen.pixels.height() as u32, x);
-    let image = DynamicImage::from(imgbufopt.log_unwrap());
+    let image = DynamicImage::from(imgbufopt.unwrap_or_log());
     loaded_frames.push((to_egui_image(image), frametime));
   }
   Ok(loaded_frames)
@@ -203,7 +203,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyho
 pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   if let Ok(mut file) = File::open(filepath) {
     let mut buf: Vec<u8> = Default::default();
-    file.read_to_end(&mut buf).log_expect("file not found");
+    file.read_to_end(&mut buf).expect_or_log("file not found");
     Some(buf)
   } else {
     None

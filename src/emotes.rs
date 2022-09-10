@@ -14,7 +14,7 @@ use egui::ColorImage;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use std::{collections::{HashMap}, time::Duration, path::{PathBuf, Path}};
 use std::str;
-use crate::error_util::{LogErrOption};
+use tracing_unwrap::{OptionExt};
 
 pub mod fetch;
 pub mod imaging;
@@ -147,7 +147,7 @@ impl EmoteLoader {
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..5 {
-      let cache_path = cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files");
+      let cache_path = cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files");
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
@@ -215,7 +215,7 @@ impl EmoteLoader {
       rx: out_rx,
       handle: tasks,
       transparent_img: None,
-      base_path: cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files"),
+      base_path: cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files"),
       loading_emotes: Default::default()
      }
   }
@@ -316,18 +316,18 @@ pub fn load_global_emotes(
   Ok(result)
 }
 
-//self.base_path.join(path).to_str().log_unwrap()
-//self.base_path.join(filename).to_str().log_unwrap()
+//self.base_path.join(path).to_str().unwrap_or_log()
+//self.base_path.join(filename).to_str().unwrap_or_log()
 fn process_emote_json(url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_emote_json(url, cache_path.join(path).to_str().log_unwrap(), headers, force_redownload)
+  fetch::process_emote_json(url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload)
 }
 
 fn process_twitch_follower_emote_json(twitch_url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_twitch_follower_emote_json(twitch_url, cache_path.join(path).to_str().log_unwrap(), headers, force_redownload)
+  fetch::process_twitch_follower_emote_json(twitch_url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload)
 }
 
 fn process_badge_json(room_id: &str, url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().log_unwrap(), headers, force_redownload)
+  fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload)
 }
 
 pub fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 

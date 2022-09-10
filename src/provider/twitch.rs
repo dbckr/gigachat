@@ -13,7 +13,7 @@ use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::{fetch::get_json_from_url}};
-use crate::error_util::{LogErrResult, LogErrOption};
+use tracing_unwrap::{OptionExt, ResultExt};
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
@@ -46,11 +46,11 @@ impl TwitchChatManager {
   }
 
   pub fn leave_channel(&mut self, channel_name : &String) {
-    self.in_tx.try_send(OutgoingMessage::Leave { channel_name: channel_name.to_owned() }).log_expect("channel failure");
+    self.in_tx.try_send(OutgoingMessage::Leave { channel_name: channel_name.to_owned() }).expect_or_log("channel failure");
   }
 
   pub fn close(&mut self) {
-    self.in_tx.try_send(OutgoingMessage::Quit {}).log_expect("channel failure");
+    self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
     std::thread::sleep(std::time::Duration::from_millis(1000));
     self.handle.abort();
   }
@@ -76,7 +76,7 @@ impl TwitchChatManager {
       badge_emotes: None,
       status: None
     });
-    self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).log_expect("channel failure");
+    self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect_or_log("channel failure");
   }
 }
 
@@ -93,12 +93,12 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
       use_tls: Some(true),
       //channels: channels,
       ..Default::default()
-    }).await.log_expect("failed to create irc client");
-  client.identify().log_expect("failed to identify");
-  let mut stream = client.stream().log_expect("failed to get stream");
+    }).await.expect_or_log("failed to create irc client");
+  client.identify().expect_or_log("failed to identify");
+  let mut stream = client.stream().expect_or_log("failed to get stream");
   let sender = client.sender();
-  sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).log_expect("failed to send cap req");
-  //sender.send_join(format!("#{}", name.to_owned())).log_expect("failed to join channel");
+  sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect_or_log("failed to send cap req");
+  //sender.send_join(format!("#{}", name.to_owned())).expect_or_log("failed to join channel");
   let mut seen_emote_ids : HashSet<String> = Default::default();
   let mut active_room_ids : HashMap<String, String> = Default::default();
   let mut quitted = false;
@@ -200,32 +200,32 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                 }
               },
               Command::PING(ref target, ref _msg) => {
-                  sender.send_pong(target).log_expect("failed to send pong");
+                  sender.send_pong(target).expect_or_log("failed to send pong");
               },
               Command::Raw(ref command, ref str_vec) => {
                 //trace!("Recieved Twitch IRC Command: {}", command);
                 if let Some(tags) = message.tags {
                   let result = match command.as_str() {
                     "USERSTATE" => {
-                      let channel = str_vec.first().log_unwrap().trim_start_matches('#').to_owned();
+                      let channel = str_vec.first().unwrap_or_log().trim_start_matches('#').to_owned();
                       profiles.insert(channel, get_user_profile(&tags));
                       tx.try_send(IncomingMessage::EmoteSets { 
                         provider: ProviderName::Twitch,
-                        emote_sets: get_tag_value(&tags, "emote-sets").log_unwrap().split(',').map(|x| x.to_owned()).collect::<Vec<String>>() 
+                        emote_sets: get_tag_value(&tags, "emote-sets").unwrap_or_log().split(',').map(|x| x.to_owned()).collect::<Vec<String>>() 
                       })
                     },
                     "ROOMSTATE" => {
-                      active_room_ids.insert(str_vec.last().log_unwrap().trim_start_matches('#').to_owned(), get_tag_value(&tags, "room-id").log_unwrap().to_owned());
+                      active_room_ids.insert(str_vec.last().unwrap_or_log().trim_start_matches('#').to_owned(), get_tag_value(&tags, "room-id").unwrap_or_log().to_owned());
                       // small delay to not spam twitch API when joining channels at app start
                       last_status_check = Some(Utc::now() - chrono::Duration::seconds(TWITCH_STATUS_FETCH_INTERVAL_SEC - 2));
                       tx.try_send(IncomingMessage::RoomId { 
-                        channel: str_vec.last().log_unwrap().trim_start_matches('#').to_owned(),
-                        room_id: get_tag_value(&tags, "room-id").log_unwrap().to_owned() })
+                        channel: str_vec.last().unwrap_or_log().trim_start_matches('#').to_owned(),
+                        room_id: get_tag_value(&tags, "room-id").unwrap_or_log().to_owned() })
                     },
                     "NOTICE" => {
                         tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage { 
                           provider: ProviderName::Twitch, 
-                          channel: str_vec.last().log_unwrap().trim_start_matches('#').to_owned(), 
+                          channel: str_vec.last().unwrap_or_log().trim_start_matches('#').to_owned(), 
                           timestamp: chrono::Utc::now(), 
                           message: str_vec.join(", ").to_string(),
                           msg_type: MessageType::Error,
@@ -236,7 +236,7 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
                       if let Some(sys_msg) = get_tag_value(&tags, "system-msg") {
                         tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage { 
                           provider: ProviderName::Twitch, 
-                          channel: str_vec.last().log_unwrap().trim_start_matches('#').to_owned(), 
+                          channel: str_vec.last().unwrap_or_log().trim_start_matches('#').to_owned(), 
                           timestamp: chrono::Utc::now(), 
                           message: sys_msg,
                           msg_type: MessageType::Announcement,
@@ -281,13 +281,13 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
               Err(x) => info!("Send failure: {}", x)
             };
           },
-          OutgoingMessage::Quit {  } => { client.send_quit("Leaving").log_expect("Error while quitting IRC server"); quitted = true; },
+          OutgoingMessage::Quit {  } => { client.send_quit("Leaving").expect_or_log("Error while quitting IRC server"); quitted = true; },
           OutgoingMessage::Leave { channel_name } => {
-            client.send_part(format!("#{}", channel_name.to_owned())).log_expect("failed to leave channel");
+            client.send_part(format!("#{}", channel_name.to_owned())).expect_or_log("failed to leave channel");
             active_room_ids.remove(&channel_name);
           },
           OutgoingMessage::Join { channel_name } => {
-            client.send_join(format!("#{}", channel_name)).log_expect("failed to leave channel");
+            client.send_join(format!("#{}", channel_name)).expect_or_log("failed to leave channel");
           }
         };
       }

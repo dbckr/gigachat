@@ -11,12 +11,13 @@ use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
-use crate::{error_util::{LogErrResult, LogErrOption}, provider::MessageType};
+use crate::{provider::MessageType};
 use regex::Regex;
 use tokio::{runtime::Runtime};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
 use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
+use tracing_unwrap::{OptionExt, ResultExt};
 
 pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
@@ -80,7 +81,7 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
 
 impl ChatManager {
   pub fn close(&mut self) {
-    self.in_tx.try_send(OutgoingMessage::Quit {}).log_expect("channel failure");
+    self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
     std::thread::sleep(std::time::Duration::from_millis(1000));
     for handle in &self.handles {
       handle.abort();
@@ -89,8 +90,8 @@ impl ChatManager {
 }
 
 async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) -> bool {
-  let request = "wss://live.destiny.gg/ws".into_client_request().log_expect("failed to build request");
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
+  let request = "wss://live.destiny.gg/ws".into_client_request().expect_or_log("failed to build request");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect_or_log("failed to connect to wss");
 
   loop {
     tokio::select! {
@@ -129,14 +130,14 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
-  let mut request = "wss://chat.destiny.gg/ws".into_client_request().log_expect("failed to build request");
-  request.headers_mut().append(COOKIE, cookie.parse().log_unwrap());
+  let mut request = "wss://chat.destiny.gg/ws".into_client_request().expect_or_log("failed to build request");
+  request.headers_mut().append(COOKIE, cookie.parse().unwrap_or_log());
   //info!("adding cookie {} {}", cookie, r);
   //for item in request.headers().iter() {
   //  info!("{}: {:?}", item.0, item.1);
   //}
 
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.log_expect("failed to connect to wss");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect_or_log("failed to connect to wss");
   //let (mut write, mut read) = socket.split();
 
   while !quitted {
@@ -148,7 +149,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
               trace!("Received Ping: {:?}", message);
               socket.send(Message::Pong(message.into_data())).await
               .inspect_err(|f| info!("socket send Pong error: {}", f))
-              .log_expect("Error sending websocket Pong message");
+              .expect_or_log("Error sending websocket Pong message");
             }
             else if !message.is_text() {
               warn!("{:?}", message);
@@ -164,7 +165,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         username: msg.nick.to_lowercase(), 
                         timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
-                        message: msg.data.log_unwrap(),
+                        message: msg.data.unwrap_or_log(),
                         profile: UserProfile { 
                           badges: if !features.is_empty() { Some(features) } else { None },
                           display_name: Some(msg.nick), 
@@ -184,7 +185,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
-                        message: msg.data.log_unwrap(),
+                        message: msg.data.unwrap_or_log(),
                         msg_type: MessageType::Announcement,
                         ..Default::default()
                       };
@@ -256,10 +257,10 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
           OutgoingMessage::Chat { channel_name : _, message } => { 
             socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
               .inspect_err(|f| info!("socket send error: {}", f))
-              .log_expect("Error sending websocket message");
+              .expect_or_log("Error sending websocket message");
           },
           OutgoingMessage::Leave { channel_name : _ } => {
-            socket.close(None).await.log_expect("Error while quitting IRC server"); quitted = true;
+            socket.close(None).await.expect_or_log("Error while quitting IRC server"); quitted = true;
           },
           _ => ()
         };
@@ -334,8 +335,8 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {
-    let image = &emote.image.first().log_unwrap();
-    let (id, extension) = image.name.split_once('.').log_unwrap();
+    let image = &emote.image.first().unwrap_or_log();
+    let (id, extension) = image.name.split_once('.').unwrap_or_log();
 
     result.insert(emote.name.to_owned(), Emote { 
       name: emote.name, 
@@ -366,8 +367,8 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
     let mut result : HashMap<String, Emote> = Default::default();
     for emote in emotes {
-      let image = &emote.image.first().log_unwrap();
-      let (id, extension) = image.name.split_once('.').log_unwrap();
+      let image = &emote.image.first().unwrap_or_log();
+      let (id, extension) = image.name.split_once('.').unwrap_or_log();
 
       let prefix = &emote.prefix;
       let css_anim = css_anim_data.get(prefix);
@@ -400,8 +401,8 @@ pub struct CSSLoader {
 impl Default for CSSLoader {
   fn default() -> Self {
     Self { 
-      time_regex: Regex::new("([\\d\\.]*?)(ms|s)").log_unwrap(), 
-      steps_regex: Regex::new("steps\\((.*?)\\)").log_unwrap() 
+      time_regex: Regex::new("([\\d\\.]*?)(ms|s)").unwrap_or_log(), 
+      steps_regex: Regex::new("steps\\((.*?)\\)").unwrap_or_log() 
     }
   }
 }
@@ -409,7 +410,7 @@ impl Default for CSSLoader {
 impl CSSLoader {
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
-    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").log_unwrap();
+    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
     let caps = regex.captures_iter(css);
     for captures in caps {
       let prefix = captures.get(1).map(|x| x.as_str());
@@ -417,7 +418,7 @@ impl CSSLoader {
       let anim = captures.get(3).map(|x| x.as_str());
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
 
-      let caps = anim.and_then(|x| self.time_regex.captures(x)).log_unwrap();
+      let caps = anim.and_then(|x| self.time_regex.captures(x)).unwrap_or_log();
       let time = caps.get(1).and_then(|x| x.as_str().parse::<f32>().ok());
       let unit = caps.get(2).map(|x| x.as_str());
       //info!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);

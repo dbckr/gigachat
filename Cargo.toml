@@ -47,17 +47,19 @@ tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
 tracing-test = "0.2.3"
 fontdue = "0.7.2"
+tracing-unwrap = "0.9.2"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
 
 [patch.crates-io]
 egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
-eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #egui = { path = "../egui/egui" }
+eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #eframe = { path = "../egui/eframe" }
 #weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 #winit = { path = "../winit" }
+tracing-unwrap = { git = "https://github.com/dbckr/tracing-unwrap", branch = "dev" }
 
 # webp compile issue
 # https://github.com/qnighy/libwebp-sys2-rs/issues/12

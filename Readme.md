@@ -13,6 +13,7 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 
 - Better README
 - Twitch IRC sometimes fails to init/connect on startup
+- Option to download smaller emote size
 - Ability to quickly open/navigate browser to a stream
 - Handle Twitch CLEARCHAT, CLEARMSG commands
 - Handle USERNOTICE command
