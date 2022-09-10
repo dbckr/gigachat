@@ -11,20 +11,6 @@ mod test {
   use tracing_test::traced_test;
   use tracing_unwrap::{OptionExt};
 
-  #[test]
-  fn cursor_pos_test() {
-    let msg = "GIG";
-    let cursor_position = 3;
-
-    let word = msg.split_whitespace()
-      .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-      .filter_map(|p| { println!("{}", p.0); if p.0 <= cursor_position && cursor_position <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None } })
-      .next().unwrap();
-
-    println!("{:?}", word);
-  }
-
-  #[test]
   fn test() {
     let context : egui::Context = Default::default();
     let verifier = dgg::begin_authenticate(&context);

@@ -902,12 +902,13 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           //ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::YouTube, "Youtube");
           ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::DGG, "destiny.gg");
         });
-        ui.horizontal(|ui| {
-          ui.label("Channel Name:");
-          name_input = Some(ui.text_edit_singleline(&mut self.add_channel_menu.channel_name));
-          //name_input.request_focus();
-      
-        });
+        if self.add_channel_menu.provider == ProviderName::Twitch {
+          ui.horizontal(|ui| {
+            ui.label("Channel Name:");
+            name_input = Some(ui.text_edit_singleline(&mut self.add_channel_menu.channel_name));
+            //name_input.request_focus();
+          });
+        }
         /*if self.add_channel_menu.provider == ProviderName::YouTube {
           ui.horizontal(|ui| {
             ui.label("Channel ID:");
@@ -1029,8 +1030,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
       
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
-        if selected_channel.is_some_and(|channel| channel == cname) 
-          || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
+        if selected_channel.is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }
@@ -1040,15 +1040,18 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         //mentions_only: selected_channel.is_none(),
         //usernames: HashMap::default()// HashMap::from_iter(providers.iter().map(|(k, v)| (k.to_owned(), v.username.to_lowercase())))
       };
-      let mut usernames : HashMap<ProviderName, String> = HashMap::default();
-      if let Some(twitch_chat_manager) = self.twitch_chat_manager.as_ref() {
-        usernames.insert(ProviderName::Twitch, twitch_chat_manager.username.to_lowercase());
-      }
-      if let Some(dgg_chat_manager) = self.dgg_chat_manager.as_ref() {
-        usernames.insert(ProviderName::DGG, dgg_chat_manager.username.to_lowercase());
-      }
       let show_channel_names = history_iters.iterators.len() > 1;
 
+      let mut usernames : HashMap<ProviderName, String> = HashMap::default();
+      if selected_channel.is_none() {
+        if let Some(twitch_chat_manager) = self.twitch_chat_manager.as_ref() {
+          usernames.insert(ProviderName::Twitch, twitch_chat_manager.username.to_lowercase());
+        }
+        if let Some(dgg_chat_manager) = self.dgg_chat_manager.as_ref() {
+          usernames.insert(ProviderName::DGG, dgg_chat_manager.username.to_lowercase());
+        }
+      }      
+      
       while let Some((row, cached_y)) = history_iters.get_next() {
         if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
           continue;
@@ -1057,7 +1060,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
-        if !*show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
+        if *show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
             if *enable_combos && combo.is_some_and(|c| !c.is_end) {
               // add nothing to y_pos
@@ -1104,7 +1107,9 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         }
       }
 
-      *show_timestamps_changed = true;
+      if *show_timestamps_changed {
+        *show_timestamps_changed = false;
+      }
 
       let transparent_texture = emote_loader.transparent_img.as_ref().unwrap_or_log();
       *chat_frame = Some(viewport.to_owned());
@@ -1488,7 +1493,7 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
 fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUser>) -> Option<Vec<String>> {
   Some(row.message.split(' ').into_iter().filter_map(|f| {
     let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
-    if let Some(user) = users.get(&word) { Some(user.display_name.to_owned()) } else { None } 
+    users.get(&word).map(|u| u.display_name.to_owned())
   }).collect_vec())
 }
 

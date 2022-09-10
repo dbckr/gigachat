@@ -1,13 +1,16 @@
+All the usual features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
+
+Also DGG support.
+
+Will add Youtube support if they ever make their live stream chat API more accessible...
+
 # Features
 
-All the usual basic features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
-
-# Tips
-
 - Emote/User selector: 
-  - Displays options automatically as you type. Type @ and a few characters in a username to get user name selector instead of emote selector.
+  - Displays options automatically as you type. Start a word with @ to get user name selector instead of emote selector.
   - ALT ←/→	to choose a emote/user and ALT ↓ to select (working on an option to use TAB & ENTER like DGG chat, having some problems with the UI framework)
-- Can right click a message to get option to copy it to clipboard, or left click on it to directly copy it. Must click on a section of plain text, not an emote or link.
+- Right click a chat message to get option to copy it to clipboard, or left click on it to directly copy it. Must click on a section of plain text, not an emote or link.
+- Can click a username to highlight their messages and get a popup with their most recent few messages.
 
 # Todo
 
@@ -28,21 +31,3 @@ All the usual basic features you would expect in a twitch chat app: channel tabs
 - Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
 - DGG oauth issue - application oauth flow tokens not working but login keys created directly on DGG site work
   - Current workaround: removed oauth flow and add text directing users to create and enter a login key
-
-##
-
-- ~Handle "ACTION" (remove the word and display the message with italics)~
-- ~Mentions tab~
-- ~Reload emotes~
-- ~Copying messages into clipboard and/or textbox (currently has minimal support -- can click on msg text to copy msg but no visual feedback. right click menu?)~
-- ~Display a "button" to jump back to bottom whenever auto-scroll is off~
-- ~Temporarily pin a user's most recent 2-3 messages to top of window when clicking their name~ 
-  - Add option to do this automatically for users that get a lot of mentions over short duration
-- ~Select from a user list by starting typing a word with @~
-- ~Click user (or usernames in chat messages) to see their recent messages in channel~
-- ~DGG~
-- ~Zero width emotes~
-- ~Unicode character support~
-- ~Twitch follower emotes~
-- ~Detect ASCII art and new line appropiately regardless of width~
-- ~Emote textures can go missing after some time (did a recent egui update add texture expiration??)- Emote textures can go missing after some time (did a recent egui update add texture expiration??)~
