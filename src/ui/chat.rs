@@ -11,7 +11,7 @@ use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, 
 use itertools::Itertools;
 use crate::error_util::{LogErrOption};
 
-use crate::{emotes::*, provider::{ProviderName, UserProfile}};
+use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
 
 use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
 
@@ -66,13 +66,14 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
 
         if let Some(highlight) = highlight {
           highlight_ui_row(ui, highlight);
-        } else if chat_msg.message.is_server_msg {
-          highlight_ui_row(ui, Color32::from_rgba_unmultiplied(90, 75, 0, 90));
         }
 
         if row_ix == 0 {
           let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
-          let username = if !chat_msg.message.is_server_msg { Some(uname_text) } else { None };
+          let username = match chat_msg.message.msg_type {
+            MessageType::Chat => Some(uname_text),
+            _ => None
+          };
           let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
           ui.label(job);
           if let Some(user_badges) = &chat_msg.message.profile.badges {
@@ -108,7 +109,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
     
-          if !chat_msg.message.is_server_msg {
+          if chat_msg.message.msg_type == MessageType::Chat {
             let uname_rich_text = RichText::new(&format!("{}:", uname_text))
               .size(BODY_TEXT_SIZE)
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
@@ -121,7 +122,14 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
         }
+
+        let mut italicize = false;
         for word in message.split(' ') {
+          if word == "ACTION" {
+            italicize = true;
+            continue;
+          }
+
           let link_url = chat_msg.message.message.split_ascii_whitespace().find_or_first(|f| f.starts_with(word) || f.ends_with(word) || f.contains(word) && word.len() > 16).and_then(|f| if is_url(f) { Some(f) } else { None });
           let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
@@ -170,10 +178,14 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                 }
               },
               None => {
-                let text = match chat_msg.is_ascii_art {
+                let mut text = match chat_msg.is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
                   false => RichText::new(word).color(convert_color(&message_color))
                 }.size(BODY_TEXT_SIZE);
+
+                if italicize {
+                  text = text.italics()
+                }
 
                 if let Some (mention) = chat_msg.mentions.as_ref().and_then(|f| f.iter().find(|m| word.to_lowercase().contains(&m.to_lowercase()))) {
                   let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
@@ -218,7 +230,7 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zer
   }
   else {
     ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
-      ui.label(format!("{}\n{}", word, path.replace("cache/", "").replace('/',"")));
+      ui.label(format!("{}\n{}", word, path.replace("", "").replace('/',"")));
       ui.image(texture, texture.size_vec2());
     });
     *last_emote_width = Some((x, y));
@@ -254,7 +266,6 @@ fn highlight_ui_row(ui: &mut egui::Ui, color: Color32) {
   ui.painter().rect_filled(
     rect, 
     Rounding::none(), 
-    //Color32::from_rgba_unmultiplied(90, 90, 90, 90)
     color
   );
 }

@@ -147,7 +147,7 @@ impl EmoteLoader {
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..5 {
-      let base_path = cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files");
+      let cache_path = cache_path_from_app_name(app_name).log_expect("Failed to locate an appropiate location to store cache files");
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
@@ -160,38 +160,38 @@ impl EmoteLoader {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
                 //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, css_anim);
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, css_anim);
                 out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data })
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data })
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 //info!("{n} loading global emote {} '{}'", name, url);
-                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name, data })
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 //info!("{n} loading global badge {}", name);
-                let data = imaging::get_image_data(&name, &url, base_path.join(path), &id, &extension, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None);
                 out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name, data })
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //info!("{n} loading twitch emote {} '{}'", name, id);
-                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None);
+                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), cache_path.join("twitch/"), &id, &None, &mut easy, None);
                 if data.is_none() {
-                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), base_path.join("cache/twitch/"), &id, &None, &mut easy, None)
+                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &mut easy, None)
                 }
                 out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data })
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {
-                let data = twitch_get_emote_set(&token, &emote_set_id, &base_path, force_redownload);
+                let data = twitch_get_emote_set(&token, &emote_set_id, &cache_path, force_redownload);
                 out_tx.try_send(EmoteResponse::TwitchEmoteSetResponse { emote_set_id, response: data })
               },
               EmoteRequest::ChannelEmoteListRequest { channel_id, channel_name, token, force_redownload } => {
-                let data = load_channel_emotes(&channel_id, &token, &base_path, force_redownload);
+                let data = load_channel_emotes(&channel_id, &token, &cache_path, force_redownload);
                 out_tx.try_send(EmoteResponse::ChannelEmoteListResponse { channel_id, channel_name, response: data })
               }
             };
@@ -235,7 +235,7 @@ pub fn load_channel_emotes(
   let ffz_emotes = process_emote_json(
     &ffz_url,
     cache_path,
-    &format!("cache/ffz-channel-json-{}", channel_id),
+    &format!("ffz-channel-json-{}", channel_id),
     None,
     force_redownload
   )?;
@@ -246,7 +246,7 @@ pub fn load_channel_emotes(
   let bttv_emotes = process_emote_json(
     &bttv_url,
     cache_path,
-    &format!("cache/bttv-channel-json-{}", channel_id),
+    &format!("bttv-channel-json-{}", channel_id),
     None,
     force_redownload
   )?;
@@ -254,7 +254,7 @@ pub fn load_channel_emotes(
   let seventv_emotes = process_emote_json(
     &seventv_url,
     cache_path,
-    &format!("cache/7tv-channel-json-{}", channel_id),
+    &format!("7tv-channel-json-{}", channel_id),
     None,
     force_redownload
   )?;
@@ -262,7 +262,7 @@ pub fn load_channel_emotes(
   let twitch_follower_emotes = process_twitch_follower_emote_json(
     &twitch_url,
     cache_path,
-    &format!("cache/twitch-{}", channel_id),
+    &format!("twitch-{}", channel_id),
     Some([
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()
@@ -293,14 +293,14 @@ pub fn load_global_emotes(
   let bttv_emotes = process_emote_json(
     "https://api.betterttv.net/3/cached/emotes/global",
     cache_path,
-    "cache/bttv-global-json",
+    "bttv-global-json",
     None,
     force_redownload
   )?;
   let seventv_emotes = process_emote_json(
     "https://api.7tv.app/v2/emotes/global",
     cache_path,
-    "cache/7tv-global-json",
+    "7tv-global-json",
     None,
     force_redownload
   )?;
@@ -338,7 +338,7 @@ pub fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path:
   let emotes = process_emote_json(
     &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
     cache_path,
-    &format!("cache/twitch-emote-set-{}", emote_set_id),
+    &format!("twitch-emote-set-{}", emote_set_id),
     Some([
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -366,7 +366,7 @@ pub fn twitch_get_global_badges(token : &String, cache_path: &PathBuf, force_red
     "global",
     "https://api.twitch.tv/helix/chat/badges/global",
     cache_path,
-    "cache/twitch-badges-global",
+    "twitch-badges-global",
     Some([
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -394,7 +394,7 @@ pub fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path:
     room_id,
     &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
     cache_path,
-    &format!("cache/twitch-badges-channel-{}", room_id),
+    &format!("twitch-badges-channel-{}", room_id),
     Some([
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
@@ -420,7 +420,7 @@ pub fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path:
 pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   // Lifted from egui
   if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", app_name) {
-      let data_dir = proj_dirs.data_dir().to_path_buf();
+      let data_dir = proj_dirs.cache_dir().to_path_buf();
       if let Err(err) = std::fs::create_dir_all(&data_dir) {
           info!(
               "Saving disabled: Failed to create app path at {:?}: {}",

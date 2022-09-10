@@ -11,7 +11,7 @@ use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
-use crate::error_util::{LogErrResult, LogErrOption};
+use crate::{error_util::{LogErrResult, LogErrOption}, provider::MessageType};
 use regex::Regex;
 use tokio::{runtime::Runtime};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
@@ -185,7 +185,7 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
                         message: msg.data.log_unwrap(),
-                        is_server_msg: true,
+                        msg_type: MessageType::Announcement,
                         ..Default::default()
                       };
                       match tx.try_send(IncomingMessage::PrivMsg { message: cmsg }) {
@@ -221,6 +221,24 @@ async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : 
                           Err(x) => info!("Send failure for NAMES: {}", x)
                         };
                       }
+                    }
+                  },
+                  "ERR" => {
+                    if let Ok(msg) = serde_json::from_str::<DggErr>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
+                      
+                      match tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage {
+                        channel: DGG_CHANNEL_NAME.to_owned(), 
+                        provider: ProviderName::DGG, 
+                        message: match msg.description.as_str() {
+                          "duplicate" => "The message is identical to the last one you sent".to_owned(),
+                          _ => msg.description.to_owned()
+                        },
+                        msg_type: MessageType::Error,
+                        ..Default::default() 
+                      } }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for ERR: {}", x)
+                      };
                     }
                   },
                   _ => warn!("unknown dgg command: {:?}", message)
@@ -311,7 +329,7 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
 }
 
 pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
-  let json_path = &emote_loader.base_path.join("cache/dgg-flairs.json");
+  let json_path = &emote_loader.base_path.join("dgg-flairs.json");
   let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None, true)?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
@@ -328,7 +346,7 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
       loaded: crate::emotes::EmoteStatus::NotLoaded, 
       duration_msec: 0, 
       url: image.url.to_owned(), 
-      path: "cache/dgg/".to_owned(), 
+      path: "dgg/".to_owned(), 
       extension: Some(extension.to_owned()), 
       zero_width: false,
       css_anim: None,
@@ -339,11 +357,11 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
 }
 
 pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
-  let css_path = &emote_loader.base_path.join("cache/dgg-emotes.css");
+  let css_path = &emote_loader.base_path.join("dgg-emotes.css");
   let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None, true)?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
-  let json_path = &emote_loader.base_path.join("cache/dgg-emotes.json");
+  let json_path = &emote_loader.base_path.join("dgg-emotes.json");
   let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None, true)?;
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
     let mut result : HashMap<String, Emote> = Default::default();
@@ -363,7 +381,7 @@ pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
         loaded: crate::emotes::EmoteStatus::NotLoaded, 
         duration_msec: 0, 
         url: image.url.to_owned(), 
-        path: "cache/dgg/".to_owned(), 
+        path: "dgg/".to_owned(), 
         extension: Some(extension.to_owned()), 
         zero_width: false,
         css_anim: css_anim.map(|x| x.to_owned()),
@@ -498,6 +516,11 @@ struct DggEmote {
 struct DggEmoteImage {
   url: String,
   name: String
+}
+
+#[derive(serde::Deserialize)]
+struct DggErr {
+  description: String
 }
 
 #[derive(serde::Deserialize)]

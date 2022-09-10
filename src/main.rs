@@ -28,10 +28,10 @@ fn main() {
   };
 
   let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
-  eframe::run_native(&title.to_owned(), native_options, Box::new(|cc| { 
+  eframe::run_native(&title, native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());
     let runtime = tokio::runtime::Runtime::new().log_expect("new tokio Runtime");
-    let mut app = TemplateApp::new(cc, title, runtime);
+    let mut app = TemplateApp::new(cc, runtime);
     let loader = &mut app.emote_loader;
     let emotes = &mut app.global_emotes;
     if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {

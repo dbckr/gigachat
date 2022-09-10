@@ -32,7 +32,7 @@ mod test {
 
   #[test]
   fn test2() {
-    let css_path = "cache/dgg-emotes.css";
+    let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
     let loader = dgg::CSSLoader::default();
     let data = loader.get_css_anim_data(&css);
@@ -51,7 +51,7 @@ mod test {
 
   #[test]
   fn test3() {
-    let css_path = "cache/dgg-emotes.css";
+    let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
 
     //let regex = Regex::new(r"\.emote\.([^:\-\s]*?)\s\{.*? width: (\d+?)px;.*?animation: (?:[^\s]*?) (.*?);").unwrap();
@@ -78,42 +78,42 @@ mod test {
     let subscriber = Registry::default().with(console);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
 
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/60420a8b77137b000de9e66e.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60420a8b77137b000de9e66e.gif").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 60);
   }
 
   #[test]
   fn cummies() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/6129ca7da4d049e179751fe5.webp").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/6129ca7da4d049e179751fe5.webp").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
     assert_eq!(frames.unwrap().len(), 9);
   }
 
   #[test]
   fn gigachad() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/bttv/609431bc39b5010444d0cbdc.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/609431bc39b5010444d0cbdc.gif").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 198);
   }
 
   #[test]
   fn pokismash() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/bttv/5f0901cba2ac620530368579.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5f0901cba2ac620530368579.gif").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 25);
   }
 
   #[test]
   fn peepoLeave() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/7tv/60b056f5b254a5e16b929707.webp").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("7tv/60b056f5b254a5e16b929707.webp").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_webp(&buf);
     assert_eq!(frames.unwrap().len(), 11);
   }
 
   #[test]
   fn peepoLeave2() {
-    let buf = crate::emotes::imaging::load_file_into_buffer("cache/bttv/5d324913ff6ed36801311fd2.gif").log_unwrap();
+    let buf = crate::emotes::imaging::load_file_into_buffer("bttv/5d324913ff6ed36801311fd2.gif").log_unwrap();
     let frames = crate::emotes::imaging::load_animated_gif(&buf);
     assert_eq!(frames.unwrap().len(), 35);
   }
@@ -122,7 +122,7 @@ mod test {
   #[traced_test]
   fn load_emote() {
     let mut easy = Easy::new();
-    let img = crate::emotes::imaging::get_image_data("KEKW", "https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("cache/bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
+    let img = crate::emotes::imaging::get_image_data("KEKW", "https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
     assert!(img.is_some());
 
     logs_assert(|lines: &[&str]| {
@@ -196,7 +196,7 @@ mod test {
     use std::collections::HashMap;
     use chrono::Utc;
     use egui::{LayerId, Order, Pos2, Rect, Id};
-    use crate::{provider::{UserProfile, ChatMessage}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size}, load_font}};
+    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size}, load_font}};
 
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());
@@ -217,8 +217,8 @@ mod test {
         color: Some((0, 0, 0)),
       }, 
       combo_data: None,
-      is_removed: false,
-      is_server_msg: false };
+      is_removed: None,
+      msg_type: MessageType::Chat };
     let emotes : HashMap<String, EmoteFrame> = Default::default();
     let badges : HashMap<String, EmoteFrame> = Default::default();
     let ui_width = ui.available_width();

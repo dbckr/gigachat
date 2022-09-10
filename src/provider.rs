@@ -116,8 +116,17 @@ pub struct ChatMessage {
   pub message: String,
   pub profile: UserProfile,
   pub combo_data: Option<ComboCounter>,
-  pub is_removed: bool,
-  pub is_server_msg: bool
+  pub is_removed: Option<String>,
+  pub msg_type: MessageType
+}
+
+#[derive(Default)]
+#[derive(Clone)]
+#[derive(Eq, Hash, PartialEq)]
+pub enum MessageType {
+  #[default] Chat,
+  Error,
+  Announcement
 }
 
 impl Default for ChatMessage {
@@ -130,8 +139,8 @@ impl Default for ChatMessage {
       message: Default::default(), 
       profile: Default::default(),
       combo_data: None,
-      is_removed: false,
-      is_server_msg: false
+      is_removed: None,
+      msg_type: MessageType::Chat
     }
   }
 }
