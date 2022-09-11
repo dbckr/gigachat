@@ -1,8 +1,8 @@
-All the usual features you would expect in a twitch chat app: channel tabs, all the emotes (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
+![](./demo.gif)
 
-Also DGG support.
+All the usual features you would expect in a twitch chat app: channel tabs, emote support (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
 
-Will add Youtube support if they ever make their live stream chat API more accessible...
+Also supports DGG chat. Will add support for Youtube live stream chat if YT ever makes that API more feasible to support...
 
 # Features
 
@@ -14,20 +14,20 @@ Will add Youtube support if they ever make their live stream chat API more acces
 
 # Todo
 
-- Better README
+- Emote reload isn't updating json data (at least 7tv)
 - Twitch IRC sometimes fails to init/connect on startup
-- Option to download smaller emote size
-- Ability to quickly open/navigate browser to a stream
-- Handle Twitch CLEARCHAT, CLEARMSG commands
-- Handle USERNOTICE command
-- Make non-breaking changes to persistable configuration not break old configuration (or add automatic configuration migration)
-- Poll status (Twitch, DGG)
-- Twitch Prediction status
+- Option to download smaller emote sizes
+- Ability to open stream in browser for a selected tab
+- Handle Twitch CLEARCHAT, CLEARMSG commands (and DGG MUTE/BAN)
+- Make it less likely for changes or new settings to break saved settings
+
+Might do:
+
+- DGG Polls (Twitch sadly lacks API support that would allow chat apps to even see polls or predictions)
 - Twitch tier-exclusive emote logic
-- Used emote stats for ordering selector
-- Allow message headers (stuff up to and including username) to split between rows properly
 - Support/fix twitch modified emotes
 - Twitch Cheer emotes
 - Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
-- DGG oauth issue - application oauth flow tokens not working but login keys created directly on DGG site work
-  - Current workaround: removed oauth flow and add text directing users to create and enter a login key
+- DGG OAuth - tokens not working but login keys created directly on DGG site work
+  - Removed oauth flow and added text directing how to create a login key
+- Collect stats for emotes used and use them to order emote selector?
