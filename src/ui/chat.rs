@@ -11,6 +11,7 @@ use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, 
 use itertools::Itertools;
 use tracing_unwrap::OptionExt;
 
+use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
 
 use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
@@ -69,7 +70,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
         }
 
         if row_ix == 0 {
-          let uname_text = chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username);
+          let uname_text = determine_name_to_display(chat_msg.message);
           let username = match chat_msg.message.msg_type {
             MessageType::Chat => Some(uname_text),
             _ => None
@@ -217,6 +218,15 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
     info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   }
   (ui_row.response.rect, user_selected, msg_right_clicked)
+}
+
+pub fn determine_name_to_display<'a>(chat_msg: &'a ChatMessage) -> &'a String {
+    let uname_text = chat_msg.profile.display_name.as_ref().unwrap_or(&chat_msg.username);
+    if chat_msg.profile.display_name.is_some() && !uname_text.is_ascii() {
+      &chat_msg.username
+    } else {
+      uname_text 
+    }
 }
 
 fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {

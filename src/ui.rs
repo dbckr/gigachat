@@ -1060,7 +1060,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
-        if *show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
+        if !*show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
             if *enable_combos && combo.is_some_and(|c| !c.is_end) {
               // add nothing to y_pos

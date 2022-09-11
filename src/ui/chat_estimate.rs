@@ -38,7 +38,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   let margin_width = 1. + ui.spacing().item_spacing.x; // single pixel image that starts each row
   //info!("ascii {}", is_ascii_art.is_some());
 
-  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(&row.username), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
+  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(chat::determine_name_to_display(row)), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
   let header_rows = &ui.fonts().layout_job(job).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));
