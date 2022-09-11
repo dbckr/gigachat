@@ -48,18 +48,18 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   let channel_color = get_provider_color(&chat_msg.message.provider);
   let ui_row = ui.horizontal_wrapped(|ui| {
     let mut row_ix = 0;
-    if chat_msg.is_ascii_art {
+    /*if chat_msg.is_ascii_art {
       ui.spacing_mut().item_spacing.y = 0.;
-    }
+    }*/
 
     let chat_msg_rows = chat_msg.row_data.iter().map(|row| {
       match &row.msg_char_range {
-        TextRange::Range { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).take(range.end - range.start).collect::<String>(), row.is_visible, row.row_height),
-        TextRange::EndRange { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).collect::<String>(), row.is_visible, row.row_height)
+        TextRange::Range { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).take(range.end - range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art),
+        TextRange::EndRange { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art)
       }
     });
 
-    for (message, is_visible, row_height) in chat_msg_rows {
+    for (row_text, is_visible, row_height, is_ascii_art) in chat_msg_rows {
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
         ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
@@ -70,11 +70,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
         }
 
         if row_ix == 0 {
-          let uname_text = determine_name_to_display(chat_msg.message);
-          let username = match chat_msg.message.msg_type {
-            MessageType::Chat => Some(uname_text),
-            _ => None
-          };
+          let username = determine_name_to_display(chat_msg.message);
           let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
           ui.label(job);
           if let Some(user_badges) = &chat_msg.message.profile.badges {
@@ -110,7 +106,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
             }
           }
     
-          if chat_msg.message.msg_type == MessageType::Chat {
+          if let Some(uname_text) = username {
             let uname_rich_text = RichText::new(&format!("{}:", uname_text))
               .size(BODY_TEXT_SIZE)
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
@@ -125,7 +121,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
         }
 
         let mut italicize = false;
-        for word in message.split(' ') {
+        for word in row_text.split(' ') {
           if word == "ACTION" {
             italicize = true;
             continue;
@@ -179,7 +175,7 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                 }
               },
               None => {
-                let mut text = match chat_msg.is_ascii_art {
+                let mut text = match is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
                   false => RichText::new(word).color(convert_color(&message_color))
                 }.size(BODY_TEXT_SIZE);
@@ -220,13 +216,17 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
   (ui_row.response.rect, user_selected, msg_right_clicked)
 }
 
-pub fn determine_name_to_display<'a>(chat_msg: &'a ChatMessage) -> &'a String {
-    let uname_text = chat_msg.profile.display_name.as_ref().unwrap_or(&chat_msg.username);
-    if chat_msg.profile.display_name.is_some() && !uname_text.is_ascii() {
-      &chat_msg.username
-    } else {
-      uname_text 
-    }
+pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
+  if chat_msg.msg_type != MessageType::Chat {
+    return None;
+  }
+
+  let uname_text = chat_msg.profile.display_name.as_ref().unwrap_or(&chat_msg.username);
+  if chat_msg.profile.display_name.is_some() && !uname_text.is_ascii() {
+    Some(&chat_msg.username)
+  } else {
+    Some(uname_text)
+  }
 }
 
 fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {

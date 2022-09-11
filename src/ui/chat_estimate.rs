@@ -29,19 +29,18 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_name: bool, show_timestamp: bool) -> (Vec<(f32, TextRange)>, bool) {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
-  let mut row_data : Vec<(f32, TextRange)> = Default::default();
-  let is_ascii_art = is_ascii_art(&row.message, emotes);
+  let mut row_data : Vec<(f32, TextRange, bool)> = Default::default();
   let margin_width = 1. + ui.spacing().item_spacing.x; // single pixel image that starts each row
   //info!("ascii {}", is_ascii_art.is_some());
 
-  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, Some(chat::determine_name_to_display(row)), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
+  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
   let header_rows = &ui.fonts().layout_job(job).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
-    row_data.insert(row_data.len(), (header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }));
+    row_data.push((header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }, false));
   }
   let badge_count = row.profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
   let badge_spacing = badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
@@ -50,30 +49,37 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   let mut curr_row_height = header_rows.last().unwrap_or_log().rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT);
 
   let mut ix = 0;
-  for word in row.message.to_owned().split_ascii_whitespace() {
-    if is_ascii_art.is_some() {
-      row_data.insert(row_data.len(), (curr_row_height, msg_char_range));
+  let mut has_ascii_art: Option<usize> = None;
+  let words = row.message.split_ascii_whitespace().collect_vec();
+  for (i, word) in words.iter().enumerate() {
+    has_ascii_art = match has_ascii_art {
+      None => is_start_of_ascii_art(&words, i),
+      Some(len) => if word.len() == len { Some(len) } else { None }
+    };
+    if has_ascii_art.is_some() {
+      row_data.push((curr_row_height, msg_char_range, true));
       curr_row_height = ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT);
       curr_row_width = margin_width;
       msg_char_range = TextRange::Range { range: (ix..ix) };
     }
 
-    msg_char_range = get_word_size(ui, ui_width, &mut ix, emotes, word, &mut curr_row_width, &mut curr_row_height, &mut row_data, &msg_char_range, is_ascii_art);
+    msg_char_range = get_word_size(ui, ui_width, &mut ix, emotes, word, &mut curr_row_width, &mut curr_row_height, &mut row_data, &msg_char_range, has_ascii_art);
     ix += 1;
   }
-  if curr_row_width > 0.0 {
-    row_data.insert(row_data.len(), (
+  if curr_row_width > margin_width {
+    row_data.push((
       curr_row_height.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), 
       //TextRange::Range { range: (msg_char_range.start()..ix - 1) } // -1 b/c last word may not have a trailing space
-      msg_char_range
+      msg_char_range,
+      false
     ));
   }
 
-  (row_data, is_ascii_art.is_some())
+  row_data
 }
 
 pub fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
-  curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
+  curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
   let mut row_start_char_ix = curr_row_range.start();
   let rows : Vec<(usize, egui::emath::Vec2)> = if let Some(emote) = emotes.get(word) {
@@ -108,7 +114,7 @@ pub fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &
   TextRange::Range { range: (row_start_char_ix..*ix) }
 }
 
-fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange)>, row_char_range: TextRange) -> bool {
+fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, row_char_range: TextRange) -> bool {
   let curr_width = *curr_row_width + rect.x + item_spacing.x;
   if curr_width <= available_width {
     *curr_row_width += rect.x + item_spacing.x;
@@ -116,7 +122,7 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
     false
   }
   else {
-    row_data.insert(row_data.len(), (*curr_row_height, row_char_range));
+    row_data.push((*curr_row_height, row_char_range, false));
     *curr_row_height = rect.y.max(interact_size.y).max(MIN_LINE_HEIGHT);
     *curr_row_width = 1. + item_spacing.x + rect.x + item_spacing.x;
     true
@@ -149,14 +155,12 @@ pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_
   job
 }
 
-pub fn is_ascii_art(msg: &str, emotes: &HashMap<String, EmoteFrame>) -> Option<usize> {
-  if msg.split_ascii_whitespace().any(|f| emotes.contains_key(f)) {
-    return None;
-  }
+const ASCII_ART_MIN_LINES : usize = 5;
+const ASCII_ART_MIN_LINE_WIDTH: usize = 15;
 
-  let words = msg.split_ascii_whitespace().map(|w| w.len()).collect_vec();
-  if words.len() > 1 && words.iter().all_equal() && let Some(len) = words.first() && len > &15 && words.len() > 3 {
-    Some(len.to_owned())
+pub fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize) -> Option<usize> {
+  if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
+    Some(words[ix].len())
   }
   else {
     None

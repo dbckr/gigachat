@@ -34,7 +34,8 @@ const COMBO_LINE_HEIGHT : f32 = 38.0;
 pub struct UiChatMessageRow {
   pub row_height: f32,
   pub msg_char_range: TextRange,
-  pub is_visible: bool
+  pub is_visible: bool,
+  pub is_ascii_art: bool
 }
 
 pub struct UiChatMessage<'a> {
@@ -44,7 +45,6 @@ pub struct UiChatMessage<'a> {
   pub mentions : Option<Vec<String>>,
   pub row_data : Vec<UiChatMessageRow>,
   pub msg_height : f32,
-  pub is_ascii_art: bool,
   pub user_color: Option<(u8,u8,u8)>,
   pub show_channel_name: bool,
   pub show_timestamp: bool
@@ -1091,7 +1091,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           else {
             line.is_visible = false;
           }
-          row_y += size_y + match uimsg.is_ascii_art { true => 0., false => ui.spacing().item_spacing.y };
+          row_y += size_y + ui.spacing().item_spacing.y;
         }
         if *enable_combos && combo.is_some_and(|c| !c.is_end) {
           // add nothing to y_pos
@@ -1173,15 +1173,15 @@ fn create_uichatmessage<'a>(
       .map(|t| (t.channel_emotes.as_ref(), t.badge_emotes.as_ref())).unwrap_or((None, None));
     let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &global_emotes, emote_loader);
     let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, emote_loader);
-    let (msg_sizing, is_ascii_art) = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
+    let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
     let mentions = if let Some(channel) = channels.get(&row.channel) {
       get_mentions_in_message(row, &channel.users)
     } else { None };
 
     let color = row.profile.color.or(user_color).map(|f| f.to_owned());
     let mut row_data : Vec<UiChatMessageRow> = Default::default();
-    for line in msg_sizing {
-      row_data.push(UiChatMessageRow { row_height: line.0, msg_char_range: line.1, is_visible: true });
+    for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
+      row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
     }
     let msg_height = row_data.iter().map(|f| f.row_height).sum();
 
@@ -1192,7 +1192,6 @@ fn create_uichatmessage<'a>(
       mentions,
       row_data,
       msg_height,
-      is_ascii_art,
       user_color: color,
       show_channel_name,
       show_timestamp

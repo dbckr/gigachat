@@ -212,7 +212,7 @@ mod test {
     
     let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp);
 
-    x.0.iter().map(|item| {
+    x.iter().map(|item| {
       let rng = match &item.1 {
         TextRange::Range { range } => range,
         _ => panic!("unexpected")
