@@ -916,7 +916,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           });
         }*/
     
-        if name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+        if name_input.is_some() && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, &mut self.emote_loader); 
           self.show_add_channel_menu = false;
         }
@@ -1422,7 +1422,7 @@ fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &mut egui::Ui
     if let Some((pos, msg)) = selected_msg.as_ref() {
       (area, clicked) = msg_context_menu(ui, pos, msg);
     }
-    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && !area.contains(ui.ctx().pointer_latest_pos().unwrap_or_log()) {
+    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && ui.ctx().pointer_interact_pos().is_some() && !area.contains(ui.ctx().pointer_interact_pos().unwrap_or_log()) {
       *selected_msg = None;
     }
 }
