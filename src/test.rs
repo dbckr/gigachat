@@ -1,5 +1,3 @@
-//#[allow(non_snake_case)]
-
 #[cfg(test)]
 mod test {
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
@@ -7,7 +5,7 @@ mod test {
   use curl::easy::Easy;
   use itertools::Itertools;
   use regex::Regex;
-  use crate::{emotes::fetch, provider::dgg};
+  use crate::{emotes::fetch, provider::dgg::{self, DggFlair}};
   use tracing_test::traced_test;
   use tracing_unwrap::{OptionExt};
 
@@ -15,6 +13,13 @@ mod test {
     let context : egui::Context = Default::default();
     let verifier = dgg::begin_authenticate(&context);
     println!("{}", verifier);
+  }
+
+  #[test]
+  fn test_json() {
+    let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", "https://cdn.destiny.gg/2.42.0").as_str(), Some("dgg-flairs.json"), None, true).unwrap();
+    let emotes = serde_json::from_str::<Vec<DggFlair>>(&json);
+    println!("{:?}", emotes);
   }
 
   #[test]
@@ -207,7 +212,7 @@ mod test {
       is_removed: None,
       msg_type: MessageType::Chat };
     let emotes : HashMap<String, EmoteFrame> = Default::default();
-    let badges : HashMap<String, EmoteFrame> = Default::default();
+    let badges : Vec<(String, EmoteFrame)> = Default::default();
     let ui_width = ui.available_width();
     
     let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp);

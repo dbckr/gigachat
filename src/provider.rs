@@ -90,7 +90,10 @@ pub struct Channel {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub users: HashMap<String, ChannelUser>
+  pub users: HashMap<String, ChannelUser>,
+  pub dgg_chat_url: String,
+  pub dgg_status_url: String,
+  pub dgg_cdn_url: String
 }
 
 pub struct ChannelUser {

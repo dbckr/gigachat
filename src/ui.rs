@@ -8,11 +8,11 @@ use tracing::{info, error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType}, emotes::{imaging::load_file_into_buffer}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
@@ -31,6 +31,13 @@ const BADGE_HEIGHT : f32 = 18.0;
 const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 38.0;
 
+pub enum ChannelTabDragEvent {
+  MoveRight { channel : String },
+  MoveLeft { channel : String },
+  //MoveToRightPane,
+  //MoveToLeftPane
+}
+
 pub struct UiChatMessageRow {
   pub row_height: f32,
   pub msg_char_range: TextRange,
@@ -41,7 +48,7 @@ pub struct UiChatMessageRow {
 pub struct UiChatMessage<'a> {
   pub message : &'a ChatMessage,
   pub emotes : HashMap<String, EmoteFrame>,
-  pub badges : Option<HashMap<String, EmoteFrame>>,
+  pub badges : Option<Vec<(String, EmoteFrame)>>,
   pub mentions : Option<Vec<String>>,
   pub row_data : Vec<UiChatMessageRow>,
   pub msg_height : f32,
@@ -79,19 +86,50 @@ pub struct AuthTokens {
 }
 
 #[derive(Default)]
+pub struct ChatFrameResponse {
+  channel_removed: Option<String>,
+  state: ChatPanelOptions
+}
+
+#[derive(Default)]
+#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "persistence", serde(default))]
+pub struct ChatPanelOptions {
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  selected_channel: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  draft_message: String,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  chat_frame: Option<Rect>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  chat_scroll: Option<Vec2>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_user: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_msg: Option<(Vec2, ChatMessage)>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_emote: Option<String>,
+}
+
+#[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
   pub providers: HashMap<ProviderName, Provider>,
-  channel_tab_list: Vec<String>,
   channels: HashMap<String, Channel>,
+  pub auth_tokens: AuthTokens,
+  enable_combos: bool,
+  pub show_timestamps: bool,
+  channel_tab_list: Vec<String>,
   selected_channel: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  chat_histories: HashMap<String, VecDeque<(ChatMessage, Option<f32>)>>,
+  rhs_selected_channel: Option<String>,
+  pub lhs_chat_state: ChatPanelOptions,
+  pub rhs_chat_state: ChatPanelOptions,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  draft_message: String,
+  chat_histories: HashMap<String, VecDeque<(ChatMessage, Option<f32>)>>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   show_add_channel_menu: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -101,53 +139,47 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub emote_loader: EmoteLoader,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub selected_emote: Option<String>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
   show_auth_ui: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
   show_channel_options: Option<(Vec2, String)>,
-  pub auth_tokens: AuthTokens,
-  chat_frame: Option<Rect>,
-  chat_scroll: Option<Vec2>,
-  enable_combos: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub twitch_chat_manager: Option<TwitchChatManager>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub dgg_chat_manager: Option<ChatManager>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub selected_user: Option<String>,
-  pub show_timestamps: bool,
-  #[cfg_attr(feature = "persistence", serde(skip))]
   pub show_timestamps_changed: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub selected_msg: Option<(Vec2, ChatMessage)>
+  pub dragged_channel_tab: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  rhs_tab_width: Option<f32>
 }
 
 impl TemplateApp {
   pub fn new(cc: &eframe::CreationContext<'_>, runtime: tokio::runtime::Runtime) -> Self {
     cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
     let mut r = TemplateApp {
-      selected_channel: Some("".to_owned()),
       ..Default::default()
     };
     #[cfg(feature = "persistence")]
     if let Some(storage) = cc.storage {
         r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
     }
-    let mut loader = EmoteLoader::new("Gigachat", &runtime);
-    loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
+    r.emote_loader = EmoteLoader::new("Gigachat", &runtime);
+    r.emote_loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
     r.runtime = Some(runtime);
-    r.emote_loader = loader;
     info!("{} channels", r.channels.len());
 
     if r.twitch_chat_manager.is_none() && !r.auth_tokens.twitch_username.is_empty() && !r.auth_tokens.twitch_auth_token.is_empty() {
       r.twitch_chat_manager = Some(TwitchChatManager::new(&r.auth_tokens.twitch_username, &r.auth_tokens.twitch_auth_token, r.runtime.as_ref().unwrap_or_log()));
-    }
 
-    if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
+      match r.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { token: r.auth_tokens.twitch_auth_token.to_owned(), force_redownload: false }) {  
+        Ok(_) => {},
+        Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
+      };
+    }
+    /*if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
       r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
-    }
-
+    }*/
     r
   }
 }
@@ -222,9 +254,29 @@ impl TemplateApp {
     if let Ok(event) = self.emote_loader.rx.try_recv() {
       let loading_emotes = &mut self.emote_loader.loading_emotes;
       match event {
+        EmoteResponse::GlobalEmoteListResponse { response } => {
+          match response {
+            Ok(x) => {
+              for (name, emote) in x {
+                self.global_emotes.insert(name, emote);
+              }
+            },
+            Err(x) => { error!("ERROR LOADING GLOBAL EMOTES: {}", x); }
+          };
+        },
         EmoteResponse::GlobalEmoteImageLoaded { name, data } => {
           if let Some(emote) = self.global_emotes.get_mut(&name) {
             set_emote_texture_data(emote, ctx, data, loading_emotes);
+          }
+        },
+        EmoteResponse::TwitchGlobalBadgeListResponse { response } => {
+          match response {
+            Ok(badges) => {
+              if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) {
+                provider.global_badges = Some(badges)
+              }
+            },
+            Err(e) => { error!("Failed to load twitch global badge json due to error {:?}", e); }
           }
         },
         EmoteResponse::GlobalBadgeImageLoaded { name, data } => {
@@ -260,20 +312,29 @@ impl TemplateApp {
             }
           }
         },
-        EmoteResponse::ChannelEmoteListResponse { channel_id, channel_name, response } => {
+        EmoteResponse::ChannelEmoteListResponse { channel_name, response } => {
           match response {
             Ok(emotes) => {
               if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(t) = channel.transient.as_mut() {
                 t.channel_emotes = Some(emotes)
               }
             },
-            Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel_id, e); }
+            Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel_name, e); }
+          }
+        },
+        EmoteResponse::ChannelBadgeListResponse { channel_name, response } => {
+          match response {
+            Ok(badges) => {
+              if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(t) = channel.transient.as_mut() {
+                t.badge_emotes = Some(badges)
+              }
+            },
+            Err(e) => { error!("Failed to load badge json for channel {} due to error {:?}", &channel_name, e); }
           }
         }
       }
     }
 
-    let mut channel_swap = false;
     let mut styles = egui::Style::default();
     styles.text_styles.insert(
       egui::TextStyle::Small,
@@ -305,6 +366,9 @@ impl TemplateApp {
       if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
 
+    let mut channel_swap = false;
+    let mut drag_channel_release : Option<String> = None;
+
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
@@ -312,7 +376,7 @@ impl TemplateApp {
             self.show_add_channel_menu = true;
           }
           ui.separator();
-          if ui.menu_button(RichText::new("Configure Tokens").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("Configure Logins").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
             self.show_auth_ui = true;
           }
           ui.separator();
@@ -330,352 +394,499 @@ impl TemplateApp {
       });
       ui.separator();
 
-      ui.horizontal_wrapped(|ui| {
-        let label = RichText::new("Mentions").size(BUTTON_TEXT_SIZE);
-        let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
-        if clbl.clicked() {
-          channel_swap = true;
-        }
-        else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
-          self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), "".to_owned()));
-        }
+      ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
+          //let available_width = ui.available_width();
+          if let Some(width) = self.rhs_tab_width {
+            ui.set_max_width(ui.available_width() - width);
+          }
 
-        let channels = &mut self.channels;
-        for (channel, sco) in channels.iter_mut() {  
-        //for channel in self.channel_tab_list.iter() {  
-          //if let Some(sco) = self.channels.get_mut(channel) {
-            if let Some(t) = sco.transient.as_mut() {            
-              let mut job = LayoutJob { ..Default::default() };
-              job.append(channel, 0., egui::TextFormat {
-                font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
-                color: Color32::LIGHT_GRAY,
-                ..Default::default()
-              });
-              if t.status.is_some_and(|s| s.is_live) {
-                let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 200 } else { 160 };
-                job.append("🔴", 3., egui::TextFormat {
-                  font_id: FontId::new(SMALL_TEXT_SIZE / 1.5, FontFamily::Proportional), 
-                  color: Color32::from_rgb(red, 0, 0),
-                  valign: Align::Center,
-                  ..Default::default()
-                });
+          let label = RichText::new("Mentions").size(BUTTON_TEXT_SIZE);
+          let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
+          if clbl.clicked() {
+            channel_swap = true;
+          }
+          else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
+            self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), "".to_owned()));
+          }
+    
+          let mut tabs : Vec<(String, Response)> = Default::default();
+          for channel in self.channel_tab_list.to_owned().iter() {  
+            if self.rhs_selected_channel.as_ref() != Some(channel) {
+              let clbl = self.ui_channel_tab(channel, ui, ctx, &mut channel_removed, &mut drag_channel_release);
+              if let Some(clbl) = clbl {
+                tabs.push((channel.to_owned(), clbl));
               }
-              let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), job);
-              if clbl.clicked() {
-                channel_swap = true;
-              }
-              else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
-                self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), channel.to_owned()));
-              }
-              else if clbl.middle_clicked() {
-                channel_removed = Some(channel.to_owned());
-              }
-              if let Some(status) = &t.status && status.is_live {
-                clbl.on_hover_ui(|ui| {
-                  if let Some(title) = status.title.as_ref() {
-                    ui.label(title);
-                  }
-                  if let Some(game) = status.game_name.as_ref() {
-                    ui.label(game);
-                  }
-                  if let Some(viewers) = status.viewer_count.as_ref() {
-                    ui.label(format!("{} viewers", viewers));
-                  }
-                  
-                  if let Some(started_at) = status.started_at.as_ref() { 
-                    if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
-                      let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
-                      let width = 2;
-                      ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
-                    }
-                    else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
-                      let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
-                      let width = 2;
-                      ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
-                    }
-                  }
-                });
-              }
-            }
-            else if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-              // channel has not been opened yet
-              warn!("Failed to open channel: {}", channel);
-              chat_mgr.open_channel(sco);
             }
           }
-        //}
+    
+          if self.dragged_channel_tab.is_some() && let Some(drag_channel) = self.dragged_channel_tab.as_ref() && let Some(ptr) = ctx.pointer_latest_pos() {
+            let mut swapped = false;
+            for ((l_channel, l_tab), (r_channel, r_tab)) in tabs.iter().tuple_windows() {
+              if ui.min_rect().contains(ptr) {
+                if l_channel == drag_channel && (ptr.x > r_tab.rect.left() && ptr.y > r_tab.rect.top() && ptr.y < r_tab.rect.bottom() || ptr.y > l_tab.rect.bottom()) {
+                  let ix = self.channel_tab_list.iter().position(|x| x == l_channel);
+                  if let Some(ix) = ix && ix < self.channel_tab_list.len() - 1 {
+                    self.channel_tab_list.swap(ix, ix + 1);
+                    swapped = true;
+                  }
+                }
+                else if r_channel == drag_channel && (ptr.x < l_tab.rect.right() && ptr.y > l_tab.rect.top() && ptr.y < l_tab.rect.bottom() || ptr.y < r_tab.rect.top()) {
+                  let ix = self.channel_tab_list.iter().position(|x| x == r_channel);
+                  if let Some(ix) = ix && ix > 0 {
+                    self.channel_tab_list.swap(ix - 1, ix);
+                    swapped = true;
+                  }
+                }
+              }
+            }
+            if !swapped && Some(drag_channel) != self.rhs_selected_channel.as_ref()
+                && ctx.input().pointer.primary_clicked()
+                && let Some(x) = tabs.iter_mut().find(|(name, _)| name == drag_channel)  {
+              self.selected_channel = Some(drag_channel.to_owned());
+              x.1.mark_changed();
+              channel_swap = true;
+            }
+          }
+
+          
+        });
+        if let Some(channel) = self.rhs_selected_channel.to_owned() {
+            let resp = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+              self.ui_channel_tab(&channel, ui, ctx, &mut channel_removed, &mut drag_channel_release);
+              if ui.button("<").on_hover_text("Close split chat").clicked() {
+                self.rhs_selected_channel = None;
+              }
+            });
+            self.rhs_tab_width = Some(resp.response.rect.width());
+        }
       });
     });
+
+    let lhs_chat_state = ChatPanelOptions {
+        selected_channel: self.selected_channel.to_owned(),
+        draft_message: self.lhs_chat_state.draft_message.to_owned(),
+        chat_frame: self.lhs_chat_state.chat_frame.to_owned(),
+        chat_scroll: self.lhs_chat_state.chat_scroll.to_owned(),
+        selected_user: self.lhs_chat_state.selected_user.to_owned(),
+        selected_msg: self.lhs_chat_state.selected_msg.to_owned(),
+        selected_emote: self.lhs_chat_state.selected_emote.to_owned()
+    };
+
+    if channel_swap {
+      self.lhs_chat_state.chat_scroll = None;
+      self.rhs_chat_state.chat_scroll = None;
+    }
+
+    let mut popped_height = 0.;
+    let mut rhs_popped_height = 0.;
+    for (_channel, history) in self.chat_histories.iter_mut() {
+      if history.len() > 2000 && let Some(popped) = history.pop_front() 
+        && let Some(mut height) = popped.1 {
+        if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
+          // add nothing to y_pos
+        } else {
+          if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end && c.count > 1) {
+            height = COMBO_LINE_HEIGHT + ctx.style().spacing.item_spacing.y;
+          } 
+
+          if self.selected_channel.is_none() || self.selected_channel.as_ref() == Some(&popped.0.channel) {
+            popped_height += height;
+          } else if self.rhs_selected_channel.is_none() || self.rhs_selected_channel.as_ref() == Some(&popped.0.channel) {
+            rhs_popped_height += height;
+          }
+        }
+      }
+    }
+
+    let cframe = egui::Frame { 
+      inner_margin: egui::style::Margin::same(0.), 
+      outer_margin: egui::style::Margin::same(3.),
+      fill: egui::Color32::from_rgba_unmultiplied(40, 40, 40, 50),
+      ..Default::default() 
+    };
+    let mut lhs_response : ChatFrameResponse = Default::default();
+    let cpanel_resp = egui::CentralPanel::default()
+    .frame(cframe)
+    .show(ctx, |ui| {
+      lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, self.rhs_selected_channel.is_some(), popped_height);
+      if self.rhs_selected_channel.is_none() && let Some(pos) = ctx.pointer_latest_pos() && ui.min_rect().contains(pos) {
+        if self.dragged_channel_tab.is_some() && pos.x > ui.available_width() * 0.5 {
+          //paint rectangle to indicate drop will shift to other chat panel
+          let paintrect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
+          ui.painter().rect_filled(paintrect, Rounding::none(), Color32::from_rgba_unmultiplied(40,40,40,150));
+        }
+        if let Some(channel) = drag_channel_release.as_ref() && pos.x > ui.available_width() * 0.5 && ui.min_rect().contains(pos) {
+          self.rhs_selected_channel = Some(channel.to_owned());
+        }
+      }
+    });
+    let rect = cpanel_resp.response.rect;
+    self.lhs_chat_state = lhs_response.state;
+
+    if self.rhs_selected_channel.is_some() {
+      let mut rhs_response : ChatFrameResponse = Default::default();
+      let rhs_chat_state = ChatPanelOptions {
+        selected_channel: self.rhs_selected_channel.to_owned(),
+        draft_message: self.rhs_chat_state.draft_message.to_owned(),
+        chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
+        chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
+        selected_user: self.rhs_chat_state.selected_user.to_owned(),
+        selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
+        selected_emote: self.rhs_chat_state.selected_emote.to_owned()
+      };
+
+      egui::Window::new("RHS Chat")
+      .frame(egui::Frame { 
+        inner_margin: egui::style::Margin::same(0.), 
+        outer_margin: egui::style::Margin { left: -3., right: 1., top: 0., bottom: 0. },
+        fill: egui::Color32::TRANSPARENT,
+        ..Default::default() 
+      })
+      .fixed_rect(Rect::from_two_pos(rect.center_top(), rect.right_bottom())
+        .shrink2(Vec2::new(3., 0.))
+        .translate(Vec2::new(5., 0.))
+      )
+      .title_bar(false)
+      .collapsible(false)
+      .show(ctx, |ui| {
+        rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
+      });
+
+      self.rhs_chat_state = rhs_response.state;
+    }
+    
+    channel_removed = channel_removed.or(lhs_response.channel_removed);
+
     if let Some(channel) = channel_removed && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.leave_channel(&channel);
       self.channels.remove(&channel);
       self.channel_tab_list = self.channel_tab_list.iter().filter_map(|f| if f != &channel { Some(f.to_owned()) } else { None }).collect_vec();
-      self.selected_channel = None;
     }
-    
-
-    let cframe = egui::Frame { 
-      inner_margin: egui::style::Margin::same(5.0), 
-      fill: egui::Color32::from_rgba_unmultiplied(40, 40, 40, 50),
-      ..Default::default() 
-    };
-    
-    egui::CentralPanel::default().frame(cframe).show(ctx, |ui| {
-      ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
-        if let Some(sc) = &self.selected_channel.to_owned() {
-          let goto_next_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
-          let goto_prev_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
-          let enter_emote = self.selected_emote.is_some() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
-          let prev_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
-          let next_history = ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
-
-          ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
-          let mut outgoing_msg = egui::TextEdit::multiline(&mut self.draft_message)
-            .desired_rows(2)
-            .desired_width(ui.available_width())
-            .hint_text("Type a message to send")
-            .font(egui::TextStyle::Body)
-            .show(ui);  
-
-          if prev_history || next_history {
-            if let Some(sco) = (&mut self.channels).get_mut(sc) {
-              let mut ix = sco.send_history_ix.unwrap_or(0);
-              let msg = sco.send_history.get(ix);
-              if prev_history {
-                ix = ix.add(1).min(sco.send_history.len() - 1);
-              } else {
-                ix = ix.saturating_sub(1);
-              };
-              if let Some(msg) = msg {
-                self.draft_message = msg.to_owned();
-                outgoing_msg.state.set_ccursor_range(
-                  Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message.len())))
-                );
-              }
-              sco.send_history_ix = Some(ix);
-            }
-          }
-
-          if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && !ui.input().modifiers.shift && !self.draft_message.is_empty() {
-            if let Some(sco) = (&mut self.channels).get_mut(sc) {
-              if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-                match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: self.draft_message.replace('\n', " ") }) {
-                  Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
-                  _ => {
-                    sco.send_history.push_front(self.draft_message.to_owned());
-                    self.draft_message = String::new();
-                    sco.send_history_ix = None;
-                  }
-                }
-              } 
-              else if sco.provider == ProviderName::DGG && let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
-                match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: "".to_owned(), message: self.draft_message.replace('\n', " ") }) {
-                  Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
-                  _ => {
-                    sco.send_history.push_front(self.draft_message.to_owned());
-                    self.draft_message = String::new();
-                    sco.send_history_ix = None;
-                  }
-                }
-              }
-            } 
-          }
-          else if !self.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
-            let cursor = cursor_pos.primary.index;
-            let msg = &self.draft_message.to_owned();
-            let word : Option<(usize, &str)> = msg.split_whitespace()
-              .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
-              .filter_map(|p| if p.0 <= cursor && cursor <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
-              .next();
-            let is_user_list = word.as_ref().is_some_and(|f| f.1.starts_with('@'));
-            let emotes = if is_user_list { self.get_possible_users(word) } else { self.get_possible_emotes(word) };
-            if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
-              if enter_emote && let Some(emote_text) = &self.selected_emote {
-                let msg = if self.draft_message.len() <= pos + word.len() || &self.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
-                  format!("{}{} {}", &self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
-                } else {
-                  format!("{}{}{}", &self.draft_message[..pos], emote_text, &self.draft_message[pos + word.len()..])
-                };
-                self.draft_message = msg;
-                outgoing_msg.response.request_focus();
-                info!("{}", emote_text.len());
-                outgoing_msg.state.set_ccursor_range(
-                  Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(self.draft_message[..pos].len() + emote_text.len() + 1)))
-                );
-                self.selected_emote = None;
-              }
-              else {
-                if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix + 1 < emotes.len() {
-                  self.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
-                }
-                else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == self.selected_emote.as_ref()) && ix > 0 {
-                  self.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
-                }
-                else if self.selected_emote.is_none() || !emotes.iter().any(|x| Some(&x.0) == self.selected_emote.as_ref()) {
-                  self.selected_emote = emotes.first().map(|x| x.0.to_owned());
-                }
-
-                // Overlay style emote selector
-                let msg_rect = outgoing_msg.response.rect.to_owned();
-                let ovl_height = ui.available_height() / 2.;
-                let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
-                let mut painter = ui.painter_at(painter_rect);
-                let painter_rect = painter.clip_rect();
-                painter.set_layer_id(egui::LayerId::debug());
-
-                let mut y = painter_rect.bottom();
-                let mut x = painter_rect.left();
-                for emote in emotes {
-                  let mut job = LayoutJob {
-                    wrap: egui::epaint::text::TextWrapping { 
-                      break_anywhere: false,
-                      ..Default::default()
-                    },
-                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
-                    ..Default::default()
-                  };
-                  job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
-                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
-                    ..Default::default() });
-                  let galley = ui.fonts().layout_job(job);
-                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
-
-                  let width = if !is_user_list {
-                    let texture = emote.1.as_ref()
-                      .and_then(|f| f.texture.as_ref())
-                      .or_else(|| self.emote_loader.transparent_img.as_ref())
-                      .unwrap_or_log();
-
-                    let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
-                    if x + width + text_width > painter_rect.right() {
-                      y -= EMOTE_HEIGHT;
-                      x = painter_rect.left();
-                    }
-
-                    let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
-                    let rect = egui::Rect { 
-                      min: egui::pos2(painter_rect.left() + x, y - EMOTE_HEIGHT ), 
-                      max: egui::pos2(painter_rect.left() + x + width, y) 
-                    };
-
-                    painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
-                      max: egui::pos2(x + width + text_width, y),
-                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-
-                    let mut mesh = egui::Mesh::with_texture(texture.id());
-                    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-                    painter.add(egui::Shape::mesh(mesh));
-                    width
-                  } else {
-                    if x + text_width > painter_rect.right() {
-                      y -= EMOTE_HEIGHT;
-                      x = painter_rect.left();
-                    }
-                    painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
-                      max: egui::pos2(x + text_width + 1., y),
-                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-                    0.
-                  };
-
-                  let disp_text = emote.0.to_owned();
-                  painter.text(
-                    egui::pos2(painter_rect.left() + x + width, y), 
-                    egui::Align2::LEFT_BOTTOM, 
-                    disp_text, 
-                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
-                    if self.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE }
-                  );
-
-                  x = x + width + text_width;
-                }
-              }
-            }
-          }
-
-          outgoing_msg.state.store(ctx, outgoing_msg.response.id);
-        }
-        
-        let mut popped_height = 0.;
-        for (_channel, history) in self.chat_histories.iter_mut() {
-          if history.len() > 2000 && let Some(popped) = history.pop_front() 
-            && let Some(height) = popped.1 && (self.selected_channel.is_none() || self.selected_channel == Some(popped.0.channel)) {
-            if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
-              // add nothing to y_pos
-            } else if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end && c.count > 1) {
-              popped_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-            } else {
-              popped_height += height;
-            }
-          }
-        }
-
-        if channel_swap {
-          self.chat_scroll = None;
-        }
-
-        ui.style_mut().visuals.override_text_color = Some(egui::Color32::LIGHT_GRAY);
-        let chat_area = egui::ScrollArea::vertical()
-          .auto_shrink([false; 2])
-          .stick_to_bottom(true)
-          .always_show_scroll(true)
-          .scroll_offset(self.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
-        let selected_user_before = self.selected_user.as_ref().map(|x| x.to_owned());
-        let mut overlay_viewport : Rect = Rect::NOTHING;
-        let mut y_size = 0.;
-        let area = chat_area.show_viewport(ui, |ui, viewport| {  
-          overlay_viewport = viewport;
-          y_size = self.show_variable_height_rows(ui, viewport, &self.selected_channel.to_owned());
-        });
-
-        // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
-        self.chat_scroll = Some(area.state.offset);
-
-        let jump_rect = if area.state.offset.y != y_size - area.inner_rect.height() && y_size > area.inner_rect.height() {
-          let rect = Rect {
-            min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 60. },
-            max: area.inner_rect.max,
-          };
-          let jumpwin = egui::Window::new("JumpToBottom")
-          .fixed_rect(rect)
-          .title_bar(false)
-          .frame(egui::Frame { 
-            inner_margin: egui::style::Margin { left: 0., right: 0., top: 0., bottom: 0. }, 
-            outer_margin: egui::style::Margin { left: 0., right: 0., top: 0., bottom: 0. }, 
-            rounding: Rounding::none(), 
-            shadow: eframe::epaint::Shadow::default(),
-            fill: Color32::TRANSPARENT,
-            stroke: Stroke::none()
-          })
-          .show(ctx, |ui| {
-            if ui.button(RichText::new(" 🡳 ").size(48.)).clicked() {
-              self.chat_scroll = Some(Vec2 { x: 0., y: y_size });
-            }
-          });
-          jumpwin.unwrap_or_log().response.rect
-        } else { Rect::NOTHING };
-
-        // Overlay for selected chatter's history
-        //self.selected_user_chat_history_overlay(area.inner_rect, ui);
-        // Window for selected chatter's history
-        let history_rect = self.selected_user_chat_history_window(area.inner_rect, ctx);
-
-        if ctx.input().pointer.any_click()
-            && selected_user_before == self.selected_user
-            && let Some(pos) = ctx.input().pointer.interact_pos() 
-            && area.inner_rect.contains(pos)
-            && !history_rect.contains(pos)
-            && !jump_rect.contains(pos) {
-          self.selected_user = None;
-        }
-      });
-    });
 
     ctx.request_repaint();
   }
 
-fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
+  fn ui_channel_tab(&mut self, channel: &String, ui: &mut egui::Ui, ctx: &egui::Context, channel_removed: &mut Option<String>, drag_channel_release: &mut Option<String>) -> Option<Response> {
+    if let Some(sco) = self.channels.get_mut(channel) {
+      if let Some(t) = sco.transient.as_mut() {            
+        let mut job = LayoutJob { ..Default::default() };
+        job.append(channel, 0., egui::TextFormat {
+          font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
+          color: Color32::LIGHT_GRAY,
+          ..Default::default()
+        });
+        if t.status.is_some_and(|s| s.is_live) {
+          let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 255 } else { 200 };
+          job.append("🔴", 3., egui::TextFormat {
+            font_id: FontId::new(SMALL_TEXT_SIZE / 1.7, FontFamily::Proportional), 
+            color: Color32::from_rgb(red, 0, 0),
+            valign: Align::Center,
+            ..Default::default()
+          });
+        }
+        //let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), job);
+        let clblx = SelectableLabel::new(self.selected_channel == Some(channel.to_owned()), job);
+        let mut clbl = ui.add(clblx);
+        
+        if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
+          self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), channel.to_owned()));
+        }
+        else if clbl.middle_clicked() {
+          *channel_removed = Some(channel.to_owned());
+        }
+        if clbl.drag_started() && self.dragged_channel_tab.is_none() {
+          self.dragged_channel_tab = Some(channel.to_owned());
+        }
+        else if clbl.drag_released() {
+          self.dragged_channel_tab = None;
+          *drag_channel_release = Some(channel.to_owned());
+        }
+
+        if let Some(status) = &t.status && status.is_live {
+          clbl = clbl.on_hover_ui(|ui| {
+            if let Some(title) = status.title.as_ref() {
+              ui.label(title);
+            }
+            if let Some(game) = status.game_name.as_ref() {
+              ui.label(game);
+            }
+            if let Some(viewers) = status.viewer_count.as_ref() {
+              ui.label(format!("{} viewers", viewers));
+            }
+        
+            if let Some(started_at) = status.started_at.as_ref() { 
+              if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
+                let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                let width = 2;
+                ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+              }
+              else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
+                let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                let width = 2;
+                ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+              }
+            }
+          });
+        }
+        return Some(clbl);
+      }
+      else if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+        // channel has not been opened yet
+        warn!("Failed to open channel: {}", channel);
+        chat_mgr.open_channel(sco);
+      }
+      else if sco.provider == ProviderName::DGG {
+        self.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
+      }
+    }
+    None
+  }
+
+  fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
+    let mut response : ChatFrameResponse = Default::default();
+    ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
+      if half_width {
+        ui.set_width(ui.available_width() / 2.);
+      }
+      //ui.painter().rect_stroke(ui.max_rect(), Rounding::none(), Stroke::new(2.0, Color32::DARK_RED));
+      if let Some(sc) = chat_panel.selected_channel.as_ref().to_owned() {
+
+        ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
+        let mut outgoing_msg = egui::TextEdit::multiline(&mut chat_panel.draft_message)
+          .desired_rows(2)
+          .desired_width(ui.available_width())
+          .hint_text("Type a message to send")
+          .font(egui::TextStyle::Body)
+          .show(ui);
+          
+        let goto_next_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
+        let goto_prev_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
+        let enter_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
+        let prev_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
+        let next_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
+
+        if prev_history || next_history {
+          if let Some(sco) = self.channels.get_mut(sc) {
+            let mut ix = sco.send_history_ix.unwrap_or(0);
+            let msg = sco.send_history.get(ix);
+            if prev_history {
+              ix = ix.add(1).min(sco.send_history.len() - 1);
+            } else {
+              ix = ix.saturating_sub(1);
+            };
+            if let Some(msg) = msg {
+              chat_panel.draft_message = msg.to_owned();
+              outgoing_msg.state.set_ccursor_range(
+                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(chat_panel.draft_message.len())))
+              );
+            }
+            sco.send_history_ix = Some(ix);
+          }
+        }
+
+        if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && !ui.input().modifiers.shift && !chat_panel.draft_message.is_empty() {
+          if let Some(sco) = self.channels.get_mut(sc) {
+            if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+                Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
+                _ => {
+                  sco.send_history.push_front(chat_panel.draft_message.to_owned());
+                  chat_panel.draft_message = String::new();
+                  sco.send_history_ix = None;
+                }
+              }
+            } 
+            else if sco.provider == ProviderName::DGG && let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
+              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: "".to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+                Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
+                _ => {
+                  sco.send_history.push_front(chat_panel.draft_message.to_owned());
+                  chat_panel.draft_message = String::new();
+                  sco.send_history_ix = None;
+                }
+              }
+            }
+          } 
+        }
+        else if !chat_panel.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+          let cursor = cursor_pos.primary.index;
+          let msg = &chat_panel.draft_message.to_owned();
+          let word : Option<(usize, &str)> = msg.split_whitespace()
+            .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
+            .filter_map(|p| if p.0 <= cursor && cursor <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
+            .next();
+          let is_user_list = word.as_ref().is_some_and(|f| f.1.starts_with('@'));
+          let emotes = if is_user_list { self.get_possible_users(&chat_panel.selected_channel, word) } else { self.get_possible_emotes(&chat_panel.selected_channel, word) };
+          if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
+            if enter_emote && let Some(emote_text) = &chat_panel.selected_emote {
+              let msg = if chat_panel.draft_message.len() <= pos + word.len() || &chat_panel.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
+                format!("{}{} {}", &chat_panel.draft_message[..pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
+              } else {
+                format!("{}{}{}", &chat_panel.draft_message[..pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
+              };
+              chat_panel.draft_message = msg;
+              outgoing_msg.response.request_focus();
+              info!("{}", emote_text.len());
+              outgoing_msg.state.set_ccursor_range(
+                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(chat_panel.draft_message[..pos].len() + emote_text.len() + 1)))
+              );
+              chat_panel.selected_emote = None;
+            }
+            else {
+              if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
+                chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
+              }
+              else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
+                chat_panel.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
+              }
+              else if chat_panel.selected_emote.is_none() || !emotes.iter().any(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) {
+                chat_panel.selected_emote = emotes.first().map(|x| x.0.to_owned());
+              }
+
+              // Overlay style emote selector
+              let msg_rect = outgoing_msg.response.rect.to_owned();
+              let ovl_height = ui.available_height() / 2.;
+              let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
+              let mut painter = ui.painter_at(painter_rect);
+              let painter_rect = painter.clip_rect();
+              painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
+
+              let mut y = painter_rect.bottom();
+              let mut x = painter_rect.left();
+              for emote in emotes {
+                let mut job = LayoutJob {
+                  wrap: egui::epaint::text::TextWrapping { 
+                    break_anywhere: false,
+                    ..Default::default()
+                  },
+                  first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                  ..Default::default()
+                };
+                job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
+                  font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                  ..Default::default() });
+                let galley = ui.fonts().layout_job(job);
+                let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
+                let width = if !is_user_list {
+                  let texture = emote.1.as_ref()
+                    .and_then(|f| f.texture.as_ref())
+                    .or_else(|| self.emote_loader.transparent_img.as_ref())
+                    .unwrap_or_log();
+
+                  let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
+                  if x + width + text_width > painter_rect.right() {
+                    y -= EMOTE_HEIGHT;
+                    x = painter_rect.left();
+                  }
+
+                  painter.rect_filled(egui::Rect {
+                    min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                    max: egui::pos2(x + width + text_width, y),
+                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+
+                  let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
+                  let rect = egui::Rect { 
+                    min: egui::pos2(x, y - EMOTE_HEIGHT ), 
+                    max: egui::pos2(x + width, y) 
+                  };
+
+                  let mut mesh = egui::Mesh::with_texture(texture.id());
+                  mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+                  painter.add(egui::Shape::mesh(mesh));
+                  width
+                } else {
+                  if x + text_width > painter_rect.right() {
+                    y -= EMOTE_HEIGHT;
+                    x = painter_rect.left();
+                  }
+                  painter.rect_filled(egui::Rect {
+                    min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                    max: egui::pos2(x + text_width + 1., y),
+                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                  0.
+                };
+
+                let disp_text = emote.0.to_owned();
+                painter.text(
+                  egui::pos2(x + width, y), 
+                  egui::Align2::LEFT_BOTTOM, 
+                  disp_text, 
+                  FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                  if chat_panel.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE }
+                );
+
+                x = x + width + text_width;
+              }
+            }
+          }
+        }
+
+        outgoing_msg.state.store(ctx, outgoing_msg.response.id);
+      }
+  
+      ui.style_mut().visuals.override_text_color = Some(egui::Color32::LIGHT_GRAY);
+      let selected_user_before = chat_panel.selected_user.as_ref().map(|x| x.to_owned());
+
+      let chat_area = egui::ScrollArea::vertical()
+        .id_source(format!("chatscrollarea {}", id))
+        .auto_shrink([false; 2])
+        .stick_to_bottom(true)
+        .always_show_scroll(true)
+        .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
+  
+      let mut overlay_viewport : Rect = Rect::NOTHING;
+      let mut y_size = 0.;
+      let area = chat_area.show_viewport(ui, |ui, viewport| {  
+        overlay_viewport = viewport;
+        y_size = self.show_variable_height_rows(&mut chat_panel, ui, viewport);
+      });
+      // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
+      chat_panel.chat_scroll = Some(area.state.offset);
+
+      let jump_rect = if area.state.offset.y != y_size - area.inner_rect.height() && y_size > area.inner_rect.height() {
+        let rect = Rect {
+          min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 60. },
+          max: area.inner_rect.max,
+        };
+        let jumpwin = egui::Window::new(format!("JumpToBottom {}", id))
+        .fixed_rect(rect)
+        .title_bar(false)
+        .frame(egui::Frame { 
+          inner_margin: egui::style::Margin::same(0.), 
+          outer_margin: egui::style::Margin::same(0.),
+          rounding: Rounding::none(), 
+          shadow: eframe::epaint::Shadow::default(),
+          fill: Color32::TRANSPARENT,
+          stroke: Stroke::none()
+        })
+        .show(ctx, |ui| {
+          if ui.button(RichText::new(" 🡳 ").size(48.)).clicked() {
+            chat_panel.chat_scroll = Some(Vec2 { x: 0., y: y_size });
+          }
+        });
+        jumpwin.unwrap_or_log().response.rect
+      } else { Rect::NOTHING };
+
+      // Overlay for selected chatter's history
+      //self.selected_user_chat_history_overlay(area.inner_rect, ui);
+      // Window for selected chatter's history
+      let history_rect = self.selected_user_chat_history_window(id, &mut chat_panel, ui.max_rect(), ctx);
+      if ctx.input().pointer.any_click()
+          && selected_user_before == chat_panel.selected_user
+          && let Some(pos) = ctx.input().pointer.interact_pos() 
+          && area.inner_rect.contains(pos) 
+          && !history_rect.contains(pos)
+          && !jump_rect.contains(pos) {
+        chat_panel.selected_user = None;
+      }
+    });
+    response.state = chat_panel;
+    response
+  }
+
+  fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
     let mut channel_removed : Option<String> = None;
     if self.show_channel_options.is_some() {
       let (pointer_vec, channel) = self.show_channel_options.to_owned().unwrap_or_log();
@@ -692,7 +903,7 @@ fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
             if let Some(ch) = self.channels.get_mut(&channel) {
               match ch.provider {
                 ProviderName::Twitch => {
-                  match self.emote_loader.tx.try_send(EmoteRequest::ChannelEmoteListRequest { 
+                  match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
                     channel_id: ch.roomid.to_owned(), 
                     channel_name: ch.channel_name.to_owned(),
                     token: self.auth_tokens.twitch_auth_token.to_owned(), 
@@ -703,16 +914,21 @@ fn ui_channel_options(&mut self, ctx: &egui::Context) -> Option<String> {
                   };
                 },
                 ProviderName::DGG => {
-                  match dgg::load_dgg_emotes(&self.emote_loader) {
-                    Ok(emotes) => {
-                      let transient = ch.transient.as_mut().unwrap_or_log();
-                      transient.channel_emotes = Some(emotes)
-                    },
-                    Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
+                  match self.emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
+                    channel_name: ch.channel_name.to_owned(),
+                    cdn_base_url: ch.dgg_cdn_url.to_owned(),
+                    force_redownload: true
+                  }) {
+                    Ok(_) => {},
+                    Err(e) => { error!("Failed to load badge/emote json for channel {} due to error {:?}", &channel, e); }
                   };
                 }
               };
             }
+            self.show_channel_options = None;
+          }
+          if ui.button("Split screen").clicked() {
+            self.rhs_selected_channel = Some(channel.to_owned());
             self.show_channel_options = None;
           }
         } else {
@@ -843,6 +1059,10 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
           mgr.open_channel(channel);
         }
         self.twitch_chat_manager = Some(mgr);
+        match self.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { token: self.auth_tokens.twitch_auth_token.to_owned(), force_redownload: false }) {  
+          Ok(_) => {},
+          Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
+        };
       }
     }
     if changed_dgg_token {
@@ -858,16 +1078,20 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
 }
 
 fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
-    let mut add_channel = |providers: &mut HashMap<ProviderName, Provider>, auth_tokens: &mut AuthTokens, channel_options: &mut AddChannelMenu, emote_loader : &EmoteLoader| {
+    let mut add_channel = |providers: &mut HashMap<ProviderName, Provider>, auth_tokens: &mut AuthTokens, channel_options: &mut AddChannelMenu| {
       let c = match channel_options.provider {
         ProviderName::Twitch => { 
           providers.entry(ProviderName::Twitch).or_insert(Provider {
               name: "twitch".to_owned(),
               my_sub_emotes: Default::default(),
               emotes: Default::default(),
-              global_badges: emotes::twitch_get_global_badges(&auth_tokens.twitch_auth_token, &emote_loader.base_path, true),
+              global_badges: Default::default(),
               username: Default::default()
           });
+          match self.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { token: auth_tokens.twitch_auth_token.to_owned(), force_redownload: false }) {  
+            Ok(_) => {},
+            Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
+          };
           if self.twitch_chat_manager.is_none() {
             self.twitch_chat_manager = Some(TwitchChatManager::new(&auth_tokens.twitch_username, &auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap_or_log()));
           }
@@ -917,7 +1141,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         }*/
     
         if name_input.is_some() && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
-          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu, &mut self.emote_loader); 
+          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu); 
           self.show_add_channel_menu = false;
         }
         if ui.button("Cancel").clicked() {
@@ -935,12 +1159,22 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
     }
 }
 
-  fn selected_user_chat_history_window(&mut self, area: Rect, ctx: &egui::Context) -> Rect {
+  fn selected_user_chat_history_window(&mut self, id: &str, chat_panel: &mut ChatPanelOptions, area: Rect, ctx: &egui::Context) -> Rect {
+    let ChatPanelOptions {
+      selected_channel,
+      draft_message: _,
+      chat_frame: _,
+      chat_scroll: _,
+      selected_user,
+      selected_msg,
+      selected_emote: _
+    } = chat_panel;
+
     let rect = area.to_owned()
         .shrink2(Vec2 { x: area.width() / 7., y: area.height() / 4.})
         .translate(egui::vec2(area.width() / 9., area.height() * -0.25));
-    if self.selected_user.is_some() && let Some(channel) = self.selected_channel.as_ref() {
-      let window = egui::Window::new("Selected User History")
+    if selected_user.is_some() && let Some(channel) = selected_channel.as_ref() {
+      let window = egui::Window::new(format!("Selected User History {}", id))
       .fixed_rect(rect)
       .title_bar(false)
       .show(ctx, |ui| {
@@ -950,11 +1184,11 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           .stick_to_bottom(true);
         chat_area.show_viewport(ui, |ui, _viewport| {  
           let mut msgs = self.chat_histories.get(channel).unwrap_or_log().iter().rev()
-          .filter_map(|(msg, _)| if self.selected_user.as_ref() == Some(&msg.username) || self.selected_user.as_ref() == msg.profile.display_name.as_ref() { Some(msg.to_owned()) } else { None })
+          .filter_map(|(msg, _)| if selected_user.as_ref() == Some(&msg.username) || selected_user.as_ref() == msg.profile.display_name.as_ref() { Some(msg.to_owned()) } else { None })
           .take(4)
           .collect_vec();
           if msgs.is_empty() {
-            ui.label(format!("No recent messages for user: {}", self.selected_user.as_ref().unwrap_or_log()));
+            ui.label(format!("No recent messages for user: {}", selected_user.as_ref().unwrap_or_log()));
           } else {
             msgs.reverse();
             let mut set_selected_msg : Option<ChatMessage> = None;
@@ -963,11 +1197,11 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
               let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
               let (_, user_selected, msg_right_clicked) = chat::create_chat_message(ui, &est, &transparent_texture, None);
   
-              if user_selected.is_some() {
-                if self.selected_user == user_selected {
-                  self.selected_user = None;
+              if let Some(user) = user_selected.as_ref() {
+                if selected_user.as_ref() == Some(user) {
+                  *selected_user = None;
                 } else {
-                  self.selected_user = user_selected;
+                  *selected_user = Some(user.to_owned());
                 }
               }
               if msg_right_clicked {
@@ -975,7 +1209,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
               }
             }
 
-            set_selected_message(set_selected_msg, ui, &mut self.selected_msg);
+            set_selected_message(set_selected_msg, ui, selected_msg);
           }
         });
       });
@@ -986,33 +1220,42 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
     }
   }
 
-  fn show_variable_height_rows(&mut self, ui : &mut egui::Ui, viewport: Rect, _channel_name: &Option<String>) -> f32 {
+  fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
     let TemplateApp {
-        runtime : _,
-        providers,
-        channels,
-        channel_tab_list: _,
-        selected_channel,
-        chat_histories,
-        draft_message : _,
-        show_add_channel_menu : _,
-        add_channel_menu : _,
-        global_emotes,
-        emote_loader,
-        selected_emote : _,
-        show_auth_ui : _,
-        show_channel_options : _,
-        auth_tokens : _,
-        chat_frame,
-        chat_scroll : _,
-        enable_combos,
-        twitch_chat_manager : _,
-        dgg_chat_manager : _,
-        selected_user,
-        show_timestamps,
-        show_timestamps_changed,
-        selected_msg
+      runtime : _,
+      providers,
+      channels,
+      auth_tokens : _,
+      enable_combos,
+      show_timestamps,
+      channel_tab_list : _,
+      selected_channel : _,
+      rhs_selected_channel : _,
+      lhs_chat_state : _,
+      rhs_chat_state : _,
+      chat_histories,
+      show_add_channel_menu : _,
+      add_channel_menu : _,
+      global_emotes,
+      emote_loader,
+      show_auth_ui : _,
+      show_channel_options : _,
+      twitch_chat_manager : _,
+      dgg_chat_manager : _,
+      show_timestamps_changed,
+      dragged_channel_tab : _,
+      rhs_tab_width: _,
     } = self;
+
+    let ChatPanelOptions {
+      selected_channel,
+      draft_message: _,
+      chat_frame,
+      chat_scroll: _,
+      selected_user,
+      selected_msg,
+      selected_emote: _
+    } = chat_panel;
 
     let mut y_pos = 0.0;
     let mut set_selected_msg : Option<ChatMessage> = None;
@@ -1247,20 +1490,20 @@ fn create_uichatmessage<'a>(
         }
       },
       IncomingMessage::RoomId { channel, room_id } => {
-        if let Some(sco) = self.channels.get_mut(&channel) && let Some(t) = sco.transient.as_mut() {
+        if let Some(sco) = self.channels.get_mut(&channel) /*&& let Some(t) = sco.transient.as_mut()*/ {
           sco.roomid = room_id;
-          match self.emote_loader.tx.try_send(EmoteRequest::ChannelEmoteListRequest { 
+          match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
             channel_id: sco.roomid.to_owned(), 
             channel_name: sco.channel_name.to_owned(),
             token: self.auth_tokens.twitch_auth_token.to_owned(), 
-            force_redownload: true
+            force_redownload: false
           }) {
             Ok(_) => {},
-            Err(e) => warn!("Failed to load channel emote list for {} due to error: {:?}", &channel, e)
+            Err(e) => warn!("Failed to request channel badge and emote list for {} due to error: {:?}", &channel, e)
           };
 
-          t.badge_emotes = emotes::twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid, &self.emote_loader.base_path, true);
-          info!("loaded channel badges for {}:{}", channel, sco.roomid);
+          //t.badge_emotes = emotes::twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid, &self.emote_loader.base_path, true);
+          //info!("loaded channel badges for {}:{}", channel, sco.roomid);
           //break;
         }
       },
@@ -1271,7 +1514,7 @@ fn create_uichatmessage<'a>(
             match self.emote_loader.tx.try_send(EmoteRequest::TwitchEmoteSetRequest { 
               token: self.auth_tokens.twitch_auth_token.to_owned(), 
               emote_set_id: set.to_owned(), 
-              force_redownload: true 
+              force_redownload: false 
             }) {
               Ok(_) => {},
               Err(e) => warn!("Failed to load twitch emote set {} due to error: {:?}", &set, e)
@@ -1316,7 +1559,7 @@ fn create_uichatmessage<'a>(
     };
   }
 
-  fn get_possible_emotes(&mut self, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
+  fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 2  {
         return None;
@@ -1327,7 +1570,7 @@ fn create_uichatmessage<'a>(
       let mut starts_with_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
-      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get(channel_name) {
+      if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get(channel_name) {
           if let Some(transient) = channel.transient.as_ref() && let Some(channel_emotes) = transient.channel_emotes.as_ref() {
           for (name, emote) in channel_emotes { // Channel emotes
             let name_l = name.to_lowercase();
@@ -1379,7 +1622,7 @@ fn create_uichatmessage<'a>(
     }
   }
 
-  fn get_possible_users(&mut self, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
+  fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 3  {
         return None;
@@ -1390,7 +1633,7 @@ fn create_uichatmessage<'a>(
       let mut starts_with_users : HashMap<String, Option<EmoteFrame>> = Default::default();
       let mut contains_users : HashMap<String, Option<EmoteFrame>> = Default::default();
       
-      if let Some(channel_name) = &self.selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
+      if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
         for (name_lower, user) in channel.users.iter().filter(|(_k, v)| v.is_active) {
           if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
             _ = match name_lower.starts_with(word_lower) {
@@ -1520,15 +1763,20 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<St
   result
 }
 
-fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<HashMap<String, EmoteFrame>>, Option<(u8,u8,u8)>) {
-  let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
+fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<Vec<(String, EmoteFrame)>>, Option<(u8,u8,u8)>) {
+  let mut result : Vec<(String, chat::EmoteFrame)> = Default::default();
   if badges.is_none() { return (None, None); }
   let mut greatest_badge : Option<(isize, (u8,u8, u8))> = None;
   for badge in badges.unwrap_or_log() {
     let emote = 
       if let Some(channel_badges) = channel_badges && let Some(emote) = channel_badges.get(badge) {
-        if channel_name == dgg::DGG_CHANNEL_NAME && emote.color.is_some() && (greatest_badge.is_none() || greatest_badge.is_some_and(|b| b.0 < emote.priority)) {
-          greatest_badge = Some((emote.priority, emote.color.unwrap_or_log()))
+        if channel_name == dgg::DGG_CHANNEL_NAME {
+          if emote.color.is_some() && (greatest_badge.is_none() || greatest_badge.is_some_and(|b| b.0 > emote.priority)) {
+            greatest_badge = Some((emote.priority, emote.color.unwrap_or_log()))
+          }
+          if emote.hidden {
+            continue;
+          }
         }
         chat::get_texture(emote_loader, emote, EmoteRequest::new_channel_badge_request(emote, channel_name))
       }
@@ -1539,7 +1787,7 @@ fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, glob
         EmoteFrame { id: badge.to_owned(), name: badge.to_owned(), label: None, path: badge.to_owned(), texture: None, zero_width: false }
       };
     
-    result.insert(emote.name.to_owned(), emote);
+    result.push((emote.name.to_owned(), emote));
   }
 
   (Some(result), greatest_badge.map(|x| x.1))
@@ -1558,8 +1806,8 @@ pub fn load_font() -> FontDefinitions {
     if let Some(emojis_font) = load_file_into_buffer("C:\\Windows\\Fonts\\seguiemj.ttf") {
       let emojis = FontData::from_owned(emojis_font);
       fonts.font_data.insert("emojis".into(), emojis);
-      fonts.families.entry(FontFamily::Proportional).or_default().push("emojis".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().push("emojis".into());
+      fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "emojis".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().insert(1, "emojis".into());
     }
 
     // More windows specific fallback fonts for extended characters

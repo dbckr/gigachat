@@ -7,8 +7,7 @@
 #![windows_subsystem = "windows"]
 
 use gigachat::TemplateApp;
-use gigachat::provider::ProviderName;
-use tracing::{info};
+use tracing::{error};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, Registry};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
@@ -33,17 +32,9 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().expect_or_log("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
     let loader = &mut app.emote_loader;
-    let emotes = &mut app.global_emotes;
-    if let Some(twitch) = app.providers.get_mut(&ProviderName::Twitch) {
-      twitch.global_badges = gigachat::emotes::twitch_get_global_badges(&app.auth_tokens.twitch_auth_token, &loader.base_path, true)
-    }
-    match gigachat::emotes::load_global_emotes(&loader.base_path, true) {
-      Ok(x) => {
-        for (name, emote) in x {
-          emotes.insert(name, emote);
-        }
-      },
-      Err(x) => { info!("ERROR LOADING GLOBAL EMOTES: {}", x); }
+    match loader.tx.try_send(gigachat::emotes::EmoteRequest::GlobalEmoteListRequest { force_redownload: false }) {  
+      Ok(_) => {},
+      Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
     };
     Box::new(app)
   }));

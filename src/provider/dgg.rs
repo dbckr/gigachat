@@ -4,14 +4,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap};
+use std::{collections::HashMap, path::{PathBuf, Path}};
 use async_channel::{Sender, Receiver};
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
-use crate::{provider::MessageType};
+use crate::{provider::MessageType, emotes::EmoteRequest};
 use regex::Regex;
 use tokio::{runtime::Runtime};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
@@ -30,7 +30,10 @@ pub fn init_channel() -> Channel {
     send_history: Default::default(),
     send_history_ix: None,
     transient: None,
-    users: Default::default()
+    users: Default::default(),
+    dgg_cdn_url: "https://cdn.destiny.gg/2.42.0/".to_owned(),
+    dgg_status_url: "wss://live.destiny.gg/ws".to_owned(),
+    dgg_chat_url: "wss://chat.destiny.gg/ws".to_owned(),
   }
 }
 
@@ -38,10 +41,13 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
   let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
 
+  let status_url = channel.dgg_status_url.to_owned();
+  let chat_url = channel.dgg_chat_url.to_owned();
+
   let mut out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
     loop {
-      if spawn_websocket_live_client(&mut out_tx_2).await {
+      if spawn_websocket_live_client(&status_url, &mut out_tx_2).await {
         break;
       }
     }
@@ -51,23 +57,26 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let token1 = token.to_owned();
   let handle = runtime.spawn(async move { 
     loop {
-      if spawn_websocket_chat_client(&name1, &token1, &mut out_tx, &mut in_rx).await {
+      if spawn_websocket_chat_client(&chat_url, &name1, &token1, &mut out_tx, &mut in_rx).await {
         break;
       }
     }
   });
 
   channel.transient = Some(ChannelTransient {
-    channel_emotes: match load_dgg_emotes(emote_loader) {
-      Ok(emotes) => Some(emotes),
-      Err(e) => { error!("{:?}", e); None }
-    },
-    badge_emotes: match load_dgg_flairs(emote_loader) {
-      Ok(badges) => Some(badges),
-      Err(e) => { error!("{:?}", e); None }
-    },
+    channel_emotes: None,
+    badge_emotes: None,
     status: None
   });
+
+  match emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
+    channel_name: channel.channel_name.to_owned(), 
+    cdn_base_url: channel.dgg_cdn_url.to_owned(), 
+    force_redownload: false 
+  }) {  
+    Ok(_) => {},
+    Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
+  };
 
   let handles = vec![ handle, handle2 ];
 
@@ -82,15 +91,15 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
 impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(500));
     for handle in &self.handles {
       handle.abort();
     }
   }
 }
 
-async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) -> bool {
-  let request = "wss://live.destiny.gg/ws".into_client_request().expect_or_log("failed to build request");
+async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<IncomingMessage>) -> bool {
+  let request = dgg_status_url.into_client_request().expect_or_log("failed to build request");
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect_or_log("failed to connect to wss");
 
   loop {
@@ -126,11 +135,11 @@ async fn spawn_websocket_live_client(tx : &mut Sender<IncomingMessage>) -> bool 
   }
 }
 
-async fn spawn_websocket_chat_client(_user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> bool {
+async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> bool {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
-  let mut request = "wss://chat.destiny.gg/ws".into_client_request().expect_or_log("failed to build request");
+  let mut request = dgg_chat_url.into_client_request().expect_or_log("failed to build request");
   request.headers_mut().append(COOKIE, cookie.parse().unwrap_or_log());
   //info!("adding cookie {} {}", cookie, r);
   //for item in request.headers().iter() {
@@ -329,9 +338,9 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
-pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
-  let json_path = &emote_loader.base_path.join("dgg-flairs.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/flairs/flairs.json", json_path.to_str(), None, true)?;
+pub fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+  let json_path = &cache_path.join("dgg-flairs.json");
+  let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload)?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {
@@ -352,45 +361,47 @@ pub fn load_dgg_flairs(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emo
       zero_width: false,
       css_anim: None,
       priority: emote.priority,
+      hidden: emote.hidden,
       texture_expiration: None });
   }
   Ok(result)
 }
 
-pub fn load_dgg_emotes(emote_loader: &EmoteLoader) -> Result<HashMap<String, Emote>, anyhow::Error> {
-  let css_path = &emote_loader.base_path.join("dgg-emotes.css");
-  let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", css_path.to_str(), None, true)?;
+pub fn load_dgg_emotes(cdn_base_url: &String, cache_path: &PathBuf, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+  let css_path = &cache_path.join("dgg-emotes.css");
+  let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, force_redownload)?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
-  let json_path = &emote_loader.base_path.join("dgg-emotes.json");
-  let json = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.json", json_path.to_str(), None, true)?;
+  let json_path = &cache_path.join("dgg-emotes.json");
+  let json = fetch::get_json_from_url(format!("{}/emotes/emotes.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload)?;
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
-    let mut result : HashMap<String, Emote> = Default::default();
-    for emote in emotes {
-      let image = &emote.image.first().unwrap_or_log();
-      let (id, extension) = image.name.split_once('.').unwrap_or_log();
+  let mut result : HashMap<String, Emote> = Default::default();
+  for emote in emotes {
+    let image = &emote.image.first().unwrap_or_log();
+    let (id, extension) = image.name.split_once('.').unwrap_or_log();
 
-      let prefix = &emote.prefix;
-      let css_anim = css_anim_data.get(prefix);
-      //info!("{} {:?}", prefix, css_anim);
+    let prefix = &emote.prefix;
+    let css_anim = css_anim_data.get(prefix);
+    //info!("{} {:?}", prefix, css_anim);
 
-      result.insert(emote.prefix.to_owned(), Emote { 
-        name: emote.prefix, 
-        id: id.to_owned(), 
-        data: None, 
-        color: None,
-        loaded: crate::emotes::EmoteStatus::NotLoaded, 
-        duration_msec: 0, 
-        url: image.url.to_owned(), 
-        path: "dgg/".to_owned(), 
-        extension: Some(extension.to_owned()), 
-        zero_width: false,
-        css_anim: css_anim.map(|x| x.to_owned()),
-        display_name: None,
-        priority: 0,
-        texture_expiration: None });
-    }
-    Ok(result)
+    result.insert(emote.prefix.to_owned(), Emote { 
+      name: emote.prefix, 
+      id: id.to_owned(), 
+      data: None, 
+      color: None,
+      loaded: crate::emotes::EmoteStatus::NotLoaded, 
+      duration_msec: 0, 
+      url: image.url.to_owned(), 
+      path: "dgg/".to_owned(), 
+      extension: Some(extension.to_owned()), 
+      zero_width: false,
+      css_anim: css_anim.map(|x| x.to_owned()),
+      display_name: None,
+      priority: 0,
+      hidden: false,
+      texture_expiration: None });
+  }
+  Ok(result)
 }
 
 pub struct CSSLoader {
@@ -513,8 +524,9 @@ struct DggEmote {
   image: Vec<DggEmoteImage>
 }
 
+#[derive(Debug)]
 #[derive(serde::Deserialize)]
-struct DggEmoteImage {
+pub struct DggEmoteImage {
   url: String,
   name: String
 }
@@ -524,11 +536,12 @@ struct DggErr {
   description: String
 }
 
+#[derive(Debug)]
 #[derive(serde::Deserialize)]
-struct DggFlair {
+pub struct DggFlair {
   label: String,
   name: String,
-  //hidden: bool,
+  hidden: bool,
   priority: isize,
   color: String,
   image: Vec<DggEmoteImage>

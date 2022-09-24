@@ -11,14 +11,15 @@ Also supports DGG chat. Will add support for Youtube live stream chat if YT ever
   - ALT ←/→	to choose a emote/user and ALT ↓ to select (working on an option to use TAB & ENTER like DGG chat, having some problems with the UI framework)
 - Right click a chat message to get option to copy it to clipboard, or left click on it to directly copy it. Must click on a section of plain text, not an emote or link.
 - Can click a username to highlight their messages and get a popup with their most recent few messages.
+- Can split screen to display two chats at once via channel options or dragging a tab to right half of messages area.
 
 # Todo
 
-- Emote reload isn't updating json data (at least 7tv)
 - Twitch IRC sometimes fails to init/connect on startup
+- Handle Twitch CLEARCHAT, CLEARMSG commands (and DGG MUTE/BAN)
+- "Sub only" toggle option
 - Option to download smaller emote sizes
 - Ability to open stream in browser for a selected tab
-- Handle Twitch CLEARCHAT, CLEARMSG commands (and DGG MUTE/BAN)
 - Make it less likely for changes or new settings to break saved settings
 
 Might do:

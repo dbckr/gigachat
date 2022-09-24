@@ -51,7 +51,7 @@ impl TwitchChatManager {
 
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    std::thread::sleep(std::time::Duration::from_millis(500));
     self.handle.abort();
   }
 
@@ -64,7 +64,10 @@ impl TwitchChatManager {
       send_history: Default::default(),
       send_history_ix: None,
       transient: None,
-      users: Default::default()
+      users: Default::default(),
+      dgg_cdn_url: Default::default(),
+      dgg_status_url: Default::default(),
+      dgg_chat_url: Default::default()
     };
     self.open_channel(&mut channel);
     channel

@@ -73,14 +73,13 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
           let username = determine_name_to_display(chat_msg.message);
           let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
           ui.label(job);
-          if let Some(user_badges) = &chat_msg.message.profile.badges {
-            for badge in user_badges {
-              let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
-              let tex = emote.and_then(|g| g.texture.as_ref()).unwrap_or(transparent_img);
+          if let Some(user_badges) = &chat_msg.badges {
+            for (badge, emote) in user_badges {
+              //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
+              let tex = emote.texture.as_ref().unwrap_or(transparent_img);
               ui.image(tex, egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-                ui.set_width(BADGE_HEIGHT + 20.);
-                ui.vertical_centered(|ui| {
-                  ui.image(tex, tex.size_vec2());
+                //ui.set_width(BADGE_HEIGHT + 20.);
+                //ui.vertical_centered(|ui| {
                   match chat_msg.message.provider {
                     ProviderName::Twitch => {
                       let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
@@ -99,9 +98,10 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                         _ => ui.label(parts.0)
                       };
                     },
-                    ProviderName::DGG => { ui.label(emote.and_then(|x| x.label.as_ref()).unwrap_or(badge)); }
+                    ProviderName::DGG => { ui.label(emote.label.as_ref().unwrap_or(badge)); }
                   };
-                });
+                  ui.image(tex, tex.size_vec2());
+                //});
               });
             }
           }

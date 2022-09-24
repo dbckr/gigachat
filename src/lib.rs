@@ -10,6 +10,7 @@ pub mod provider;
 pub mod emotes;
 pub mod test;
 pub use ui::TemplateApp;
+pub mod mod_selected_label;
 
 #[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};

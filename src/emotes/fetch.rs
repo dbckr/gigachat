@@ -6,10 +6,20 @@
 
 use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead, Read}};
 use curl::easy::Easy;
+use itertools::Itertools;
 use tracing::{debug, warn};
 use std::io::BufReader;
 use super::{Emote};
 use tracing_unwrap::{OptionExt, ResultExt};
+
+#[allow(dead_code)]
+enum EmoteSize {
+  Small,
+  Medium,
+  Large
+}
+
+const EMOTE_DOWNLOADSIZE : EmoteSize = EmoteSize::Medium;
 
 pub fn process_badge_json(
   room_id: &str,
@@ -90,6 +100,11 @@ pub fn process_emote_json(
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
     // Twitch Global
+    let emote_size = match EMOTE_DOWNLOADSIZE {
+      EmoteSize::Small => "url_1x",
+      EmoteSize::Medium => "url_2x",
+      EmoteSize::Large => "url_4x"
+    };
     for i in v["data"].as_array_mut().unwrap_or_log() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
@@ -97,42 +112,52 @@ pub fn process_emote_json(
       let wtf = i["format"].as_array().unwrap_or_log();
       let imgurl = if wtf.len() == 2 {
         extension = Some("gif".to_owned());
-        i["images"]["url_4x"]
+        i["images"][emote_size]
           .to_string()
           .trim_matches('"')
           .replace("/static/", "/animated/")
           .to_owned()
       } else {
         extension = Some("png".to_owned());
-        i["images"]["url_4x"].to_string().trim_matches('"').to_owned()
+        i["images"][emote_size].to_string().trim_matches('"').to_owned()
       };
       emotes.push(Emote { name, id, url: imgurl, path: "twitch/".to_owned(), extension, ..Default::default()});
     }
   } else if v["channelEmotes"].is_null() == false {
     // BTTV
+    let emote_size = match EMOTE_DOWNLOADSIZE {
+      EmoteSize::Small => "1x",
+      EmoteSize::Medium => "2x",
+      EmoteSize::Large => "3x"
+    };
     for i in v["channelEmotes"].as_array_mut().unwrap_or_log() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
-      let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+      let imgurl = format!("https://cdn.betterttv.net/emote/{}/{}", &id, emote_size);
       emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
     for i in v["sharedEmotes"].as_array_mut().unwrap_or_log() {
       let name = i["code"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let ext = i["imageType"].to_string().trim_matches('"').to_owned();
-      let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+      let imgurl = format!("https://cdn.betterttv.net/emote/{}/{}", &id, emote_size);
       emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
   } else if v["room"].is_null() == false {
     // FFZ
+    let emote_size = match EMOTE_DOWNLOADSIZE {
+      EmoteSize::Small => "1",
+      EmoteSize::Medium => "2",
+      EmoteSize::Large => "4"
+    };
     let setid = v["room"]["set"].to_string();
     for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap_or_log() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
       let imgurl = format!(
         "https:{}",
-        i["urls"].as_object_mut().unwrap_or_log().values().last().unwrap_or_log().to_string().trim_matches('"')
+        i["urls"][emote_size].to_string().trim_matches('"')
       );
       emotes.push(Emote {name, id, url: imgurl, path: "ffz/".to_owned(), ..Default::default()});
     }
@@ -140,19 +165,36 @@ pub fn process_emote_json(
     for i in v.as_array_mut().unwrap_or_log() {
       if i["code"].is_null() == false {
         // BTTV Global
+        let emote_size = match EMOTE_DOWNLOADSIZE {
+          EmoteSize::Small => "1x",
+          EmoteSize::Medium => "2x",
+          EmoteSize::Large => "3x"
+        };
         let name = i["code"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         let ext = i["imageType"].to_string().trim_matches('"').to_owned();
-        let imgurl = format!("https://cdn.betterttv.net/emote/{}/3x", &id);
+        let imgurl = format!("https://cdn.betterttv.net/emote/{}/{}", &id, emote_size);
         emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
       } else if i["name"].is_null() == false {
         // 7TV
+        let emote_size = match EMOTE_DOWNLOADSIZE {
+          EmoteSize::Small => "1",
+          EmoteSize::Medium => "2",
+          EmoteSize::Large => "4"
+        };
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
         // 7TV just says webp for everything, derp
         //let extension = i["mime"].to_string().trim_matches('"').replace("image/", "");
-        let x = i["urls"].as_array().unwrap_or_log().last().unwrap_or_log().as_array().unwrap_or_log().last().unwrap_or_log();
-        let imgurl = x.as_str().unwrap_or_log();
+        //let x = i["urls"].as_array().unwrap_or_log().last().unwrap_or_log().as_array().unwrap_or_log().last().unwrap_or_log().as_str();
+        let x = i["urls"].as_array().unwrap_or_log().iter().filter_map(|y| {
+          if let Some((key, value)) = y.as_array().unwrap_or_log().iter().collect_tuple() && key.as_str() == Some(emote_size) {
+            value.as_str()
+          } else {
+            None
+          }
+        }).next();
+        let imgurl = x.unwrap_or_log();
         let zero_width = i["visibility_simple"].as_array().map(|f| f.iter().any(|f| f.as_str().unwrap_or_default() == "ZERO_WIDTH")).unwrap_or(false);
         emotes.push(Emote {
           name,
@@ -174,13 +216,15 @@ pub fn get_json_from_url(
   url: &str,
   filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
-  _force_redownload: bool
+  force_redownload: bool
 ) -> std::result::Result<String, anyhow::Error> {
 
   let mut buffer: Vec<u8> = Default::default();
   let mut json: String = Default::default();  
 
-  if /*force_redownload ||*/ filename.is_none() || filename.is_some_and(|f| Path::new(&format!("{}.json", f)).exists() == false) {
+  let filename = filename.map(|f| if f.contains('.') { f.to_owned() } else { format!("{}.json", f) } );
+
+  if force_redownload || filename.is_none() || filename.is_some_and(|f| !Path::new(f).exists()) {
     let mut easy = Easy::new();
     easy.url(url)?;
     if let Some(headers) = headers {
@@ -206,9 +250,7 @@ pub fn get_json_from_url(
       Err(e) => panic!("{}", e)
     };
   }
-
-  if let Some(filename) = filename {
-    let filename = format!("{}.json", filename);
+  else if let Some(filename) = filename {
     let path = Path::new(&filename);
     if let Some(parent_path) = path.parent() {
       DirBuilder::new().recursive(true).create(parent_path)?;

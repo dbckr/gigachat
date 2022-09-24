@@ -29,7 +29,7 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, _badges: Option<&HashMap<String, EmoteFrame>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&Vec<(String, EmoteFrame)>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
@@ -42,7 +42,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.push((header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }, false));
   }
-  let badge_count = row.profile.badges.as_ref().map(|f| f.len()).unwrap_or(0) as f32;
+  let badge_count = badges.map(|f| f.len()).unwrap_or(0) as f32;
   let badge_spacing = badge_count * (BADGE_HEIGHT + ui.spacing().item_spacing.x); // badges assumed to be square so height should equal width
   let header_width = header_rows.last().unwrap_or_log().rect.size().x;
   curr_row_width += margin_width + header_width + ui.spacing().item_spacing.x + badge_spacing;
@@ -53,7 +53,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   let words = row.message.split_ascii_whitespace().collect_vec();
   for (i, word) in words.iter().enumerate() {
     has_ascii_art = match has_ascii_art {
-      None => is_start_of_ascii_art(&words, i),
+      None => is_start_of_ascii_art(&words, i, emotes),
       Some(len) => if word.len() == len { Some(len) } else { None }
     };
     if has_ascii_art.is_some() {
@@ -158,8 +158,8 @@ pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_
 const ASCII_ART_MIN_LINES : usize = 5;
 const ASCII_ART_MIN_LINE_WIDTH: usize = 15;
 
-pub fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize) -> Option<usize> {
-  if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
+pub fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize, emotes: &HashMap<String, EmoteFrame>) -> Option<usize> {
+  if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && !emotes.contains_key(words[ix]) && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
     Some(words[ix].len())
   }
   else {
