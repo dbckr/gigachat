@@ -475,7 +475,7 @@ impl TemplateApp {
 
     if channel_swap {
       self.lhs_chat_state.chat_scroll = None;
-      self.rhs_chat_state.chat_scroll = None;
+      //self.rhs_chat_state.chat_scroll = None;
     }
 
     let mut popped_height = 0.;
@@ -506,24 +506,42 @@ impl TemplateApp {
       ..Default::default() 
     };
     let mut lhs_response : ChatFrameResponse = Default::default();
-    let cpanel_resp = egui::CentralPanel::default()
+    /*let cpanel_resp =*/ egui::CentralPanel::default()
     .frame(cframe)
     .show(ctx, |ui| {
-      lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, self.rhs_selected_channel.is_some(), popped_height);
-      if self.rhs_selected_channel.is_none() && let Some(pos) = ctx.pointer_latest_pos() && ui.min_rect().contains(pos) {
-        if self.dragged_channel_tab.is_some() && pos.x > ui.available_width() * 0.5 {
-          //paint rectangle to indicate drop will shift to other chat panel
-          let paintrect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
-          ui.painter().rect_filled(paintrect, Rounding::none(), Color32::from_rgba_unmultiplied(40,40,40,150));
+      let height = ui.available_height();
+      ui.horizontal(|ui| {
+        ui.set_height(height);
+        lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, self.rhs_selected_channel.is_some(), popped_height);
+        if self.rhs_selected_channel.is_none() && let Some(pos) = ctx.pointer_latest_pos() && ui.min_rect().contains(pos) {
+          if self.dragged_channel_tab.is_some() && pos.x > ui.available_width() * 0.5 {
+            //paint rectangle to indicate drop will shift to other chat panel
+            let paintrect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
+            ui.painter().rect_filled(paintrect, Rounding::none(), Color32::from_rgba_unmultiplied(40,40,40,150));
+          }
+          if let Some(channel) = drag_channel_release.as_ref() && pos.x > ui.available_width() * 0.5 && ui.min_rect().contains(pos) {
+            self.rhs_selected_channel = Some(channel.to_owned());
+            self.selected_channel = None;
+          }
         }
-        if let Some(channel) = drag_channel_release.as_ref() && pos.x > ui.available_width() * 0.5 && ui.min_rect().contains(pos) {
-          self.rhs_selected_channel = Some(channel.to_owned());
+        if self.rhs_selected_channel.is_some() {
+          let rhs_chat_state = ChatPanelOptions {
+            selected_channel: self.rhs_selected_channel.to_owned(),
+            draft_message: self.rhs_chat_state.draft_message.to_owned(),
+            chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
+            chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
+            selected_user: self.rhs_chat_state.selected_user.to_owned(),
+            selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
+            selected_emote: self.rhs_chat_state.selected_emote.to_owned()
+          };
+          let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
+          self.rhs_chat_state = rhs_response.state;
         }
-      }
+      });
     });
-    let rect = cpanel_resp.response.rect;
     self.lhs_chat_state = lhs_response.state;
 
+    /*let rect = cpanel_resp.response.rect;
     if self.rhs_selected_channel.is_some() {
       let mut rhs_response : ChatFrameResponse = Default::default();
       let rhs_chat_state = ChatPanelOptions {
@@ -554,7 +572,7 @@ impl TemplateApp {
       });
 
       self.rhs_chat_state = rhs_response.state;
-    }
+    }*/
     
     channel_removed = channel_removed.or(lhs_response.channel_removed);
 
