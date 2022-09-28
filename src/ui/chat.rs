@@ -98,7 +98,8 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
                         _ => ui.label(parts.0)
                       };
                     },
-                    ProviderName::DGG => { ui.label(emote.label.as_ref().unwrap_or(badge)); }
+                    ProviderName::DGG => { ui.label(emote.label.as_ref().unwrap_or(badge)); },
+                    ProviderName::YouTube => {}
                   };
                   ui.image(tex, tex.size_vec2());
                 //});
@@ -420,7 +421,7 @@ pub fn get_provider_color(provider : &ProviderName) -> Color32 {
   match provider {
     //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
     ProviderName::Twitch => Color32::from_rgba_unmultiplied(169, 112, 255, 255),
-    //ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
+    ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
     ProviderName::DGG => Color32::from_rgba_unmultiplied(83, 140, 198, 255),
   }
 }

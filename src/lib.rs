@@ -4,6 +4,7 @@
 #![feature(map_try_insert)]
 #![feature(result_option_inspect)]
 #![feature(let_chains)]
+#![feature(async_closure)]
 
 pub mod ui;
 pub mod provider;

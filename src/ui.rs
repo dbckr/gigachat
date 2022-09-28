@@ -12,7 +12,7 @@ use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rou
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType, youtube_server, ChannelTransient, ChatManagerRx}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
@@ -151,7 +151,9 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub dragged_channel_tab: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  rhs_tab_width: Option<f32>
+  rhs_tab_width: Option<f32>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub yt_chat_manager: Option<ChatManager>
 }
 
 impl TemplateApp {
@@ -180,6 +182,28 @@ impl TemplateApp {
     /*if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
       r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
     }*/
+    r.yt_chat_manager = Some(youtube_server::start_listening(r.runtime.as_ref().unwrap()));
+    if !r.channel_tab_list.contains(&"Youtube".to_owned()) {
+      r.channel_tab_list.push("Youtube".to_owned());
+    }
+    if !r.channels.contains_key("Youtube") {
+      r.channels.insert("Youtube".to_owned(), Channel { 
+        channel_name: "Youtube".to_owned(), 
+        provider: ProviderName::YouTube, 
+        transient: Some(ChannelTransient {
+          channel_emotes: None,
+          badge_emotes: None,
+          status: None,
+      }), 
+        ..Default::default() });
+    }
+    else {
+      r.channels.get_mut("Youtube").unwrap().transient = Some(ChannelTransient {
+        channel_emotes: None,
+        badge_emotes: None,
+        status: None,
+    })
+    }
     r
   }
 }
@@ -361,6 +385,12 @@ impl TemplateApp {
     }
     msgs = 0;
     while let Some(chat_mgr) = self.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+      self.handle_incoming_message(x);
+      msgs += 1;
+      if msgs > 20 { break; } // Limit to prevent bad UI lag
+    }
+    msgs = 0;
+    while let Some(chat_mgr) = self.yt_chat_manager.as_mut()  && let Ok(x) = chat_mgr.out_rx.try_recv() {
       self.handle_incoming_message(x);
       msgs += 1;
       if msgs > 20 { break; } // Limit to prevent bad UI lag
@@ -705,18 +735,13 @@ impl TemplateApp {
 
         if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && !ui.input().modifiers.shift && !chat_panel.draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
-            if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
-                Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
-                _ => {
-                  sco.send_history.push_front(chat_panel.draft_message.to_owned());
-                  chat_panel.draft_message = String::new();
-                  sco.send_history_ix = None;
-                }
-              }
-            } 
-            else if sco.provider == ProviderName::DGG && let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
-              match chat_mgr.in_tx.try_send(OutgoingMessage::Chat { channel_name: "".to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+            let chat_tx = match sco.provider {
+              ProviderName::Twitch => self.twitch_chat_manager.as_mut().map(|m| m.in_tx()),
+              ProviderName::DGG => self.dgg_chat_manager.as_mut().map(|m| m.in_tx()),
+              ProviderName::YouTube => self.yt_chat_manager.as_mut().map(|m| m.in_tx())
+            };
+            if let Some(chat_tx) = chat_tx {
+              match chat_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
                 Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
                   sco.send_history.push_front(chat_panel.draft_message.to_owned());
@@ -940,7 +965,8 @@ impl TemplateApp {
                     Ok(_) => {},
                     Err(e) => { error!("Failed to load badge/emote json for channel {} due to error {:?}", &channel, e); }
                   };
-                }
+                },
+                ProviderName::YouTube => {}
               };
             }
             self.show_channel_options = None;
@@ -1115,7 +1141,10 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           }
           self.twitch_chat_manager.as_mut().unwrap_or_log().init_channel(&channel_options.channel_name)
         },
-        ProviderName::DGG => dgg::init_channel()
+        ProviderName::DGG => dgg::init_channel(),
+        ProviderName::YouTube => Channel {
+          ..Default::default()
+        }
         /*ProviderName::YouTube => {
           if providers.contains_key(&ProviderName::Twitch) == false {
             providers.insert(ProviderName::Twitch, Provider {
@@ -1263,6 +1292,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
       show_timestamps_changed,
       dragged_channel_tab : _,
       rhs_tab_width: _,
+      yt_chat_manager: _,
     } = self;
 
     let ChatPanelOptions {

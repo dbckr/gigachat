@@ -48,6 +48,7 @@ fn init_logging() -> WorkerGuard {
 
   let console = tracing_subscriber::fmt::layer()
     .with_line_number(true)
+    .with_filter(tracing::level_filters::LevelFilter::DEBUG)
     .boxed();
 
   let file = tracing_subscriber::fmt::layer()

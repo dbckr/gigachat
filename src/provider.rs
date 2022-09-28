@@ -15,7 +15,7 @@ use tracing_unwrap::{ResultExt};
 use crate::emotes::{Emote};
 
 pub mod twitch;
-//pub mod youtube;
+pub mod youtube_server;
 pub mod dgg;
 
 #[derive(Clone)]
@@ -62,7 +62,12 @@ pub struct Provider {
 pub enum ProviderName {
   #[default] Twitch,
   DGG,
-  //YouTube,
+  YouTube,
+}
+
+pub trait ChatManagerRx {
+  fn in_tx(&mut self) -> &mut Sender<OutgoingMessage>;
+  fn out_rx(&mut self) -> &mut Receiver<IncomingMessage>;
 }
 
 pub struct ChatManager {
@@ -71,6 +76,14 @@ pub struct ChatManager {
   pub in_tx: Sender<OutgoingMessage>,
   pub out_rx: Receiver<IncomingMessage>,
 }
+impl ChatManagerRx for ChatManager {
+  fn in_tx(&mut self) -> &mut Sender<OutgoingMessage> {
+    &mut self.in_tx
+  }
+  fn out_rx(&mut self) -> &mut Receiver<IncomingMessage> {
+    &mut self.out_rx
+  }
+}
 
 pub struct ChannelTransient {
   pub channel_emotes: Option<HashMap<String, Emote>>,
@@ -78,6 +91,7 @@ pub struct ChannelTransient {
   pub status: Option<ChannelStatus>
 }
 
+#[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 pub struct Channel {
   pub channel_name: String,

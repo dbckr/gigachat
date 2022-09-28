@@ -14,7 +14,7 @@ use itertools::Itertools;
 use tokio::{runtime::Runtime};
 use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::{fetch::get_json_from_url}};
 use tracing_unwrap::{OptionExt, ResultExt};
-use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient};
+use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient, ChatManagerRx};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
@@ -26,7 +26,6 @@ pub struct TwitchChatManager {
 }
 
 impl TwitchChatManager {
-
   pub fn new(username: &String, token: &String, runtime: &Runtime) -> Self {
     let (out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
     let (in_tx, in_rx) = async_channel::unbounded::<OutgoingMessage>();
@@ -80,6 +79,15 @@ impl TwitchChatManager {
       status: None
     });
     self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect_or_log("channel failure");
+  }
+}
+
+impl ChatManagerRx for TwitchChatManager {
+  fn in_tx(&mut self) -> &mut Sender<OutgoingMessage> {
+    &mut self.in_tx
+  }
+  fn out_rx(&mut self) -> &mut Receiver<IncomingMessage> {
+    &mut self.out_rx
   }
 }
 
