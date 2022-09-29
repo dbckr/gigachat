@@ -183,6 +183,15 @@ impl TemplateApp {
       r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
     }*/
     r.yt_chat_manager = Some(youtube_server::start_listening(r.runtime.as_ref().unwrap()));
+    if !r.providers.contains_key(&ProviderName::YouTube) {
+      r.providers.entry(ProviderName::YouTube).or_insert(Provider {
+        name: "YouTube".to_owned(),
+        my_sub_emotes: Default::default(),
+        emotes: Default::default(),
+        global_badges: Default::default(),
+        username: Default::default()
+      });
+    }
     if !r.channel_tab_list.contains(&"Youtube".to_owned()) {
       r.channel_tab_list.push("Youtube".to_owned());
     }
@@ -323,6 +332,11 @@ impl TemplateApp {
         },
         EmoteResponse::TwitchMsgEmoteLoaded { name, id: _, data } => {
           if let Some(p) = self.providers.get_mut(&ProviderName::Twitch) && let Some(emote) = p.emotes.get_mut(&name) {
+            set_emote_texture_data(emote, ctx, data, loading_emotes);
+          }
+        },
+        EmoteResponse::YouTubeMsgEmoteLoaded { name, data } => {
+          if let Some(p) = self.providers.get_mut(&ProviderName::YouTube) && let Some(emote) = p.emotes.get_mut(&name) {
             set_emote_texture_data(emote, ctx, data, loading_emotes);
           }
         },
@@ -1142,8 +1156,18 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           self.twitch_chat_manager.as_mut().unwrap_or_log().init_channel(&channel_options.channel_name)
         },
         ProviderName::DGG => dgg::init_channel(),
-        ProviderName::YouTube => Channel {
-          ..Default::default()
+        ProviderName::YouTube => {
+          providers.entry(ProviderName::YouTube).or_insert(Provider {
+            name: "YouTube".to_owned(),
+            my_sub_emotes: Default::default(),
+            emotes: Default::default(),
+            global_badges: Default::default(),
+            username: Default::default()
+          });
+
+          Channel {
+            ..Default::default()
+          }
         }
         /*ProviderName::YouTube => {
           if providers.contains_key(&ProviderName::Twitch) == false {
@@ -1457,7 +1481,7 @@ fn create_uichatmessage<'a>(
   channels: &HashMap<String, Channel>,
   global_emotes: &HashMap<String, Emote>,
   emote_loader: &mut EmoteLoader) -> UiChatMessage<'a> {
-    let (provider_emotes, provider_badges) = providers.get(&ProviderName::Twitch)
+    let (provider_emotes, provider_badges) = providers.get(&row.provider)
       .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
     let (channel_emotes, channel_badges) = channels.get(&row.channel)
       .and_then(|c| c.transient.as_ref())
@@ -1496,7 +1520,7 @@ fn create_uichatmessage<'a>(
         let channel = message.channel.to_owned();
         // remove any extra whitespace between words
         let rgx = regex::Regex::new("\\s+").unwrap_or_log();
-        message.message = rgx.replace_all(&message.message, " ").to_string();
+        message.message = rgx.replace_all(message.message.trim_matches(' '), " ").to_string();
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
         if let Some(c) = self.channels.get_mut(&channel) {
@@ -1529,10 +1553,16 @@ fn create_uichatmessage<'a>(
         }
       },
       IncomingMessage::MsgEmotes { provider, emote_ids } => {
-        if let Some(provider) = self.providers.get_mut(&provider) {
+        if let Some(p) = self.providers.get_mut(&provider) {
           for (id, name) in emote_ids {
-            if !provider.emotes.contains_key(&name) {
-              provider.emotes.insert(name.to_owned(), Emote { name, id, url: "".to_owned(), path: "twitch/".to_owned(), ..Default::default() });
+            match provider {
+              ProviderName::Twitch => if !p.emotes.contains_key(&name) {
+                p.emotes.insert(name.to_owned(), Emote { name, id, url: "".to_owned(), path: "twitch/".to_owned(), ..Default::default() });
+              },
+              ProviderName::YouTube => if !p.emotes.contains_key(&name) {
+                p.emotes.insert(id.to_owned(), Emote { id: id.to_owned(), name: id, url: name.to_owned(), path: "youtube/".to_owned(), ..Default::default() });
+              },
+              _ => ()
             }
           }
         }
@@ -1798,7 +1828,11 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<St
         Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_global_request(emote)))
       }
       else if let Some(provider_emotes) = provider_emotes && let Some(emote) = provider_emotes.get(word) {
-        Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_twitch_emote_request(emote)))
+        match row.provider {
+          ProviderName::Twitch => Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_twitch_emote_request(emote))),
+          ProviderName::YouTube => Some(chat::get_texture(emote_loader, emote, EmoteRequest::new_youtube_emote_request(emote))),
+          _ => None
+        }
       }
       else {
         None

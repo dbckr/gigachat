@@ -8,10 +8,11 @@ use std::{collections::HashMap, time::Duration, sync::Arc, cell::Cell};
 
 use async_channel::Receiver;
 use chrono::Utc;
+use itertools::Itertools;
 use warp::{Filter, reply};
 use tokio::{runtime::Runtime, sync::Mutex};
-use tracing::error;
-use super::{OutgoingMessage, IncomingMessage, ChatMessage, ChatManager};
+use tracing::{error, log::{warn, info}};
+use super::{OutgoingMessage, IncomingMessage, ChatMessage, ChatManager, UserProfile, ProviderName};
 
 pub fn start_listening(runtime: &Runtime) -> ChatManager {
   let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
@@ -28,7 +29,8 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
         Ok(msg) => match msg {
           Ok(msg) => match msg {
             OutgoingMessage::Chat { channel_name, message } => {
-              let msg = format!("{{ \"message\": \"{}\" }}", message);
+              //let msg = format!("{{ \"message\": \"{}\" }}", message);
+              let msg = OutgoingMsgResponse { message };
               Ok(reply::json(&msg))
             },
             _ => Ok(reply::json(&"{}"))
@@ -42,17 +44,25 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .and(warp::path("incoming-msg"))
     .and(warp::body::content_length_limit(1024 * 64))
     .and(warp::body::json())
-    .map( move |request: HashMap<String,String>| {
-      let unknown_value : String = "Unknown".to_string();
+    .map( move |request: IncomingMsgRequest| {
+      println!("{}", &request.message);
       match out_tx_2.try_send(IncomingMessage::PrivMsg { 
         message: ChatMessage { 
           provider: super::ProviderName::YouTube, 
           //channel: request.get("channel").unwrap_or(&unknown_value).to_owned(), 
           channel: "Youtube".to_owned(),
-          username: request.get("username").unwrap_or(&unknown_value).to_owned(), 
+          username: request.username.to_owned(), 
           timestamp: Utc::now(), 
-          message: request.get("message").unwrap_or(&unknown_value).to_owned(), 
-          profile: Default::default(), 
+          message: request.message.to_owned(), 
+          profile: UserProfile {
+            badges: None,
+            display_name: Some(request.username.to_owned()),
+            color: match request.role.as_deref() {
+              Some("moderator") => Some((94, 132, 241)),
+              Some("member") => Some((43, 166, 64)),
+              _ => Some((186, 186, 186))
+            },
+          }, 
           combo_data: None, 
           is_removed: None, 
           msg_type: super::MessageType::Chat }
@@ -61,6 +71,16 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
 
         },
         Err(e) => error!("Failure sending on out_tx: {}", e)
+      };
+
+      if let Some(emotes) = request.emotes && emotes.len() > 0 {
+        match out_tx_2.try_send(IncomingMessage::MsgEmotes { 
+          provider: ProviderName::YouTube, 
+          emote_ids: emotes.iter().map(|e| (e.name.to_owned(), e.src.to_owned())).collect_vec()
+        }) {
+          Ok(_) => (),
+          Err(e) => { warn!("Failure sending emote data on out_tx: {}", e); }
+        };
       };
 
       reply::json(&"{}")
@@ -78,4 +98,23 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     in_tx: in_tx, 
     out_rx: out_rx 
   }
+}
+
+#[derive(serde::Serialize)]
+struct OutgoingMsgResponse {
+  message: String
+}
+
+#[derive(serde::Deserialize)]
+struct IncomingMsgRequest {
+  message: String,
+  username: String,
+  role: Option<String>,
+  emotes: Option<Vec<IncomingMsgRequestEmote>>
+}
+
+#[derive(serde::Deserialize)]
+struct IncomingMsgRequestEmote {
+  name: String,
+  src: String
 }

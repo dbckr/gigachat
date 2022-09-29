@@ -1,8 +1,10 @@
 ![](./demo.gif)
 
-All the usual features you would expect in a twitch chat app: channel tabs, emote support (twitch/ffz/bttv/7tv/animated/zero-width/etc), emote selector, etc...
+All the usual features you would expect in a Twitch chat app: channel tabs, emote support (Twitch/FFZ/BTTV/7TV/animated/zero-width/etc), emote selector, etc...
 
-Also supports DGG chat. Will add support for Youtube live stream chat if YT ever makes that API more feasible to support...
+_Sort of_ supports Youtube Live Stream chat but requires setting up a Tampermonkey script in web browser.
+
+Also supports DGG chat. 
 
 # Features
 
@@ -11,7 +13,18 @@ Also supports DGG chat. Will add support for Youtube live stream chat if YT ever
   - ALT ←/→	to choose a emote/user and ALT ↓ to select (working on an option to use TAB & ENTER like DGG chat, having some problems with the UI framework)
 - Right click a chat message to get option to copy it to clipboard, or left click on it to directly copy it. Must click on a section of plain text, not an emote or link.
 - Can click a username to highlight their messages and get a popup with their most recent few messages.
-- Can split screen to display two chats at once via channel options or dragging a tab to right half of messages area.
+- Can split screen to display two chats at once via channel options (right click channel tab) or dragging a channel tab to right half of messages area.
+
+# YouTube Live Chat Integration
+
+Hacky but functional support for YT chatting within the app by using a Tampermonkey script and embedded web server:
+
+- Install Tampermonkey extension for your browser of choice.
+- Add the contents of yt-chat-monitor-tampermonkey.js to it as a script.
+- When you have a YT live stream open it should detect the live chat and send message over to the app, and also send messages typed into the app.
+  - Currently the script is just scraping the HTML of the live chat panel, so hiding chat or popping it out will probably break it. But switching to theater mode to move the chat below the video works fine.
+
+Chat tabs auto-created by this integration will stay around until manually removed.
 
 # Todo
 

@@ -31,7 +31,8 @@ pub enum EmoteRequest {
   TwitchMsgEmoteImage { name: String, id: String },
   TwitchBadgeEmoteListRequest { channel_id: String, channel_name: String, token: String, force_redownload: bool },
   TwitchEmoteSetRequest { token: String, emote_set_id: String, force_redownload: bool },
-  DggFlairEmotesRequest { channel_name: String, cdn_base_url: String, force_redownload: bool }, 
+  DggFlairEmotesRequest { channel_name: String, cdn_base_url: String, force_redownload: bool },
+  YouTubeMsgEmoteImage { name: String, url: String, path: String },
   //JsonDownloadRequest { url: String, filename: String, headers: Option<Vec<(String, String)>> }
 }
 
@@ -78,6 +79,9 @@ impl EmoteRequest {
   pub fn new_twitch_emote_request(emote: &Emote) -> Self {
     EmoteRequest::TwitchMsgEmoteImage { name: emote.name.to_owned(), id: emote.id.to_owned() }
   }
+  pub fn new_youtube_emote_request(emote: &Emote) -> Self {
+    EmoteRequest::YouTubeMsgEmoteImage { name: emote.name.to_owned(), url: emote.url.to_owned(), path: emote.path.to_owned() }
+  }
 }
 
 pub enum EmoteResponse {
@@ -91,7 +95,8 @@ pub enum EmoteResponse {
   TwitchEmoteSetResponse { emote_set_id: String, response: Result<HashMap<String, Emote>, anyhow::Error> },
   //JsonDownloadResponse { url: String, filename: String, content: String }
   GlobalEmoteListResponse { response: Result<HashMap<String, Emote>, anyhow::Error> },
-  TwitchGlobalBadgeListResponse { response: Result<HashMap<String, Emote>, anyhow::Error> }
+  TwitchGlobalBadgeListResponse { response: Result<HashMap<String, Emote>, anyhow::Error> },
+  YouTubeMsgEmoteLoaded { name: String, data: Option<Vec<(ColorImage, u16)>> },
 }
 
 #[derive(Default)]
@@ -194,6 +199,11 @@ impl EmoteLoader {
                   data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &mut easy, None)
                 }
                 out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data })
+              },
+              EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
+                //info!("{n} loading youtube emote '{}'", name);
+                let mut data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &mut easy, None);
+                out_tx.try_send(EmoteResponse::YouTubeMsgEmoteLoaded { name, data })
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {
                 let data = twitch_get_emote_set(&token, &emote_set_id, &cache_path, force_redownload);

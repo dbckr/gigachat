@@ -11,6 +11,7 @@
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM.xmlHttpRequest
 // @run-at       document-start
+// @require      https://code.jquery.com/jquery-3.6.1.min.js
 // ==/UserScript==
 (function(){
   const LIVE_PAGE = {
@@ -22,6 +23,24 @@
               chatField = document.querySelector("#items.style-scope.yt-live-chat-item-list-renderer")
           }
           return chatField
+      },
+      getChatInput: ()=>{
+          let chatInput
+          if(document.getElementById('chatframe')!==null){
+              chatInput = document.getElementById('chatframe').contentDocument.querySelector("div#input.style-scope.yt-live-chat-text-input-field-renderer")
+          }else{
+              chatInput = document.querySelector("div#input.style-scope.yt-live-chat-text-input-field-renderer")
+          }
+          return chatInput
+      },
+      getChatButton: ()=>{
+          let chatButton
+          if(document.getElementById('chatframe')!==null){
+              chatButton = document.getElementById('chatframe').contentDocument.querySelector('button#button[aria-label="Send"]')
+          }else{
+              chatButton = document.querySelector('button#button[aria-label="Send"]')
+          }
+          return chatButton
       }
   }
 
@@ -29,7 +48,7 @@
       setTimeout(function(){
           findChatField()
       }, 1000)
-  };
+ };
 
   let storedHref = location.href;
   const URLObserver = new MutationObserver(function(mutations){
@@ -41,7 +60,7 @@
           }
       })
   })
-  
+
   URLObserver.disconnect()
   URLObserver.observe(document, {childList: true, subtree: true})
 
@@ -57,9 +76,16 @@
               FindCount = 0
           }
           if(document.getElementById('chatframe')){
-              if(LIVE_PAGE.getChatField() !== null){
+              if(LIVE_PAGE.getChatField() !== null && LIVE_PAGE.getChatInput() !== null){
                   log('Found the element: ')
                   console.log(LIVE_PAGE.getChatField())
+                  console.log(LIVE_PAGE.getChatInput())
+                  console.log(LIVE_PAGE.getChatButton())
+
+                  var el = $(LIVE_PAGE.getChatInput());
+                  el.bind(getAllEvents(el[0]), function(e) {
+                      console.log(e);
+                  });
 
                   initialize()
 
@@ -82,6 +108,9 @@
     let message = ''
     let authorID
     let userName
+    let role
+    let badges = []
+    let emotes = []
 
     let children = Array.from(chat.children)
     children.some(_chat =>{
@@ -99,11 +128,26 @@
                 }
             })*/
             message = _message.innerHTML;
-            let messageImgs = Array.from(_message.children);
-            messageImgs.some(_img => {
-              message = message.replace(_img.outerHTML, _img.alt);
+            let messageElements = Array.from(_message.children);
+            messageElements.some(_ele => {
+              if (_ele.nodeName === "IMG") {
+                // replace emote <img> with emote text
+                message = message.replace(_ele.outerHTML, ' ' + _ele.alt + ' ');
+                emotes.push({ name: _ele.alt, src: _ele.src });
+              }
+              else {
+                // strip link tag
+                message = message.replace(_ele.outerHTML, _ele.href);
+              }
             });
+            //message = message.replace(/\s+/, ' ');
             userName = _chat.children[1].innerText;
+            if (_chat.children[1].children[0].classList.contains('moderator')){
+                role = "moderator";
+            }
+            else if (_chat.children[1].children[0].classList.contains('member')){
+                role = "member";
+            }
         }
 
         /*if(childID === 'author-photo'){
@@ -118,7 +162,9 @@
     let result={
         message: message,
         authorID: authorID,
-        userName: userName
+        userName: userName,
+        role: role,
+        emotes: emotes
     }
     return result
 }
@@ -139,7 +185,9 @@
               const chatData = convertChat(addedChats[i])
               var request = JSON.stringify({
                 username: chatData.userName,
-                message: chatData.message
+                message: chatData.message,
+                role: chatData.role,
+                emotes: chatData.emotes
               });
               GM.xmlHttpRequest({
                 method: "POST",
@@ -157,6 +205,69 @@
           }
       })
   })
+
+  var waiting = false;
+
+  function queryForOutput() {
+    if (!waiting) {
+      waiting = true;
+      GM.xmlHttpRequest({
+        method: "GET",
+        headers: {
+            "User-Agent": "derp",
+            "Content-Type": "application/json"
+        },
+        url: "http://localhost:8008/outgoing-msg",
+        onload: function (response) {
+          var msg = JSON.parse(response.responseText);
+          if (msg && msg.message && msg.message.length > 0) {
+            try {
+              //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
+              //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
+              LIVE_PAGE.getChatInput().textContent = msg.message;
+              //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
+              //$(LIVE_PAGE.getChatInput()).text(msg.message);
+              //$(LIVE_PAGE.getChatInput()).trigger('change');
+              //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
+              //var node = document.createTextNode(msg.message);
+              //LIVE_PAGE.getChatInput().appendChild(node);
+
+              LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
+                  bubbles: true,
+                  data: msg.message,
+                  inputType: "insertText",
+                  returnValue: true,
+                  type: "input",
+                  which: 0
+              }))
+
+              //LIVE_PAGE.getChatInput().blur();
+              //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
+              //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
+              //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
+              LIVE_PAGE.getChatButton().click();
+            }
+            catch (err){
+              console.log('error sending message: ' + err);
+            }
+          }
+          waiting = false;
+        }
+      });
+    }
+  }
+
+  setInterval(queryForOutput, 200);
+
+  function getAllEvents(element) {
+    var result = [];
+    for (var key in element) {
+        if (key.indexOf('on') === 0) {
+            result.push(key.slice(2));
+        }
+    }
+    return result.join(' ');
+}
 
   //------------------------------------------
   const log = (mes) => {console.log('【CFY】'+mes)}
