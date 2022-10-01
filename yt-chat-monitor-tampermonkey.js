@@ -7,7 +7,7 @@
 // @version      0.1
 // @description  try to take over the world!
 // @author       dbckr
-// @match        https://www.youtube.com/watch?v=*
+// @match        https://www.youtube.com/*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM.xmlHttpRequest
 // @run-at       document-start
@@ -41,6 +41,9 @@
               chatButton = document.querySelector('button#button[aria-label="Send"]')
           }
           return chatButton
+      },
+      getChannelName: ()=>{
+          return document.querySelector("ytd-channel-name a").innerText
       }
   }
 
@@ -64,6 +67,8 @@
   URLObserver.disconnect()
   URLObserver.observe(document, {childList: true, subtree: true})
 
+  var channelName
+
   var findInterval
   const findChatField = () =>{
       let FindCount = 1
@@ -79,13 +84,13 @@
               if(LIVE_PAGE.getChatField() !== null && LIVE_PAGE.getChatInput() !== null){
                   log('Found the element: ')
                   console.log(LIVE_PAGE.getChatField())
-                  console.log(LIVE_PAGE.getChatInput())
-                  console.log(LIVE_PAGE.getChatButton())
+                  //console.log(LIVE_PAGE.getChatInput())
+                  //console.log(LIVE_PAGE.getChatButton())
 
-                  var el = $(LIVE_PAGE.getChatInput());
-                  el.bind(getAllEvents(el[0]), function(e) {
-                      console.log(e);
-                  });
+                  //var el = $(LIVE_PAGE.getChatInput());
+                  //el.bind(getAllEvents(el[0]), function(e) {
+                  //    console.log(e);
+                  //});
 
                   initialize()
 
@@ -98,10 +103,71 @@
 
   const initialize = () =>{
       log('initialize...')
+      channelName = LIVE_PAGE.getChannelName()
       if(LIVE_PAGE.getChatField() !== null){
           ChatFieldObserver.disconnect()
           ChatFieldObserver.observe(LIVE_PAGE.getChatField(), {childList: true})
       }
+
+      function queryForOutput() {
+       try {
+        var url = "http://localhost:36969/outgoing-msg/" + encodeURIComponent(LIVE_PAGE.getChannelName());
+        //console.log(url);
+        if (!waiting) {
+          waiting = true;
+          GM.xmlHttpRequest({
+            method: "GET",
+            headers: {
+                "User-Agent": "derp",
+                "Content-Type": "application/json"
+            },
+            url: url,
+            onload: function (response) {
+              var msg = JSON.parse(response.responseText);
+              if (msg && msg.message && msg.message.length > 0) {
+                try {
+                  //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
+                  //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
+                  LIVE_PAGE.getChatInput().textContent = msg.message;
+                  //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
+                  //$(LIVE_PAGE.getChatInput()).text(msg.message);
+                  //$(LIVE_PAGE.getChatInput()).trigger('change');
+                  //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
+                  //var node = document.createTextNode(msg.message);
+                  //LIVE_PAGE.getChatInput().appendChild(node);
+
+                    LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
+                        bubbles: true,
+                        data: msg.message,
+                        inputType: "insertText",
+                        returnValue: true,
+                        type: "input",
+                        which: 0
+                    }))
+
+                  //LIVE_PAGE.getChatInput().blur();
+                  //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
+                  //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
+                  //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
+                  LIVE_PAGE.getChatButton().click();
+                }
+                catch (err){
+                  console.log('error processing response: ' + err);
+                }
+              }
+
+            }
+          });
+        }
+           setTimeout(queryForOutput, 200);
+       }
+       catch { setTimeout(queryForOutput, 2000); }
+       finally {
+           waiting = false;
+       }
+      }
+
+      setTimeout(queryForOutput, 200);
   }
 
   const convertChat = (chat) => {
@@ -187,7 +253,8 @@
                 username: chatData.userName,
                 message: chatData.message,
                 role: chatData.role,
-                emotes: chatData.emotes
+                emotes: chatData.emotes,
+                channel: channelName
               });
               GM.xmlHttpRequest({
                 method: "POST",
@@ -195,7 +262,7 @@
                     "User-Agent": "derp",
                     "Content-Type": "application/json"
                 },
-                url: "http://localhost:8008/incoming-msg",
+                url: "http://localhost:36969/incoming-msg",
                 data: request,
                 dataType: "json",
                 contentType: 'application/json',
@@ -207,57 +274,6 @@
   })
 
   var waiting = false;
-
-  function queryForOutput() {
-    if (!waiting) {
-      waiting = true;
-      GM.xmlHttpRequest({
-        method: "GET",
-        headers: {
-            "User-Agent": "derp",
-            "Content-Type": "application/json"
-        },
-        url: "http://localhost:8008/outgoing-msg",
-        onload: function (response) {
-          var msg = JSON.parse(response.responseText);
-          if (msg && msg.message && msg.message.length > 0) {
-            try {
-              //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
-              //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
-              LIVE_PAGE.getChatInput().textContent = msg.message;
-              //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
-              //$(LIVE_PAGE.getChatInput()).text(msg.message);
-              //$(LIVE_PAGE.getChatInput()).trigger('change');
-              //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
-              //var node = document.createTextNode(msg.message);
-              //LIVE_PAGE.getChatInput().appendChild(node);
-
-              LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
-                  bubbles: true,
-                  data: msg.message,
-                  inputType: "insertText",
-                  returnValue: true,
-                  type: "input",
-                  which: 0
-              }))
-
-              //LIVE_PAGE.getChatInput().blur();
-              //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
-              //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
-              //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
-              LIVE_PAGE.getChatButton().click();
-            }
-            catch (err){
-              console.log('error sending message: ' + err);
-            }
-          }
-          waiting = false;
-        }
-      });
-    }
-  }
-
-  setInterval(queryForOutput, 200);
 
   function getAllEvents(element) {
     var result = [];

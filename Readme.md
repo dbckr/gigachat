@@ -2,7 +2,7 @@
 
 All the usual features you would expect in a Twitch chat app: channel tabs, emote support (Twitch/FFZ/BTTV/7TV/animated/zero-width/etc), emote selector, etc...
 
-_Sort of_ supports Youtube Live Stream chat but requires setting up a Tampermonkey script in web browser.
+Limited support for Youtube Live Stream chat but requires a Tampermonkey script (see below for instructions).
 
 Also supports DGG chat. 
 
@@ -19,12 +19,13 @@ Also supports DGG chat.
 
 Hacky but functional support for YT chatting within the app by using a Tampermonkey script and embedded web server:
 
-- Install Tampermonkey extension for your browser of choice.
-- Add the contents of yt-chat-monitor-tampermonkey.js to it as a script.
-- When you have a YT live stream open it should detect the live chat and send message over to the app, and also send messages typed into the app.
+- Install Tampermonkey extension in your browser of choice.
+- In Tampermonkey, create a new script, paste in the contents of the yt-chat-monitor-tampermonkey.js file in the root of this repo, and save it.
+- Turn on "Enable YT Integration" in Gigachat options menu.
+  - This starts an embedded web server that listens on port 36969. The Tampermonkey script will use it to send and receive chat messages.
+- When you open a YT live stream it should detect the live chat UI and start sending messages over to the app, and also send messages typed into the app.
   - Currently the script is just scraping the HTML of the live chat panel, so hiding chat or popping it out will probably break it. But switching to theater mode to move the chat below the video works fine.
-
-Chat tabs auto-created by this integration will stay around until manually removed.
+- Gigachat will create a chat tab for each open YT stream automatically. These tabs will remain until you remove them.
 
 # Todo
 
@@ -41,7 +42,6 @@ Might do:
 - Twitch tier-exclusive emote logic
 - Support/fix twitch modified emotes
 - Twitch Cheer emotes
-- Zero width emote tiling option (e.g. scale to fit and paint X copies of the zero-width over the previous emote instead of stretching)
 - DGG OAuth - tokens not working but login keys created directly on DGG site work
   - Removed oauth flow and added text directing how to create a login key
 - Collect stats for emotes used and use them to order emote selector?

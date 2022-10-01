@@ -272,15 +272,15 @@ async fn spawn_irc(user_name : String, token: String, tx : Sender<IncomingMessag
       },
       Ok(out_msg) = rx.recv() => {
         match out_msg {
-          OutgoingMessage::Chat { channel_name, message } => { 
+          OutgoingMessage::Chat { channel, message } => { 
             _ = match &message.chars().next() {
-              Some(x) if *x == ':' => sender.send_privmsg(&channel_name, format!(" {}", &message)),
-              _ => sender.send_privmsg(&format!("#{channel_name}"), &message),
+              Some(x) if *x == ':' => sender.send_privmsg(&channel, format!(" {}", &message)),
+              _ => sender.send_privmsg(&format!("#{channel}"), &message),
             }.inspect_err(|e| { info!("Error sending twitch IRC message: {}", e)});
-            let profile = profiles.get(&channel_name).map(|f| f.to_owned()).unwrap_or_default();
+            let profile = profiles.get(&channel).map(|f| f.to_owned()).unwrap_or_default();
             let cmsg = ChatMessage { 
               provider: ProviderName::Twitch,
-              channel: channel_name,
+              channel,
               username: client.current_nickname().to_owned(), 
               timestamp: chrono::Utc::now(), 
               message, 

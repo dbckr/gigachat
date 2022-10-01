@@ -202,7 +202,7 @@ impl EmoteLoader {
               },
               EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
                 //info!("{n} loading youtube emote '{}'", name);
-                let mut data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &mut easy, None);
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &mut easy, None);
                 out_tx.try_send(EmoteResponse::YouTubeMsgEmoteLoaded { name, data })
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {

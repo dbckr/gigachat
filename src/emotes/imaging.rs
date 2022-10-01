@@ -139,7 +139,7 @@ fn load_image(
     "gif" => load_animated_gif(buffer),
     "webp" => load_animated_webp(buffer),
     "svg" => {
-      let mut opt = usvg::Options::default();
+      let opt = usvg::Options::default();
       // Get file's absolute directory.
       //opt.resources_dir = std::fs::canonicalize(&args[1]).ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
       //opt.fontdb.load_system_fonts();

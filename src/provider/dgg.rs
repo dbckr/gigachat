@@ -263,7 +263,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String
       },
       Ok(out_msg) = rx.recv() => {
         match out_msg {
-          OutgoingMessage::Chat { channel_name : _, message } => { 
+          OutgoingMessage::Chat { channel : _, message } => { 
             socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
               .inspect_err(|f| info!("socket send error: {}", f))
               .expect_or_log("Error sending websocket message");

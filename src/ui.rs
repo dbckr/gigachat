@@ -12,7 +12,7 @@ use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rou
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType, youtube_server, ChannelTransient, ChatManagerRx}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType, youtube_server, ChannelTransient, ChatManagerRx, ChannelStatus}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
@@ -122,6 +122,7 @@ pub struct TemplateApp {
   pub auth_tokens: AuthTokens,
   enable_combos: bool,
   pub show_timestamps: bool,
+  enable_yt_integration: bool,
   channel_tab_list: Vec<String>,
   selected_channel: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -182,37 +183,6 @@ impl TemplateApp {
     /*if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
       r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
     }*/
-    r.yt_chat_manager = Some(youtube_server::start_listening(r.runtime.as_ref().unwrap()));
-    if !r.providers.contains_key(&ProviderName::YouTube) {
-      r.providers.entry(ProviderName::YouTube).or_insert(Provider {
-        name: "YouTube".to_owned(),
-        my_sub_emotes: Default::default(),
-        emotes: Default::default(),
-        global_badges: Default::default(),
-        username: Default::default()
-      });
-    }
-    if !r.channel_tab_list.contains(&"Youtube".to_owned()) {
-      r.channel_tab_list.push("Youtube".to_owned());
-    }
-    if !r.channels.contains_key("Youtube") {
-      r.channels.insert("Youtube".to_owned(), Channel { 
-        channel_name: "Youtube".to_owned(), 
-        provider: ProviderName::YouTube, 
-        transient: Some(ChannelTransient {
-          channel_emotes: None,
-          badge_emotes: None,
-          status: None,
-      }), 
-        ..Default::default() });
-    }
-    else {
-      r.channels.get_mut("Youtube").unwrap().transient = Some(ChannelTransient {
-        channel_emotes: None,
-        badge_emotes: None,
-        status: None,
-    })
-    }
     r
   }
 }
@@ -264,8 +234,23 @@ impl eframe::App for TemplateApp {
 
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
-    if self.emote_loader.transparent_img == None {
+    if self.emote_loader.transparent_img.is_none() {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+    }
+
+    if self.yt_chat_manager.is_none() && self.enable_yt_integration {
+      self.yt_chat_manager = Some(youtube_server::start_listening(self.runtime.as_ref().unwrap()));
+
+      for (name, channel) in self.channels.iter_mut().filter(|f| f.1.provider == ProviderName::YouTube) {
+        channel.transient = Some(ChannelTransient {
+          channel_emotes: None,
+          badge_emotes: None,
+          status: Some(ChannelStatus {
+            title: Some(name.to_owned()),
+            ..Default::default()
+          })
+        });
+      }
     }
 
     // workaround for odd rounding issues at certain DPI(s?)
@@ -429,6 +414,7 @@ impl TemplateApp {
             if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
               self.show_timestamps_changed = true;
             };
+            ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
@@ -620,8 +606,10 @@ impl TemplateApp {
     
     channel_removed = channel_removed.or(lhs_response.channel_removed);
 
-    if let Some(channel) = channel_removed && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-      chat_mgr.leave_channel(&channel);
+    if let Some(channel) = channel_removed {
+      if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
+        chat_mgr.leave_channel(&channel);
+      }
       self.channels.remove(&channel);
       self.channel_tab_list = self.channel_tab_list.iter().filter_map(|f| if f != &channel { Some(f.to_owned()) } else { None }).collect_vec();
     }
@@ -633,11 +621,18 @@ impl TemplateApp {
     if let Some(sco) = self.channels.get_mut(channel) {
       if let Some(t) = sco.transient.as_mut() {            
         let mut job = LayoutJob { ..Default::default() };
-        job.append(channel, 0., egui::TextFormat {
+        job.append(if channel.len() > 16 { &channel[0..15] } else { channel }, 0., egui::TextFormat {
           font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
           color: Color32::LIGHT_GRAY,
           ..Default::default()
         });
+        if channel.len() > 16 {
+          job.append("..", 0., egui::TextFormat {
+            font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
+            color: Color32::LIGHT_GRAY,
+            ..Default::default()
+          });
+        }
         if t.status.is_some_and(|s| s.is_live) {
           let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 255 } else { 200 };
           job.append("🔴", 3., egui::TextFormat {
@@ -665,32 +660,44 @@ impl TemplateApp {
           *drag_channel_release = Some(channel.to_owned());
         }
 
-        if let Some(status) = &t.status && status.is_live {
+        let provider = match sco.provider {
+          ProviderName::Twitch => "Twitch",
+          ProviderName::DGG => "DGG Chat",
+          ProviderName::YouTube => "YouTube"
+        };
+
+        //if t.status.is_some_and(|s| s.is_live) || channel.len() > 16 {
           clbl = clbl.on_hover_ui(|ui| {
-            if let Some(title) = status.title.as_ref() {
-              ui.label(title);
-            }
-            if let Some(game) = status.game_name.as_ref() {
-              ui.label(game);
-            }
-            if let Some(viewers) = status.viewer_count.as_ref() {
-              ui.label(format!("{} viewers", viewers));
-            }
-        
-            if let Some(started_at) = status.started_at.as_ref() { 
-              if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
-                let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
-                let width = 2;
-                ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+            if let Some(status) = &t.status && status.is_live {
+              ui.label(RichText::new(format!("{} ({})", channel, provider)).size(BODY_TEXT_SIZE * 1.5));
+              if let Some(title) = status.title.as_ref() {
+                ui.label(title);
               }
-              else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
-                let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
-                let width = 2;
-                ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+              if let Some(game) = status.game_name.as_ref() {
+                ui.label(game);
               }
+              if let Some(viewers) = status.viewer_count.as_ref() {
+                ui.label(format!("{} viewers", viewers));
+              }
+          
+              if let Some(started_at) = status.started_at.as_ref() { 
+                if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
+                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                  let width = 2;
+                  ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                }
+                else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
+                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                  let width = 2;
+                  ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
+                }
+              }
+            }
+            else {
+              ui.label(format!("{} ({})", channel, provider));
             }
           });
-        }
+        //}
         return Some(clbl);
       }
       else if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
@@ -755,7 +762,7 @@ impl TemplateApp {
               ProviderName::YouTube => self.yt_chat_manager.as_mut().map(|m| m.in_tx())
             };
             if let Some(chat_tx) = chat_tx {
-              match chat_tx.try_send(OutgoingMessage::Chat { channel_name: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+              match chat_tx.try_send(OutgoingMessage::Chat { channel: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
                 Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
                   sco.send_history.push_front(chat_panel.draft_message.to_owned());
@@ -1210,8 +1217,8 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
             ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
           });
         }*/
-    
-        if name_input.is_some() && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+
+        if name_input.is_some() && !self.add_channel_menu.channel_name.starts_with("YT:") && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
           add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu); 
           self.show_add_channel_menu = false;
         }
@@ -1317,6 +1324,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
       dragged_channel_tab : _,
       rhs_tab_width: _,
       yt_chat_manager: _,
+      enable_yt_integration: _
     } = self;
 
     let ChatPanelOptions {
@@ -1521,6 +1529,20 @@ fn create_uichatmessage<'a>(
         // remove any extra whitespace between words
         let rgx = regex::Regex::new("\\s+").unwrap_or_log();
         message.message = rgx.replace_all(message.message.trim_matches(' '), " ").to_string();
+
+        if message.provider == ProviderName::YouTube && !self.channels.contains_key(&message.channel) {
+          self.channel_tab_list.push(message.channel.to_owned());
+          self.channels.insert(message.channel.to_owned(), Channel { 
+            channel_name: message.channel.to_owned(),  
+            provider: ProviderName::YouTube, 
+            transient: Some(ChannelTransient { 
+              channel_emotes: None,
+              badge_emotes: None,
+              status: None }),
+            ..Default::default() 
+          });
+        }
+
         let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
         if let Some(c) = self.channels.get_mut(&channel) {
@@ -1913,9 +1935,8 @@ pub fn load_font() -> FontDefinitions {
       fonts.families.entry(FontFamily::Proportional).or_default().push("Nirmala".into());
       fonts.families.entry(FontFamily::Monospace).or_default().push("Nirmala".into());
     }
-    // simsunb.ttf
   }
-  // Non-windows, use bundled Roboto font
+  // Non-windows, check for Roboto font
   else if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
     let mut font = FontData::from_owned(font_file);
     // tweak scale to make sizing similiar to Segoe
@@ -1924,30 +1945,21 @@ pub fn load_font() -> FontDefinitions {
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
 
-    // Amogus
+    // Amogus font
     if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
       let nirmala = FontData::from_owned(nirmala_font);
       fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
       fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
       fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
     }
-  }
-  
 
-  // Large font to fill in missing extended characters
-  /*if let Ok(unifont_file) = fetch::get_binary_from_url("https://unifoundry.com/pub/unifont/unifont-14.0.04/font-builds/unifont-14.0.04.otf", Some("unifont-14.0.04.otf"), None) {
-    let unifont = FontData::from_owned(unifont_file);
-    fonts.font_data.insert("unifont".into(), unifont);
-    fonts.families.entry(FontFamily::Proportional).or_default().push("unifont".into());
-    fonts.families.entry(FontFamily::Monospace).or_default().push("unifont".into());
-  }*/
-
-  // Emoji font
-  if let Some(emoji) = load_file_into_buffer("EmojiOneColor.otf") {
-    let emojis = FontData::from_owned(emoji);
-    fonts.font_data.insert("EmojiOneColor".into(), emojis);
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "EmojiOneColor".into());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(1, "EmojiOneColor".into());
+    // Emoji font
+    if let Some(emoji) = load_file_into_buffer("EmojiOneColor.otf") {
+      let emojis = FontData::from_owned(emoji);
+      fonts.font_data.insert("EmojiOneColor".into(), emojis);
+      fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "EmojiOneColor".into());
+      fonts.families.entry(FontFamily::Monospace).or_default().insert(1, "EmojiOneColor".into());
+    }
   }
 
   fonts

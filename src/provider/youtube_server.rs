@@ -4,40 +4,54 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap, time::Duration, sync::Arc, cell::Cell};
+use std::time::Duration;
 
-use async_channel::Receiver;
+use async_channel::{Receiver, Sender};
 use chrono::Utc;
 use itertools::Itertools;
 use warp::{Filter, reply};
-use tokio::{runtime::Runtime, sync::Mutex};
-use tracing::{error, log::{warn, info}};
+use tokio::runtime::Runtime;
+use tracing::{error, log::{warn}};
 use super::{OutgoingMessage, IncomingMessage, ChatMessage, ChatManager, UserProfile, ProviderName};
 
 pub fn start_listening(runtime: &Runtime) -> ChatManager {
-  let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
-  let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
+  let (out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
+  let (in_tx, in_rx) = async_channel::unbounded::<OutgoingMessage>();
+  //let (z_tx, z_rx) =  async_channel::unbounded::<OutgoingMessage>();
 
-  let mut out_tx_2 = out_tx.clone();
-  let mut in_rx_2 = in_rx.clone();
+  let in_tx_2 = in_tx.clone();
   let handle = runtime.spawn(async move { 
     let outgoing_msg = warp::get()
     .and(warp::path("outgoing-msg"))
-    .map(move || in_rx_2.clone())
-    .and_then(|rx: Receiver<OutgoingMessage>| async move {
-      match tokio::time::timeout(Duration::from_millis(10000), rx.recv()).await {
-        Ok(msg) => match msg {
+    .and(warp::path::param())
+    .map(move |requesting_channel: String| (requesting_channel, in_rx.clone(), in_tx_2.clone()))
+    .and_then(|(requesting_channel, in_rx, in_tx): (String, Receiver<OutgoingMessage>, Sender<OutgoingMessage>)| async move {
+      if let Ok(requesting_channel) = urlencoding::decode(&requesting_channel).map(|x| x.into_owned()) {
+        match tokio::time::timeout(Duration::from_millis(10000), in_rx.recv()).await {
           Ok(msg) => match msg {
-            OutgoingMessage::Chat { channel_name, message } => {
-              //let msg = format!("{{ \"message\": \"{}\" }}", message);
-              let msg = OutgoingMsgResponse { message };
-              Ok(reply::json(&msg))
+            Ok(msg) => match msg {
+              OutgoingMessage::Chat { channel, message } => {
+                if channel.trim_start_matches("YT:") == requesting_channel {
+                  let msg = OutgoingMsgResponse { channel: channel.trim_start_matches("YT:").to_owned(), message };
+                  Ok(reply::json(&msg))
+                }
+                else {
+                  match in_tx.try_send(OutgoingMessage::Chat { channel, message }) {
+                    Ok(_) => {},
+                    Err(e) => { warn!("Error requeuing OutgoingMessage: {}", e); }
+                  };
+                  Ok(reply::json(&"{}"))
+                }
+              },
+              _ => Ok(reply::json(&"{}"))
             },
-            _ => Ok(reply::json(&"{}"))
+            Err(e) => { error!("{}", e); Err(warp::reject::reject()) }
           },
-          Err(e) => { error!("{}", e); Err(warp::reject::reject()) }
-        },
-        Err(e) => Ok(reply::json(&"{}"))
+          Err(_) => Ok(reply::json(&"{}"))
+        }
+      }
+      else {
+        Ok(reply::json(&"{}"))
       }
     });
     let incoming_msg = warp::post()
@@ -46,11 +60,10 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .and(warp::body::json())
     .map( move |request: IncomingMsgRequest| {
       println!("{}", &request.message);
-      match out_tx_2.try_send(IncomingMessage::PrivMsg { 
+      match out_tx.try_send(IncomingMessage::PrivMsg { 
         message: ChatMessage { 
           provider: super::ProviderName::YouTube, 
-          //channel: request.get("channel").unwrap_or(&unknown_value).to_owned(), 
-          channel: "Youtube".to_owned(),
+          channel: format!("YT:{}", request.channel),
           username: request.username.to_owned(), 
           timestamp: Utc::now(), 
           message: request.message.to_owned(), 
@@ -73,8 +86,8 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
         Err(e) => error!("Failure sending on out_tx: {}", e)
       };
 
-      if let Some(emotes) = request.emotes && emotes.len() > 0 {
-        match out_tx_2.try_send(IncomingMessage::MsgEmotes { 
+      if let Some(emotes) = request.emotes && !emotes.is_empty() {
+        match out_tx.try_send(IncomingMessage::MsgEmotes { 
           provider: ProviderName::YouTube, 
           emote_ids: emotes.iter().map(|e| (e.name.to_owned(), e.src.to_owned())).collect_vec()
         }) {
@@ -88,20 +101,21 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
 
     let routes = outgoing_msg.or(incoming_msg);
     warp::serve(routes)
-      .run(([127, 0, 0, 1], 8008))
+      .run(([127, 0, 0, 1], 36969))
       .await;
   });
 
   ChatManager { 
     handles: vec![handle], 
     username: "".to_owned(), 
-    in_tx: in_tx, 
-    out_rx: out_rx 
+    in_tx, 
+    out_rx 
   }
 }
 
 #[derive(serde::Serialize)]
 struct OutgoingMsgResponse {
+  channel: String,
   message: String
 }
 
@@ -110,7 +124,8 @@ struct IncomingMsgRequest {
   message: String,
   username: String,
   role: Option<String>,
-  emotes: Option<Vec<IncomingMsgRequestEmote>>
+  emotes: Option<Vec<IncomingMsgRequestEmote>>,
+  channel: String
 }
 
 #[derive(serde::Deserialize)]

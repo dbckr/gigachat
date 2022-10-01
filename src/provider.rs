@@ -37,7 +37,7 @@ impl Default for IncomingMessage {
 
 #[derive(Debug)]
 pub enum OutgoingMessage {
-  Chat { channel_name: String, message: String },
+  Chat { channel: String, message: String },
   Leave { channel_name: String },
   Join { channel_name: String },
   Quit { }
