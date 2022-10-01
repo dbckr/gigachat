@@ -422,9 +422,14 @@ impl CSSLoader {
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
     let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
-    let caps = regex.captures_iter(css);
+    let css_notabs = css.replace("\t", "  ");
+    let caps = regex.captures_iter(css_notabs.as_str());
+    let mut x = 0;
     for captures in caps {
+      x += 1;
+      println!("{:?}", captures);
       let prefix = captures.get(1).map(|x| x.as_str());
+      //println!("{:?}", prefix);
       let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
       let anim = captures.get(3).map(|x| x.as_str());
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
@@ -449,6 +454,7 @@ impl CSSLoader {
         });
       }
     }
+    println!("{}", x);
     result
   }
 }

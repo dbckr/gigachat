@@ -159,10 +159,17 @@ fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<V
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
   let frame_time = (data.cycle_time_msec / data.steps) as u16;
+  let frame_width = if img.width() % data.width == 0 {
+    data.width
+  } else {
+    img.width() / data.steps as u32
+  };
   while x_start < img.width() {
-    let frame = img.crop_imm(x_start, 0, data.width, img.height());
-    frames.push((to_egui_image(frame), frame_time));
-    x_start += data.width;
+    if x_start + frame_width <= img.width() {
+      let frame = img.crop_imm(x_start, 0, frame_width, img.height());
+      frames.push((to_egui_image(frame), frame_time));
+    }
+    x_start += frame_width;
   }
   Ok(frames)
 }

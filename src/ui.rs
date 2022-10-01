@@ -265,7 +265,7 @@ impl TemplateApp {
         _ => 0,
       };
       emote.loaded = EmoteStatus::Loaded;
-      emote.texture_expiration = Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
+      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
       loading_emotes.remove(&emote.name);
     };
 

@@ -223,8 +223,10 @@ pub fn get_json_from_url(
   let mut json: String = Default::default();  
 
   let filename = filename.map(|f| if f.contains('.') { f.to_owned() } else { format!("{}.json", f) } );
+  let file_exists = filename.is_some_and(|f| Path::new(f).exists());
 
-  if force_redownload || filename.is_none() || filename.is_some_and(|f| !Path::new(f).exists()) {
+  if force_redownload || !file_exists {
+    debug!("Downloading {}", url);
     let mut easy = Easy::new();
     easy.url(url)?;
     if let Some(headers) = headers {
@@ -250,14 +252,16 @@ pub fn get_json_from_url(
       Err(e) => panic!("{}", e)
     };
   }
-  else if let Some(filename) = filename {
-    let path = Path::new(&filename);
-    if let Some(parent_path) = path.parent() {
-      DirBuilder::new().recursive(true).create(parent_path)?;
+  
+  if let Some(filename) = filename {
+    if !file_exists {
+      let path = Path::new(&filename);
+      if let Some(parent_path) = path.parent() {
+        DirBuilder::new().recursive(true).create(parent_path)?;
+      }
     }
 
-    if path.exists()
-    {
+    if file_exists && !force_redownload {
       let name = filename.to_owned();
       let file = File::open(filename)?;
       for line in BufReader::new(file).lines().enumerate().filter_map(|(ix, result)| result.inspect_err(|err| warn!("Failed to parse line {} from file {} due to error: {:?}", &ix, &name, err)).ok()) {
@@ -265,7 +269,7 @@ pub fn get_json_from_url(
       }
     }
     else {
-      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename)?;
+      let mut f = OpenOptions::new().write(true).create(true).truncate(true).open(&filename)?;
       f.write_all(&buffer)?;
     }
   }
