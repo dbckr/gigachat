@@ -7,7 +7,8 @@
 // @version      0.1
 // @description  try to take over the world!
 // @author       dbckr
-// @match        https://www.youtube.com/*
+// @match        https://www.youtube.com/watch*
+// @match        https://www.youtube.com/live_chat*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM.xmlHttpRequest
 // @run-at       document-start
@@ -80,7 +81,7 @@
               clearInterval(findInterval)
               FindCount = 0
           }
-          if(document.getElementById('chatframe')){
+          //if(document.getElementById('chatframe')){
               if(LIVE_PAGE.getChatField() !== null && LIVE_PAGE.getChatInput() !== null){
                   log('Found the element: ')
                   console.log(LIVE_PAGE.getChatField())
@@ -97,7 +98,7 @@
                   clearInterval(findInterval)
                   FindCount = 0
              }
-          }
+          //}
       }, 1000)
   }
 
@@ -110,65 +111,65 @@
       }
 
       function queryForOutput() {
-       try {
-        var url = "http://localhost:36969/outgoing-msg/" + encodeURIComponent(LIVE_PAGE.getChannelName());
-        //console.log(url);
         if (!waiting) {
-          waiting = true;
-          GM.xmlHttpRequest({
-            method: "GET",
-            headers: {
-                "User-Agent": "derp",
-                "Content-Type": "application/json"
-            },
-            url: url,
-            onload: function (response) {
-              var msg = JSON.parse(response.responseText);
-              if (msg && msg.message && msg.message.length > 0) {
-                try {
-                  //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
-                  //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
-                  LIVE_PAGE.getChatInput().textContent = msg.message;
-                  //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
-                  //$(LIVE_PAGE.getChatInput()).text(msg.message);
-                  //$(LIVE_PAGE.getChatInput()).trigger('change');
-                  //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
-                  //var node = document.createTextNode(msg.message);
-                  //LIVE_PAGE.getChatInput().appendChild(node);
+          try {
+            var url = "http://localhost:36969/outgoing-msg/" + encodeURIComponent(LIVE_PAGE.getChannelName());
+            //console.log(url);
+              waiting = true;
+              GM.xmlHttpRequest({
+                method: "GET",
+                headers: {
+                    "User-Agent": "derp",
+                    "Content-Type": "application/json"
+                },
+                url: url,
+                onload: function (response) {
+                  var msg = JSON.parse(response.responseText);
+                  if (msg && msg.message && msg.message.length > 0) {
+                    try {
+                      //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
+                      //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
+                      LIVE_PAGE.getChatInput().textContent = msg.message;
+                      //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
+                      //$(LIVE_PAGE.getChatInput()).text(msg.message);
+                      //$(LIVE_PAGE.getChatInput()).trigger('change');
+                      //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
+                      //var node = document.createTextNode(msg.message);
+                      //LIVE_PAGE.getChatInput().appendChild(node);
 
-                    LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
-                        bubbles: true,
-                        data: msg.message,
-                        inputType: "insertText",
-                        returnValue: true,
-                        type: "input",
-                        which: 0
-                    }))
+                        LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
+                            bubbles: true,
+                            data: msg.message,
+                            inputType: "insertText",
+                            returnValue: true,
+                            type: "input",
+                            which: 0
+                        }))
 
-                  //LIVE_PAGE.getChatInput().blur();
-                  //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
-                  //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
-                  //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
-                  LIVE_PAGE.getChatButton().click();
+                      //LIVE_PAGE.getChatInput().blur();
+                      //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
+                      //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
+                      //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
+                      LIVE_PAGE.getChatButton().click();
+                    }
+                    catch (err){
+                      console.log('error processing response: ' + err);
+                    }
+                  }
+
                 }
-                catch (err){
-                  console.log('error processing response: ' + err);
-                }
-              }
-
-            }
-          });
+            });
+            setTimeout(queryForOutput, 200);
+          }
+          catch { setTimeout(queryForOutput, 2000); }
+          finally {
+              waiting = false;
+          }
         }
-           setTimeout(queryForOutput, 200);
-       }
-       catch { setTimeout(queryForOutput, 2000); }
-       finally {
-           waiting = false;
-       }
       }
 
       setTimeout(queryForOutput, 200);
-  }
+    }
 
   const convertChat = (chat) => {
     let message = ''
@@ -256,6 +257,7 @@
                 emotes: chatData.emotes,
                 channel: channelName
               });
+              console.log('send msg: ' + chatData.userName);
               GM.xmlHttpRequest({
                 method: "POST",
                 headers: {
@@ -273,7 +275,7 @@
       })
   })
 
-  var waiting = false;
+  var waiting = true;
 
   function getAllEvents(element) {
     var result = [];
