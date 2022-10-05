@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::time::Duration;
+//use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
 use chrono::Utc;
@@ -27,8 +27,9 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .map(move |requesting_channel: String| (requesting_channel, in_rx.clone(), in_tx_2.clone()))
     .and_then(|(requesting_channel, in_rx, in_tx): (String, Receiver<OutgoingMessage>, Sender<OutgoingMessage>)| async move {
       if let Ok(requesting_channel) = urlencoding::decode(&requesting_channel).map(|x| x.into_owned()) {
-        match tokio::time::timeout(Duration::from_millis(10000), in_rx.recv()).await {
-          Ok(msg) => match msg {
+        //match tokio::time::timeout(Duration::from_millis(10000), in_rx.recv()).await {
+          //Ok(msg) => match msg {
+        match in_rx.try_recv() {
             Ok(msg) => match msg {
               OutgoingMessage::Chat { channel, message } => {
                 if channel.trim_start_matches("YT:") == requesting_channel {
@@ -46,8 +47,8 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
               _ => Ok(reply::json(&"{}"))
             },
             Err(e) => { error!("{}", e); Err(warp::reject::reject()) }
-          },
-          Err(_) => Ok(reply::json(&"{}"))
+          //},
+          //Err(_) => Ok(reply::json(&"{}"))
         }
       }
       else {
@@ -99,7 +100,7 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
       reply::json(&"{}")
     });
 
-    let routes = outgoing_msg.or(incoming_msg);
+    let routes = incoming_msg.or(outgoing_msg);
     warp::serve(routes)
       .run(([127, 0, 0, 1], 36969))
       .await;

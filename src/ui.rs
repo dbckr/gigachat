@@ -88,7 +88,8 @@ pub struct AuthTokens {
 #[derive(Default)]
 pub struct ChatFrameResponse {
   channel_removed: Option<String>,
-  state: ChatPanelOptions
+  state: ChatPanelOptions,
+  y_size: f32
 }
 
 #[derive(Default)]
@@ -503,11 +504,6 @@ impl TemplateApp {
         selected_emote: self.lhs_chat_state.selected_emote.to_owned()
     };
 
-    if channel_swap {
-      self.lhs_chat_state.chat_scroll = None;
-      //self.rhs_chat_state.chat_scroll = None;
-    }
-
     let mut popped_height = 0.;
     let mut rhs_popped_height = 0.;
     for (_channel, history) in self.chat_histories.iter_mut() {
@@ -566,10 +562,18 @@ impl TemplateApp {
           };
           let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
           self.rhs_chat_state = rhs_response.state;
+
+         //if drag_channel_release.is_some() {
+         //  self.rhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y:  rhs_response.y_size });
+         //}
         }
       });
     });
     self.lhs_chat_state = lhs_response.state;
+
+    if channel_swap {
+      self.lhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y:  lhs_response.y_size });
+    }
 
     /*let rect = cpanel_resp.response.rect;
     if self.rhs_selected_channel.is_some() {
@@ -932,6 +936,8 @@ impl TemplateApp {
         });
         jumpwin.unwrap_or_log().response.rect
       } else { Rect::NOTHING };
+
+      response.y_size = y_size;
 
       // Overlay for selected chatter's history
       //self.selected_user_chat_history_overlay(area.inner_rect, ui);

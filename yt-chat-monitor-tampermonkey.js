@@ -8,12 +8,12 @@
 // @description  try to take over the world!
 // @author       dbckr
 // @match        https://www.youtube.com/watch*
-// @match        https://www.youtube.com/live_chat*
 // @icon         data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==
 // @grant        GM.xmlHttpRequest
 // @run-at       document-start
 // @require      https://code.jquery.com/jquery-3.6.1.min.js
 // ==/UserScript==
+var channelName = null;
 (function(){
   const LIVE_PAGE = {
       getChatField: ()=>{
@@ -68,8 +68,6 @@
   URLObserver.disconnect()
   URLObserver.observe(document, {childList: true, subtree: true})
 
-  var channelName
-
   var findInterval
   const findChatField = () =>{
       let FindCount = 1
@@ -113,7 +111,7 @@
       function queryForOutput() {
         if (!waiting) {
           try {
-            var url = "http://localhost:36969/outgoing-msg/" + encodeURIComponent(LIVE_PAGE.getChannelName());
+            var url = "http://localhost:36969/outgoing-msg/" + encodeURIComponent(channelName);
             //console.log(url);
               waiting = true;
               GM.xmlHttpRequest({
@@ -159,16 +157,18 @@
 
                 }
             });
-            setTimeout(queryForOutput, 200);
+            setTimeout(queryForOutput, 500);
           }
-          catch { setTimeout(queryForOutput, 2000); }
+          catch { /*setTimeout(queryForOutput, 10000);*/ }
           finally {
               waiting = false;
           }
         }
       }
 
-      setTimeout(queryForOutput, 200);
+      if (!waiting) {
+        setTimeout(queryForOutput, 500);
+      }
     }
 
   const convertChat = (chat) => {
@@ -275,7 +275,7 @@
       })
   })
 
-  var waiting = true;
+  var waiting = false;
 
   function getAllEvents(element) {
     var result = [];
