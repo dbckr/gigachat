@@ -155,9 +155,15 @@ pub fn process_emote_json(
     for i in v["sets"][&setid]["emoticons"].as_array_mut().unwrap_or_log() {
       let name = i["name"].to_string().trim_matches('"').to_owned();
       let id = i["id"].to_string().trim_matches('"').to_owned();
+      let url_selected = &i["urls"][emote_size];
+      let url_fallback = &i["urls"]["1"];
+      let url = match url_selected.is_null() {
+        true => url_fallback.to_string(),
+        false => url_selected.to_string()
+      };
       let imgurl = format!(
         "https:{}",
-        i["urls"][emote_size].to_string().trim_matches('"')
+        url.trim_matches('"')
       );
       emotes.push(Emote {name, id, url: imgurl, path: "ffz/".to_owned(), ..Default::default()});
     }

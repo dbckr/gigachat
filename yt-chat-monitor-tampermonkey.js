@@ -80,7 +80,7 @@ var channelName = null;
               FindCount = 0
           }
           //if(document.getElementById('chatframe')){
-              if(LIVE_PAGE.getChatField() !== null && LIVE_PAGE.getChatInput() !== null){
+              if(LIVE_PAGE.getChatField() !== null/* && LIVE_PAGE.getChatInput() !== null*/){
                   log('Found the element: ')
                   console.log(LIVE_PAGE.getChatField())
                   //console.log(LIVE_PAGE.getChatInput())
@@ -125,44 +125,67 @@ var channelName = null;
                   var msg = JSON.parse(response.responseText);
                   if (msg && msg.message && msg.message.length > 0) {
                     try {
-                      //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
-                      //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
-                      LIVE_PAGE.getChatInput().textContent = msg.message;
-                      //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
-                      //$(LIVE_PAGE.getChatInput()).text(msg.message);
-                      //$(LIVE_PAGE.getChatInput()).trigger('change');
-                      //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
-                      //var node = document.createTextNode(msg.message);
-                      //LIVE_PAGE.getChatInput().appendChild(node);
+                      if (LIVE_PAGE.getChatInput() !== null && LIVE_PAGE.getChatButton() !== null) {
+                        //document.getElementById('chatframe').contentDocument.querySelector("button#button[aria-label='Add reaction']").click()
+                        //document.getElementById('chatframe').contentDocument.querySelector("img[aria-label=':yt:']").click()
+                        LIVE_PAGE.getChatInput().textContent = msg.message;
+                        //$(LIVE_PAGE.getChatInput().parentElement).trigger(jQuery.Event('keydown', { keyCode: 65 }));
+                        //$(LIVE_PAGE.getChatInput()).text(msg.message);
+                        //$(LIVE_PAGE.getChatInput()).trigger('change');
+                        //$(LIVE_PAGE.getChatInput()).trigger('input', { data: msg.message });
+                        //var node = document.createTextNode(msg.message);
+                        //LIVE_PAGE.getChatInput().appendChild(node);
 
-                        LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
-                            bubbles: true,
-                            data: msg.message,
-                            inputType: "insertText",
-                            returnValue: true,
-                            type: "input",
-                            which: 0
-                        }))
+                          LIVE_PAGE.getChatInput().dispatchEvent(new InputEvent('input', {
+                              bubbles: true,
+                              data: msg.message,
+                              inputType: "insertText",
+                              returnValue: true,
+                              type: "input",
+                              which: 0
+                          }))
 
-                      //LIVE_PAGE.getChatInput().blur();
-                      //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
-                      //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
-                      //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
-                      LIVE_PAGE.getChatButton().click();
+                        //LIVE_PAGE.getChatInput().blur();
+                        //LIVE_PAGE.getChatInput().removeAttribute('aria-invalid', '');
+                        //LIVE_PAGE.getChatInput().parentElement.setAttribute('has-text', '');
+                        //LIVE_PAGE.getChatButton().removeAttribute('disabled', '');
+                        LIVE_PAGE.getChatButton().click();
+                      }
+                      else {
+                        var request = JSON.stringify({
+                          username: "",
+                          message: "You do not have permission to post in this chat",
+                          role: "error",
+                          channel: channelName
+                        });
+                        GM.xmlHttpRequest({
+                          method: "POST",
+                          headers: {
+                              "User-Agent": "derp",
+                              "Content-Type": "application/json"
+                          },
+                          url: "http://localhost:36969/incoming-msg",
+                          data: request,
+                          dataType: "json",
+                          contentType: 'application/json',
+                          onload: function (response) {
+                          }
+                        });
+                      }
                     }
                     catch (err){
                       console.log('error processing response: ' + err);
+                    }
+                    finally { 
+                      waiting = false;
+                      setTimeout(queryForOutput, 50);
                     }
                   }
 
                 }
             });
-            setTimeout(queryForOutput, 500);
           }
-          catch { /*setTimeout(queryForOutput, 10000);*/ }
-          finally {
-              waiting = false;
-          }
+          catch { waiting = false; setTimeout(queryForOutput, 500); }
         }
       }
 
@@ -257,7 +280,8 @@ var channelName = null;
                 emotes: chatData.emotes,
                 channel: channelName
               });
-              console.log('send msg: ' + chatData.userName);
+              //console.log('send msg: ' + chatData.userName);
+              console.log('request: ' + request);
               GM.xmlHttpRequest({
                 method: "POST",
                 headers: {
@@ -269,6 +293,7 @@ var channelName = null;
                 dataType: "json",
                 contentType: 'application/json',
                 onload: function (response) {
+                  console.log('response: ' + JSON.stringify(response));
                 }
               });
           }

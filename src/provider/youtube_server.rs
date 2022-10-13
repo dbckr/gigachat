@@ -6,6 +6,8 @@
 
 //use std::time::Duration;
 
+use std::time::Duration;
+
 use async_channel::{Receiver, Sender};
 use chrono::Utc;
 use itertools::Itertools;
@@ -27,9 +29,9 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .map(move |requesting_channel: String| (requesting_channel, in_rx.clone(), in_tx_2.clone()))
     .and_then(|(requesting_channel, in_rx, in_tx): (String, Receiver<OutgoingMessage>, Sender<OutgoingMessage>)| async move {
       if let Ok(requesting_channel) = urlencoding::decode(&requesting_channel).map(|x| x.into_owned()) {
-        //match tokio::time::timeout(Duration::from_millis(10000), in_rx.recv()).await {
-          //Ok(msg) => match msg {
-        match in_rx.try_recv() {
+        match tokio::time::timeout(Duration::from_millis(10000), in_rx.recv()).await {
+          Ok(msg) => match msg {
+          //match in_rx.try_recv() {
             Ok(msg) => match msg {
               OutgoingMessage::Chat { channel, message } => {
                 if channel.trim_start_matches("YT:") == requesting_channel {
@@ -47,21 +49,24 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
               _ => Ok(reply::json(&"{}"))
             },
             Err(e) => { error!("{}", e); Err(warp::reject::reject()) }
-          //},
-          //Err(_) => Ok(reply::json(&"{}"))
+          },
+          Err(_) => Ok(reply::json(&"{}"))
         }
       }
       else {
         Ok(reply::json(&"{}"))
       }
     });
+
     let incoming_msg = warp::post()
     .and(warp::path("incoming-msg"))
     .and(warp::body::content_length_limit(1024 * 64))
     .and(warp::body::json())
-    .map( move |request: IncomingMsgRequest| {
+    .map(move |request: IncomingMsgRequest| (request, out_tx.clone()))
+    .and_then( |(request, out_tx): (IncomingMsgRequest, Sender<IncomingMessage>)| async move {
       println!("{}", &request.message);
-      match out_tx.try_send(IncomingMessage::PrivMsg { 
+      let mut error = false;
+      match out_tx.send(IncomingMessage::PrivMsg { 
         message: ChatMessage { 
           provider: super::ProviderName::YouTube, 
           channel: format!("YT:{}", request.channel),
@@ -79,25 +84,32 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
           }, 
           combo_data: None, 
           is_removed: None, 
-          msg_type: super::MessageType::Chat }
-      }) {
-        Ok(_) => {
-
-        },
-        Err(e) => error!("Failure sending on out_tx: {}", e)
+          msg_type: match request.role.as_deref() {
+            Some("error") => super::MessageType::Error,
+            _ => super::MessageType::Chat 
+          }
+        }
+      }).await {
+        Ok(_) => (),
+        Err(e) => { error!("Failure sending on out_tx: {}", e); error = true; }
       };
 
       if let Some(emotes) = request.emotes && !emotes.is_empty() {
-        match out_tx.try_send(IncomingMessage::MsgEmotes { 
+        match out_tx.send(IncomingMessage::MsgEmotes { 
           provider: ProviderName::YouTube, 
           emote_ids: emotes.iter().map(|e| (e.name.to_owned(), e.src.to_owned())).collect_vec()
-        }) {
+        }).await {
           Ok(_) => (),
-          Err(e) => { warn!("Failure sending emote data on out_tx: {}", e); }
+          Err(e) => { warn!("Failure sending emote data on out_tx: {}", e); error = true; }
         };
       };
 
-      reply::json(&"{}")
+      if error {
+        Err(warp::reject::reject())
+      }
+      else {
+        Ok(reply::json(&"{}"))
+      }
     });
 
     let routes = incoming_msg.or(outgoing_msg);

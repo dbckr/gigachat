@@ -29,6 +29,9 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 
 # Todo
 
+- Websocket connections do not recover after being killed by VPN connecting
+- Make embedded web server handle requests in a non-blocking manner
+- Sometimes closes leaving config in invalid state, fails to start until config file is deleted
 - Twitch IRC sometimes fails to init/connect on startup
 - Handle Twitch CLEARCHAT, CLEARMSG commands (and DGG MUTE/BAN)
 - "Sub only" toggle option
