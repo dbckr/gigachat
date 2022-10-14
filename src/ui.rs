@@ -509,10 +509,10 @@ impl TemplateApp {
     for (_channel, history) in self.chat_histories.iter_mut() {
       if history.len() > 2000 && let Some(popped) = history.pop_front() 
         && let Some(mut height) = popped.1 {
-        if self.enable_combos && popped.0.combo_data.is_some_and(|c| !c.is_end) {
+        if self.enable_combos && popped.0.combo_data.as_ref().is_some_and(|c| !c.is_end) {
           // add nothing to y_pos
         } else {
-          if self.enable_combos && popped.0.combo_data.is_some_and(|c| c.is_end && c.count > 1) {
+          if self.enable_combos && popped.0.combo_data.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
             height = COMBO_LINE_HEIGHT + ctx.style().spacing.item_spacing.y;
           } 
 
@@ -637,7 +637,7 @@ impl TemplateApp {
             ..Default::default()
           });
         }
-        if t.status.is_some_and(|s| s.is_live) {
+        if t.status.as_ref().is_some_and(|s| s.is_live) {
           let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 255 } else { 200 };
           job.append("🔴", 3., egui::TextFormat {
             font_id: FontId::new(SMALL_TEXT_SIZE / 1.7, FontFamily::Proportional), 
@@ -1359,7 +1359,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
       
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
-        if selected_channel.is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
+        if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }
@@ -1391,9 +1391,9 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         // Skip processing if row size is accurately cached and not in view
         if !*show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
-            if *enable_combos && combo.is_some_and(|c| !c.is_end) {
+            if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
               // add nothing to y_pos
-            } else if *enable_combos && combo.is_some_and(|c| c.is_end && c.count > 1) {
+            } else if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
               y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
             } else {
               y_pos += size_y;
@@ -1422,9 +1422,9 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
           }
           row_y += size_y + ui.spacing().item_spacing.y;
         }
-        if *enable_combos && combo.is_some_and(|c| !c.is_end) {
+        if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
           // add nothing to y_pos
-        } else if *enable_combos && combo.is_some_and(|c| c.is_end && c.count > 1) {
+        } else if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
           y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
         } else {
           y_pos += row_y;
@@ -1450,7 +1450,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
 
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
-          if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.is_some_and(|c| c.is_end && c.count == 1) {
+          if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
             let highlight_msg = match chat_msg.message.msg_type {
               MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
               MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
@@ -1801,7 +1801,7 @@ fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut mes
   let last = chat_history.iter_mut().rev().find_or_first(|f| f.0.channel == message.channel);
   if let Some(last) = last && is_emote {
     let combo = combo_calculator(&message, last.0.combo_data.as_ref());
-    if combo.is_some_and(|c| !c.is_new && c.count > 1) && let Some(last_combo) = last.0.combo_data.as_mut() {
+    if combo.as_ref().is_some_and(|c| !c.is_new && c.count > 1) && let Some(last_combo) = last.0.combo_data.as_mut() {
       last_combo.is_end = false; // update last item to reflect the continuing combo
     }
     else if last.0.combo_data.as_ref().is_some_and(|c| c.count <= 1) {

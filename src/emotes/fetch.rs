@@ -229,7 +229,7 @@ pub fn get_json_from_url(
   let mut json: String = Default::default();  
 
   let filename = filename.map(|f| if f.contains('.') { f.to_owned() } else { format!("{}.json", f) } );
-  let file_exists = filename.is_some_and(|f| Path::new(f).exists());
+  let file_exists = filename.as_ref().is_some_and(|f| Path::new(f).exists());
 
   if force_redownload || !file_exists {
     debug!("Downloading {}", url);
@@ -291,7 +291,7 @@ pub fn get_binary_from_url(
 
   let mut buffer: Vec<u8> = Default::default();
 
-  if filename.is_none() || filename.is_some_and(|f| Path::new(f.to_owned()).exists() == false) {
+  if filename.is_none() || filename.as_ref().is_some_and(|f| !Path::new(f).exists()) {
     let mut easy = Easy::new();
     easy.url(url)?;
     if let Some(headers) = headers {
