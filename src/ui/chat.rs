@@ -18,7 +18,7 @@ use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOT
 
 const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
-pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle, show_channel_name: bool, show_timestamp: bool) -> emath::Rect {
+pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle, show_channel_name: bool, show_timestamp: bool) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
   let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
   let ui_row = ui.horizontal_wrapped(|ui| {
@@ -37,7 +37,7 @@ pub fn create_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_
   ui_row.response.rect
 }
 
-pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>, bool) {
+pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>, bool) {
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
@@ -218,15 +218,10 @@ pub fn create_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpar
 }
 
 pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
-  if chat_msg.msg_type != MessageType::Chat {
-    return None;
-  }
-
-  let uname_text = chat_msg.profile.display_name.as_ref().unwrap_or(&chat_msg.username);
-  if chat_msg.profile.display_name.is_some() && !uname_text.is_ascii() {
-    Some(&chat_msg.username)
-  } else {
-    Some(uname_text)
+  match &chat_msg.profile.display_name {
+    _ if chat_msg.msg_type != MessageType::Chat => None,
+    Some(display_name) if display_name.is_ascii() => Some(display_name),
+    _ => Some(&chat_msg.username)
   }
 }
 
@@ -286,6 +281,7 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http") || word.starts_with("#twitch") || word.starts_with("#youtube")
 }
 
+#[tracing::instrument(skip_all)]
 pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
   let mut job = LayoutJob {
     break_on_newline: false,

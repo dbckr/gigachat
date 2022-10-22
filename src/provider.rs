@@ -143,6 +143,7 @@ pub struct ChatMessage {
 pub enum MessageType {
   #[default] Chat,
   Error,
+  Information,
   Announcement
 }
 
@@ -216,4 +217,17 @@ pub struct ChannelStatus {
   pub title: Option<String>,
   pub viewer_count: Option<usize>,
   pub started_at: Option<String>
+}
+
+pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: String, provider: ProviderName, message: String, msg_type: MessageType) {
+  match tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage {
+    channel, 
+    provider, 
+    message,
+    msg_type,
+    ..Default::default() 
+  } }) {
+    Ok(_) => (),
+    Err(x) => info!("Send failure for ERR: {}", x)
+  };
 }

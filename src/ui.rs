@@ -16,6 +16,9 @@ use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingM
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
+#[cfg(instrumentation)]
+use tracing::{instrument, trace_span};
+
 pub mod chat;
 pub mod chat_estimate;
 
@@ -195,7 +198,7 @@ impl eframe::App for TemplateApp {
   }
 
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    self.update_inner(ctx)
+    self.update_inner(ctx);
   }
 
   fn on_exit(&mut self, _ctx : Option<&eframe::glow::Context>) {
@@ -234,6 +237,7 @@ impl eframe::App for TemplateApp {
 }
 
 impl TemplateApp {
+  #[cfg_attr(instrumentation, instrument(skip_all))]
   fn update_inner(&mut self, ctx: &egui::Context) {
     if self.emote_loader.transparent_img.is_none() {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
@@ -716,6 +720,7 @@ impl TemplateApp {
     None
   }
 
+  #[cfg_attr(instrumentation, instrument(skip_all))]
   fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
     let mut response : ChatFrameResponse = Default::default();
     ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
@@ -1022,7 +1027,7 @@ impl TemplateApp {
     channel_removed
 }
 
-fn ui_auth_menu(&mut self, ctx: &egui::Context) {
+  fn ui_auth_menu(&mut self, ctx: &egui::Context) {
     let mut changed_twitch_token = false;
     let mut changed_dgg_token = false;
     if self.show_auth_ui {
@@ -1067,6 +1072,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
           if ui.button("Log In").clicked() {
             self.auth_tokens.dgg_auth_token = "".to_owned();
             self.auth_tokens.show_dgg_auth_token = true;
+            ctx.output().open_url("https://www.destiny.gg/profile/developer");
             //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
           }
         });
@@ -1148,7 +1154,7 @@ fn ui_auth_menu(&mut self, ctx: &egui::Context) {
     }
 }
 
-fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
+  fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
     let mut add_channel = |providers: &mut HashMap<ProviderName, Provider>, auth_tokens: &mut AuthTokens, channel_options: &mut AddChannelMenu| {
       let c = match channel_options.provider {
         ProviderName::Twitch => { 
@@ -1278,8 +1284,8 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().unwrap_or_log().to_owned();
-              let est = Self::create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
-              let (_, user_selected, msg_right_clicked) = chat::create_chat_message(ui, &est, &transparent_texture, None);
+              let est = create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes, &mut self.emote_loader);
+              let (_, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &est, &transparent_texture, None);
   
               if let Some(user) = user_selected.as_ref() {
                 if selected_user.as_ref() == Some(user) {
@@ -1304,6 +1310,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
     }
   }
 
+#[cfg_attr(instrumentation, instrument(skip_all))]
   fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
     let TemplateApp {
       runtime : _,
@@ -1356,14 +1363,14 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
       let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut excess_top_space : Option<f32> = None;
       let mut skipped_rows = 0;
-      
+
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
         if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }
-
+      
       let mut history_iters = HistoryIterator {
         iterators: history_iters,
         //mentions_only: selected_channel.is_none(),
@@ -1379,7 +1386,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
         if let Some(dgg_chat_manager) = self.dgg_chat_manager.as_ref() {
           usernames.insert(ProviderName::DGG, dgg_chat_manager.username.to_lowercase());
         }
-      }      
+      }
       
       while let Some((row, cached_y)) = history_iters.get_next() {
         if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
@@ -1404,7 +1411,7 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
             continue;
         }
 
-        let mut uimsg = Self::create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes, emote_loader);
+        let mut uimsg = create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes, emote_loader);
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
@@ -1454,13 +1461,14 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
             let highlight_msg = match chat_msg.message.msg_type {
               MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
               MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
+              MessageType::Information => Some(Color32::TRANSPARENT),
               MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
                 Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
               } else {
                 None
               }
             };
-            let (_rect, user_selected, msg_right_clicked) = chat::create_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
+            let (_rect, user_selected, msg_right_clicked) = chat::display_chat_message(viewport_ui, chat_msg, transparent_texture, highlight_msg);
 
             if user_selected.is_some() {
               if *selected_user == user_selected {
@@ -1474,57 +1482,15 @@ fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
             }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-            chat::create_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, *show_timestamps);
+            chat::display_combo_message(viewport_ui, chat_msg, transparent_texture, show_channel_names, *show_timestamps);
           }
         }
-      });      
+      });
     });
 
     set_selected_message(set_selected_msg, ui, selected_msg);
 
     y_pos
-  }
-
-fn create_uichatmessage<'a>(
-  row: &'a ChatMessage,
-  ui: &mut egui::Ui, 
-  ui_width: f32,
-  show_channel_name: bool,
-  show_timestamp: bool,
-  providers: &HashMap<ProviderName, Provider>,
-  channels: &HashMap<String, Channel>,
-  global_emotes: &HashMap<String, Emote>,
-  emote_loader: &mut EmoteLoader) -> UiChatMessage<'a> {
-    let (provider_emotes, provider_badges) = providers.get(&row.provider)
-      .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
-    let (channel_emotes, channel_badges) = channels.get(&row.channel)
-      .and_then(|c| c.transient.as_ref())
-      .map(|t| (t.channel_emotes.as_ref(), t.badge_emotes.as_ref())).unwrap_or((None, None));
-    let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, &global_emotes, emote_loader);
-    let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, emote_loader);
-    let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
-    let mentions = if let Some(channel) = channels.get(&row.channel) {
-      get_mentions_in_message(row, &channel.users)
-    } else { None };
-
-    let color = row.profile.color.or(user_color).map(|f| f.to_owned());
-    let mut row_data : Vec<UiChatMessageRow> = Default::default();
-    for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
-      row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
-    }
-    let msg_height = row_data.iter().map(|f| f.row_height).sum();
-
-    UiChatMessage {
-      message: row,
-      emotes,
-      badges,
-      mentions,
-      row_data,
-      msg_height,
-      user_color: color,
-      show_channel_name,
-      show_timestamp
-    }
   }
 
   fn handle_incoming_message(&mut self, x: IncomingMessage) {
@@ -1549,31 +1515,51 @@ fn create_uichatmessage<'a>(
           });
         }
 
-        let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
+        if message.username.is_empty() && message.channel.is_empty() && message.msg_type != MessageType::Chat {
+          let provider_channels = self.channels.iter().filter_map(|(_, c)| {
+            if c.provider == message.provider { 
+              Some(c.channel_name.to_owned())
+            } else {
+              None
+            }
+          }).collect_vec();
+          for channel in provider_channels {
+            let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
+            push_history(
+              chat_history, 
+              message.to_owned(),
+              provider_emotes, 
+              self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
+              &self.global_emotes, 
+              &mut self.emote_loader);
+          }
+        } else {
+          let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
-        if let Some(c) = self.channels.get_mut(&channel) {
-          c.users.insert(message.username.to_lowercase(), ChannelUser {
-            username: message.username.to_owned(),
-            display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
-            is_active: true
-          });
-          // Twitch has some usernames that have completely different display names (e.g. Japanese character display names)
-          if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
-            c.users.insert(display_name.to_lowercase(), ChannelUser {
+          if let Some(c) = self.channels.get_mut(&channel) {
+            c.users.insert(message.username.to_lowercase(), ChannelUser {
               username: message.username.to_owned(),
               display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
               is_active: true
             });
+            // Twitch has some usernames that have completely different display names (e.g. Japanese character display names)
+            if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
+              c.users.insert(display_name.to_lowercase(), ChannelUser {
+                username: message.username.to_owned(),
+                display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
+                is_active: true
+              });
+            }
           }
-        }
 
-        push_history(
-          chat_history, 
-          message,
-          provider_emotes, 
-          self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
-          &self.global_emotes, 
-          &mut self.emote_loader);
+          push_history(
+            chat_history, 
+            message,
+            provider_emotes, 
+            self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
+            &self.global_emotes, 
+            &mut self.emote_loader);
+        }
       },
       IncomingMessage::StreamingStatus { channel, status } => {
         if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
@@ -1665,6 +1651,7 @@ fn create_uichatmessage<'a>(
     };
   }
 
+  #[cfg_attr(instrumentation, instrument(skip_all))]
   fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 2  {
@@ -1728,6 +1715,7 @@ fn create_uichatmessage<'a>(
     }
   }
 
+  #[cfg_attr(instrumentation, instrument(skip_all))]
   fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
     if let Some((pos, input_str)) = word {
       if input_str.len() < 3  {
@@ -1758,6 +1746,51 @@ fn create_uichatmessage<'a>(
     else {
       None
     }
+  }
+}
+
+#[cfg_attr(instrumentation, instrument(skip_all))]
+fn create_uichatmessage<'a>(
+  row: &'a ChatMessage,
+  ui: &mut egui::Ui, 
+  ui_width: f32,
+  show_channel_name: bool,
+  show_timestamp: bool,
+  providers: &HashMap<ProviderName, Provider>,
+  channels: &HashMap<String, Channel>,
+  global_emotes: &HashMap<String, Emote>,
+  emote_loader: &mut EmoteLoader) -> UiChatMessage<'a> {
+
+  let (provider_emotes, provider_badges) = providers.get(&row.provider)
+    .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
+  let (channel_emotes, channel_badges) = channels.get(&row.channel)
+    .and_then(|c| c.transient.as_ref())
+    .map(|t| (t.channel_emotes.as_ref(), t.badge_emotes.as_ref())).unwrap_or((None, None));
+
+  let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes, emote_loader);
+  let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, emote_loader);
+  let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
+  let mentions = if let Some(channel) = channels.get(&row.channel) {
+    get_mentions_in_message(row, &channel.users)
+  } else { None };
+
+  let color = row.profile.color.or(user_color).map(|f| f.to_owned());
+  let mut row_data : Vec<UiChatMessageRow> = Default::default();
+  for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
+    row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
+  }
+  let msg_height = row_data.iter().map(|f| f.row_height).sum();
+
+  UiChatMessage {
+    message: row,
+    emotes,
+    badges,
+    mentions,
+    row_data,
+    msg_height,
+    user_color: color,
+    show_channel_name,
+    show_timestamp
   }
 }
 
@@ -1838,6 +1871,7 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
   }
 }
 
+#[cfg_attr(instrumentation, instrument(skip_all))]
 fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUser>) -> Option<Vec<String>> {
   Some(row.message.split(' ').into_iter().filter_map(|f| {
     let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
@@ -1845,6 +1879,7 @@ fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUse
   }).collect_vec())
 }
 
+#[cfg_attr(instrumentation, instrument(skip_all))]
 fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(' ') {
@@ -1873,6 +1908,7 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<St
   result
 }
 
+#[cfg_attr(instrumentation, instrument(skip_all))]
 fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<Vec<(String, EmoteFrame)>>, Option<(u8,u8,u8)>) {
   let mut result : Vec<(String, chat::EmoteFrame)> = Default::default();
   if badges.is_none() { return (None, None); }

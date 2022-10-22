@@ -2,7 +2,8 @@
 /target
 /generated
 /cache
-flamegraph.svg
+*.svg
+*.output
 perf.data*
 *.log.*
 update_release.bat

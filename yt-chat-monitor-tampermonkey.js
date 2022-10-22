@@ -232,10 +232,10 @@ var channelName = null;
             });
             //message = message.replace(/\s+/, ' ');
             userName = _chat.children[1].innerText;
-            if (_chat.children[1].children[0].classList.contains('moderator')){
+            if (_chat.children[1].children[0].classList.contains('moderator') || _chat.children[1].children[1].classList.contains('moderator')){
                 role = "moderator";
             }
-            else if (_chat.children[1].children[0].classList.contains('member')){
+            else if (_chat.children[1].children[0].classList.contains('member') || _chat.children[1].children[1].classList.contains('member')){
                 role = "member";
             }
         }

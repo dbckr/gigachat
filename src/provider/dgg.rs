@@ -6,6 +6,7 @@
 
 use std::{collections::HashMap, path::{PathBuf, Path}};
 use async_channel::{Sender, Receiver};
+use backoff::{backoff::Backoff};
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt};
@@ -13,7 +14,7 @@ use itertools::Itertools;
 use tracing::{trace, info,warn,error};
 use crate::{provider::MessageType, emotes::EmoteRequest};
 use regex::Regex;
-use tokio::{runtime::Runtime};
+use tokio::{runtime::Runtime, time::sleep, time::Duration};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
 use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
@@ -44,11 +45,25 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let status_url = channel.dgg_status_url.to_owned();
   let chat_url = channel.dgg_chat_url.to_owned();
 
+  
+
   let mut out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
+    let mut backoff = backoff::ExponentialBackoffBuilder::new()
+    .with_initial_interval(Duration::from_millis(3000))
+    .with_max_interval(Duration::from_millis(60000))
+    .with_max_elapsed_time(None)
+    .with_randomization_factor(0.)
+    .build();
+    
     loop {
-      if spawn_websocket_live_client(&status_url, &mut out_tx_2).await {
-        break;
+      let retry_wait = backoff.next_backoff();
+      match spawn_websocket_live_client(&status_url, &mut out_tx_2).await {
+        Ok(x) => if x { break; } else { backoff.reset(); },
+        Err(x) => error!("error connecting to DGG channel status websocket: {:?}", x)
+      }
+      if let Some(duration) = retry_wait {
+        sleep(duration).await;
       }
     }
   });
@@ -56,9 +71,39 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
   let name1 = user_name.to_owned();
   let token1 = token.to_owned();
   let handle = runtime.spawn(async move { 
+    let mut backoff = backoff::ExponentialBackoffBuilder::new()
+    .with_initial_interval(Duration::from_millis(3000))
+    .with_max_interval(Duration::from_millis(60000))
+    .with_max_elapsed_time(None)
+    .with_randomization_factor(0.)
+    .build();
+
     loop {
-      if spawn_websocket_chat_client(&chat_url, &name1, &token1, &mut out_tx, &mut in_rx).await {
-        break;
+      let retry_wait = backoff.next_backoff();
+      match spawn_websocket_chat_client(&chat_url, &name1, &token1, &mut out_tx, &mut in_rx).await {
+        Ok(x) => if x { break; } else { 
+          backoff.reset();
+          backoff.next_backoff();
+          super::display_system_message_in_chat(
+            &out_tx, 
+            DGG_CHANNEL_NAME.to_owned(), 
+            ProviderName::DGG, 
+            format!("Lost connection, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())),
+            MessageType::Error);
+        },
+        Err(e) => { 
+          error!("error connecting to DGG channel status websocket: {:?}", e);
+          //super::display_system_message_in_chat(&out_tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, format!("Error: {}", e), MessageType::Error);
+          super::display_system_message_in_chat(
+            &out_tx, 
+            DGG_CHANNEL_NAME.to_owned(), 
+            ProviderName::DGG, 
+            format!("Failed to connect, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())),
+            MessageType::Error);
+        }
+      }
+      if let Some(duration) = retry_wait {
+        sleep(duration).await;
       }
     }
   });
@@ -98,9 +143,9 @@ impl ChatManager {
   }
 }
 
-async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<IncomingMessage>) -> bool {
-  let request = dgg_status_url.into_client_request().expect_or_log("failed to build request");
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect_or_log("failed to connect to wss");
+async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
+  let request = dgg_status_url.into_client_request()?;
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
 
   loop {
     tokio::select! {
@@ -127,7 +172,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
           },
           Err(e) => {
             error!("Websocket error: {:?}", e);
-            return false;
+            return Ok(false);
           }
         }
       }
@@ -135,19 +180,22 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
   }
 }
 
-async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> bool {
+async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
-  let mut request = dgg_chat_url.into_client_request().expect_or_log("failed to build request");
-  request.headers_mut().append(COOKIE, cookie.parse().unwrap_or_log());
+  let mut request = dgg_chat_url.into_client_request()?;
+  let cookie = cookie.parse()?;
+  request.headers_mut().append(COOKIE, cookie);
   //info!("adding cookie {} {}", cookie, r);
   //for item in request.headers().iter() {
   //  info!("{}: {:?}", item.0, item.1);
   //}
 
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await.expect_or_log("failed to connect to wss");
+  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
   //let (mut write, mut read) = socket.split();
+
+  super::display_system_message_in_chat(&tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information);
 
   while !quitted {
     tokio::select! {
@@ -257,7 +305,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String
           },
           Err(e) => {
             error!("Websocket error: {:?}", e);
-            return false;
+            return Ok(false);
           }
         }
       },
@@ -276,7 +324,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String
       }
     };
   }
-  true
+  Ok(true)
 }
 
 const REDIRECT_URI : &str = "https://dbckr.github.io/GigachatAuth";

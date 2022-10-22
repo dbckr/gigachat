@@ -175,10 +175,26 @@ mod test {
   fn estimate_test_5() {
     let str = "This is a long sentence that is intended to test that text wraps over to a new line in an appropiate fashion in the user interface.".to_owned();
     let x = estimate_message_test_helper(300., str.to_owned(), false);
-    let expected_ranges : [Range<usize>; 4] = [(0..32),(32..75),(75..116),(116..131)];
+
+    //let expected_ranges : [Range<usize>; 4] = [(0..32),(32..75),(75..116),(116..131)];
+    let expected_ranges : [Range<usize>; 5] = [(0..24),(24..59),(59..90),(90..121),(121..131)];
     let mut expected_iter = expected_ranges.iter();
     for (range, y, string) in x {
       assert_eq!(&range, expected_iter.next().unwrap());
+      println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
+    }
+  }
+
+  #[test]
+  fn estimate_test_6() {
+    let str = "If you would like to support me directly the best way to do that is with a tip at https://www.youtube.com/redirect?event=live_chat&redir_token=QUFFLUhqbXNEU002eVl0Z3pITEJfZHZPMUV5U3h3eUVwd3xBQ3Jtc0tsX1BJM2ZvWXRMSTB6TjdDa1llSlVxbzJVbUFqRVRGV3RYRTNYMW5rckNJS29XYzNBWGktMEtfRHJzX3NkbFhfSmdtWWxCcVZVR0ZseFEteTR5dEw2ZXJoLWxhTWczZF9qUVZsRG9LTlpJWjFuWGJVaw&q=https%3A%2F%2Fstreamlabs.com%2Fnotsoerudite%2Ftip OR on Patreon at https://www.youtube.com/redirect?event=live_chat&redir_token=QUFFLUhqbWg3NGVHTDZxSWRfa0VBelVRbl9lckJqWXlNd3xBQ3Jtc0ttYXpZU0ZBcDBhb2FtQ3lVVlNIOVR4WTJIc3lZTkVJWmItQXdJQkhjZTVzcklXcUYzaFc1SW15Ul9kN2tSX1d2d0x3ZlJpS0VHbHVMaEkzekViRDk0OGp3NTR6VTNtSjN6ZUN6TExMVktpaTNnVjFtVQ&q=https%3A%2F%2Fwww.patreon.com%2FnotsoErudite".to_owned();
+    let x = estimate_message_test_helper(390., str.to_owned(), false);
+
+    //let expected_ranges : [Range<usize>; 4] = [(0..32),(32..75),(75..116),(116..131)];
+    //let expected_ranges : [Range<usize>; 5] = [(0..24),(24..59),(59..90),(90..121),(121..131)];
+    //let mut expected_iter = expected_ranges.iter();
+    for (range, y, string) in x {
+      //assert_eq!(&range, expected_iter.next().unwrap());
       println!("{:<6}{:<10}{}", y, format!("{:?}", range), string);
     }
   }

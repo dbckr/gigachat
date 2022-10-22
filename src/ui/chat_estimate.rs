@@ -29,6 +29,7 @@ impl TextRange {
   }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&Vec<(String, EmoteFrame)>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
@@ -54,7 +55,8 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   for (i, word) in words.iter().enumerate() {
     has_ascii_art = match has_ascii_art {
       None => is_start_of_ascii_art(&words, i, emotes),
-      Some(len) => if word.len() == len { Some(len) } else { None }
+      Some(len) if word.len() == len => Some(len), // continuing ascii art
+      _ => None // end of ascii art
     };
     if has_ascii_art.is_some() {
       row_data.push((curr_row_height, msg_char_range, true));
@@ -78,42 +80,49 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   row_data
 }
 
-pub fn get_word_size(ui: &mut egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
+#[tracing::instrument(skip_all)]
+pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
   curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
   let mut row_start_char_ix = curr_row_range.start();
-  let rows : Vec<(usize, egui::emath::Vec2)> = if let Some(emote) = emotes.get(word) {
-    if emote.zero_width {
-      [(word.len(), egui::vec2(0., 0.))].to_vec()
-    }
-    else if let Some(texture) = emote.texture.as_ref() {
-      [(word.len(), egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT))].to_vec()
-    }
-    else { // "standard" emote size until actual image is loaded
-      [(word.len(), egui::vec2(EMOTE_HEIGHT, EMOTE_HEIGHT))].to_vec()
-    }
-  } else {
-    get_text_rect(ui, ui_width, word, curr_row_width, is_ascii_art).into_iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
-  };
-  let mut row_iter = rows.iter();
-  while let Some((char_len, row)) = row_iter.next() {
+
+  if let Some(emote) = emotes.get(word) {
+    let row = match &emote.texture {
+      _ if emote.zero_width => egui::vec2(0., 0.),
+      Some(texture) => egui::vec2(texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y), EMOTE_HEIGHT),
+      None => egui::vec2(EMOTE_HEIGHT, EMOTE_HEIGHT)
+    };
+    //process_row(&word.len(), &row, curr_row_width);
     let row_char_range = TextRange::Range { range: (row_start_char_ix..*ix) };
-    let new_row = process_word_result(ui_width, &ui.spacing().item_spacing, &ui.spacing().interact_size, row, curr_row_width, curr_row_height, row_data, row_char_range);
-    if new_row {
+    if process_word_result(ui_width, &ui.spacing().item_spacing, &ui.spacing().interact_size, &row, curr_row_width, curr_row_height, row_data, row_char_range) {
       row_start_char_ix = *ix;
     }
-    *ix += char_len;
-    if is_ascii_art.is_some() {
-      // truncate any overflow text instead of overflowing to more rows
-      let range = TextRange::Range { range: (row_start_char_ix..*ix) };
-      *ix += row_iter.map(|(char_len, _)| char_len).sum::<usize>();
-      return range;
+    *ix += word.len();
+  } else {
+    let rows = get_text_rect(ui, ui_width, word, curr_row_width, is_ascii_art);
+    let mut row_iter = rows.iter();
+    while let Some((char_len, row)) = row_iter.next() {
+      //process_row(char_len, row, curr_row_width);
+      let row_char_range = TextRange::Range { range: (row_start_char_ix..*ix) };
+      if process_word_result(ui_width, &ui.spacing().item_spacing, &ui.spacing().interact_size, row, curr_row_width, curr_row_height, row_data, row_char_range) {
+        row_start_char_ix = *ix;
+      }
+      *ix += char_len;
+      if is_ascii_art.is_some() {
+        // truncate any overflow text instead of overflowing to more rows
+        let range = TextRange::Range { range: (row_start_char_ix..*ix) };
+        *ix += row_iter.map(|(char_len, _)| char_len).sum::<usize>();
+        return range;
+      }
     }
-  }
+  };
+  
   // Return char range for the last row (which is not yet written to row_data)
   TextRange::Range { range: (row_start_char_ix..*ix) }
 }
 
+/// Returns true if starting a new row
+#[tracing::instrument(skip_all)]
 fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, row_char_range: TextRange) -> bool {
   let curr_width = *curr_row_width + rect.x + item_spacing.x;
   if curr_width <= available_width {
@@ -129,19 +138,23 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
   }
 }
 
-pub fn get_text_rect(ui: &mut egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<egui::epaint::text::Row> {
+pub fn get_text_rect(ui: &egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<(usize, egui::Vec2)> {
   let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1. , word, curr_row_width, is_ascii_art.is_some());
   let galley = ui.fonts().layout_job(job);
-  galley.rows.clone()
+  galley.rows.iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
 }
 
 pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, is_ascii_art: bool) -> LayoutJob {
+  let big_word = word.len() >= WORD_LENGTH_MAX || is_ascii_art;
   let mut job = LayoutJob {
     //wrap_width: max_width,
     //break_on_newline: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
     wrap: egui::epaint::text::TextWrapping { 
-      break_anywhere: word.len() >= WORD_LENGTH_MAX || is_ascii_art,
-      max_width,
+      break_anywhere: big_word,
+      max_width: match big_word {
+        true => max_width - 3.,
+        false => max_width
+      },
       ..Default::default()
     },
     ..Default::default()
