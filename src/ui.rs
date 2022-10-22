@@ -425,6 +425,8 @@ impl TemplateApp {
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
             _ = ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
+          ui.separator();
+          ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(SMALL_TEXT_SIZE).color(Color32::DARK_GRAY));
         });
       });
       ui.separator();

@@ -33,8 +33,7 @@ fn main() {
     ..Default::default() 
   };
 
-  let title = format!("Gigachat - {}", env!("CARGO_PKG_VERSION"));
-  eframe::run_native(&title, native_options, Box::new(|cc| { 
+  eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());
     let runtime = tokio::runtime::Runtime::new().expect_or_log("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
