@@ -5,6 +5,7 @@
  */
 
 use async_channel::{Sender, Receiver};
+//use rand::{distributions::{Alphanumeric, DistString}};
 use tracing::info;
 use std::collections::{HashMap, VecDeque, HashSet};
 
@@ -135,6 +136,7 @@ pub struct ChatMessage {
   pub combo_data: Option<ComboCounter>,
   pub is_removed: Option<String>,
   pub msg_type: MessageType
+  //pub unique_id: String
 }
 
 #[derive(Default)]
@@ -159,6 +161,7 @@ impl Default for ChatMessage {
       combo_data: None,
       is_removed: None,
       msg_type: MessageType::Chat
+      //unique_id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
     }
   }
 }

@@ -226,7 +226,8 @@ mod test {
       }, 
       combo_data: None,
       is_removed: None,
-      msg_type: MessageType::Chat };
+      msg_type: MessageType::Chat,
+      ..Default::default() };
     let emotes : HashMap<String, EmoteFrame> = Default::default();
     let badges : Vec<(String, EmoteFrame)> = Default::default();
     let ui_width = ui.available_width();

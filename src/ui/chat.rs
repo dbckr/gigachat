@@ -23,7 +23,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent
   let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
   let ui_row = ui.horizontal_wrapped(|ui| {
     ui.image(transparent_img, emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
-    ui.label(job);
+    ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
     if let Some(combo) = row.message.combo_data.as_ref() {
       let emote = row.emotes.get(&combo.word);
@@ -31,7 +31,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent
         let texture = texture.as_ref().unwrap_or(transparent_img);
         add_ui_emote_image(&combo.word, path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
       }
-      ui.label(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6));
+      ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6)).sense(egui::Sense { click: true, drag: false, focusable: false }));
     }
   });
   ui_row.response.rect
@@ -72,7 +72,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
         if row_ix == 0 {
           let username = determine_name_to_display(chat_msg.message);
           let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
-          ui.label(job);
+          ui.add(egui::Label::new(job).sense(egui::Sense::hover()));
           if let Some(user_badges) = &chat_msg.badges {
             for (badge, emote) in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
@@ -101,6 +101,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
                     ProviderName::DGG => { ui.label(emote.label.as_ref().unwrap_or(badge)); },
                     ProviderName::YouTube => {}
                   };
+
                   ui.image(tex, tex.size_vec2());
                 //});
               });
@@ -114,6 +115,9 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
             if uname.clicked() {
               user_selected = Some(uname_text.to_lowercase());
+            }
+            else if uname.secondary_clicked() {
+              msg_right_clicked = true;
             }
             if uname.hovered() {
               ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
@@ -152,7 +156,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
+                let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense { click: true, drag: false, focusable: false }));
                 if link.hovered() {
                   ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
                 }
@@ -194,11 +198,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
                     ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
                   }
                 } else {
-                  let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-
-                  if lbl.secondary_clicked() {
-                    msg_right_clicked = true;
-                  }
+                  ui.add(egui::Label::new(text).sense(egui::Sense::hover()));
                 }
               }
             };

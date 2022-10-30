@@ -284,7 +284,7 @@ impl TemplateApp {
                 self.global_emotes.insert(name, emote);
               }
             },
-            Err(x) => { error!("ERROR LOADING GLOBAL EMOTES: {}", x); }
+            Err(x) => { error!("Error loading global emotes: {}", x); }
           };
         },
         EmoteResponse::GlobalEmoteImageLoaded { name, data } => {
@@ -729,20 +729,29 @@ impl TemplateApp {
       if half_width {
         ui.set_width(ui.available_width() / 2.);
       }
+
+      let (goto_next_emote, goto_prev_emote, enter_emote) = if chat_panel.selected_emote.is_some() {
+        let mut input = ui.input_mut();
+        let next = input.consume_key(Modifiers::ALT, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::Tab);
+        let prev = input.consume_key(Modifiers::ALT, Key::ArrowLeft) || input.consume_key(Modifiers::NONE, Key::ArrowLeft) || input.consume_key(Modifiers::SHIFT, Key::Tab);
+        let select = input.consume_key(Modifiers::ALT, Key::ArrowDown) || input.consume_key(Modifiers::NONE, Key::ArrowDown) || input.consume_key(Modifiers::NONE, Key::Enter);
+        (next, prev, select)
+      } 
+      else { 
+        (false, false, false) 
+      };
+      
       //ui.painter().rect_stroke(ui.max_rect(), Rounding::none(), Stroke::new(2.0, Color32::DARK_RED));
       if let Some(sc) = chat_panel.selected_channel.as_ref().to_owned() {
-
         ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
         let mut outgoing_msg = egui::TextEdit::multiline(&mut chat_panel.draft_message)
           .desired_rows(2)
           .desired_width(ui.available_width())
           .hint_text("Type a message to send")
           .font(egui::TextStyle::Body)
+          .lock_focus(chat_panel.selected_emote.is_some())
           .show(ui);
-          
-        let goto_next_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowRight);
-        let goto_prev_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowLeft);
-        let enter_emote = chat_panel.selected_emote.is_some() && outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::ALT, Key::ArrowDown);
+
         let prev_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
         let next_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
 
@@ -765,7 +774,8 @@ impl TemplateApp {
           }
         }
 
-        if outgoing_msg.response.has_focus() && ui.input().key_down(egui::Key::Enter) && !ui.input().modifiers.shift && !chat_panel.draft_message.is_empty() {
+        let enter_pressed = ui.input_mut().consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+        if outgoing_msg.response.has_focus() && enter_pressed && !chat_panel.draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
             let chat_tx = match sco.provider {
               ProviderName::Twitch => self.twitch_chat_manager.as_mut().map(|m| m.in_tx()),
@@ -784,7 +794,7 @@ impl TemplateApp {
             }
           } 
         }
-        else if !chat_panel.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+        else if outgoing_msg.response.has_focus() && !chat_panel.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
           let cursor = cursor_pos.primary.index;
           let msg = &chat_panel.draft_message.to_owned();
           let word : Option<(usize, &str)> = msg.split_whitespace()
@@ -896,6 +906,12 @@ impl TemplateApp {
               }
             }
           }
+          else {
+            chat_panel.selected_emote = None;
+          }
+        }
+        else if chat_panel.selected_emote.is_some() {
+          chat_panel.selected_emote = None;
         }
 
         outgoing_msg.state.store(ctx, outgoing_msg.response.id);

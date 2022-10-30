@@ -87,7 +87,8 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
           msg_type: match request.role.as_deref() {
             Some("error") => super::MessageType::Error,
             _ => super::MessageType::Chat 
-          }
+          },
+          ..Default::default()
         }
       }).await {
         Ok(_) => (),

@@ -10,7 +10,8 @@ Also supports DGG chat.
 
 - Emote/User selector: 
   - Displays options automatically as you type. Start a word with @ to get user name selector instead of emote selector.
-  - ALT ←/→	to choose a emote/user and ALT ↓ to select (working on an option to use TAB & ENTER like DGG chat, having some problems with the UI framework)
+  - ←/→	to choose a emote/user and ↓ to select
+  - Can also use Tab, Shift-Tab to choose and Enter to select
 - Right click a chat message to get option to copy it to clipboard. Must click on a section of plain text, not an emote or link.
 - Can click a username to highlight their messages and get a popup with their most recent few messages.
 - Can split screen to display two chats at once via channel options (right click channel tab) or dragging a channel tab to right half of messages area.

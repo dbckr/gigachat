@@ -11,7 +11,7 @@ use egui::{TextureHandle, ColorImage};
 use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
-use tracing::{info, error};
+use tracing::{info, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 
 use super::CssAnimationData;
@@ -119,7 +119,7 @@ pub fn get_image_data(
 
   match inner() {
     Ok(x) => Some(x),
-    Err(x) => { error!("Failed to load emote {} from url {} due to error: {}", name, url, x); None },
+    Err(x) => { warn!("Failed to load emote {} from url {} due to error: {}", name, url, x); None },
   }
 }
 
