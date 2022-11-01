@@ -10,8 +10,8 @@ Also supports DGG chat.
 
 - Emote/User selector: 
   - Displays options automatically as you type. Start a word with @ to get user name selector instead of emote selector.
-  - ←/→	to choose a emote/user and ↓ to select
-  - Can also use Tab, Shift-Tab to choose and Enter to select
+  - Use Tab and Shift-Tab to choose a emote/user
+    - Can also use ALT + ←/→	to choose
 - Right click a chat message to get option to copy it to clipboard. Must click on a section of plain text, not an emote or link.
 - Can click a username to highlight their messages and get a popup with their most recent few messages.
 - Can split screen to display two chats at once via channel options (right click channel tab) or dragging a channel tab to right half of messages area.
@@ -30,6 +30,7 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 
 # Todo
 
+- Put exact match emote first in selector
 - Websocket connections do not recover after being killed by VPN connecting
 - Make embedded web server handle requests in a non-blocking manner
 - Sometimes closes leaving config in invalid state, fails to start until config file is deleted
@@ -39,6 +40,9 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 - Option to download smaller emote sizes
 - Ability to open stream in browser for a selected tab
 - Make it less likely for changes or new settings to break saved settings
+- Clicking a username to see recent mentions make take multiple clicks to work when chat is moving fast
+  - This might be tied to click sense requiring focus as well and focus resetting when chat window contents change
+  - Labels do not support specifying an id for state persistence, maybe change clickable elements to button and style to match labels?
 
 Might do:
 

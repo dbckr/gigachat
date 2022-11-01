@@ -156,7 +156,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense { click: true, drag: false, focusable: false }));
+                let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
                 if link.hovered() {
                   ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
                 }

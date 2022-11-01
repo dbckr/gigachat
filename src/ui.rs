@@ -8,7 +8,7 @@ use tracing::{info, error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response, text_edit::TextEditState};
 use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -113,6 +113,8 @@ pub struct ChatPanelOptions {
   pub selected_msg: Option<(Vec2, ChatMessage)>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_emote: Option<String>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub selected_emote_input: Option<(usize, String)>,
 }
 
 #[derive(Default)]
@@ -507,7 +509,8 @@ impl TemplateApp {
         chat_scroll: self.lhs_chat_state.chat_scroll.to_owned(),
         selected_user: self.lhs_chat_state.selected_user.to_owned(),
         selected_msg: self.lhs_chat_state.selected_msg.to_owned(),
-        selected_emote: self.lhs_chat_state.selected_emote.to_owned()
+        selected_emote: self.lhs_chat_state.selected_emote.to_owned(),
+        selected_emote_input: self.lhs_chat_state.selected_emote_input.to_owned()
     };
 
     let mut popped_height = 0.;
@@ -564,7 +567,8 @@ impl TemplateApp {
             chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
             selected_user: self.rhs_chat_state.selected_user.to_owned(),
             selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
-            selected_emote: self.rhs_chat_state.selected_emote.to_owned()
+            selected_emote: self.rhs_chat_state.selected_emote.to_owned(),
+            selected_emote_input: self.rhs_chat_state.selected_emote_input.to_owned()
           };
           let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
           self.rhs_chat_state = rhs_response.state;
@@ -730,11 +734,11 @@ impl TemplateApp {
         ui.set_width(ui.available_width() / 2.);
       }
 
-      let (goto_next_emote, goto_prev_emote, enter_emote) = if chat_panel.selected_emote.is_some() {
+      let (goto_next_emote, goto_prev_emote, enter_emote) = if chat_panel.selected_emote_input.is_some() {
         let mut input = ui.input_mut();
-        let next = input.consume_key(Modifiers::ALT, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::Tab);
-        let prev = input.consume_key(Modifiers::ALT, Key::ArrowLeft) || input.consume_key(Modifiers::NONE, Key::ArrowLeft) || input.consume_key(Modifiers::SHIFT, Key::Tab);
-        let select = input.consume_key(Modifiers::ALT, Key::ArrowDown) || input.consume_key(Modifiers::NONE, Key::ArrowDown) || input.consume_key(Modifiers::NONE, Key::Enter);
+        let next = input.consume_key(Modifiers::ALT, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::Tab);
+        let prev = input.consume_key(Modifiers::ALT, Key::ArrowLeft) || input.consume_key(Modifiers::SHIFT, Key::Tab);
+        let select = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (input.consume_key(Modifiers::ALT, Key::ArrowDown) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
         (next, prev, select)
       } 
       else { 
@@ -749,7 +753,7 @@ impl TemplateApp {
           .desired_width(ui.available_width())
           .hint_text("Type a message to send")
           .font(egui::TextStyle::Body)
-          .lock_focus(chat_panel.selected_emote.is_some())
+          .lock_focus(chat_panel.selected_emote_input.is_some())
           .show(ui);
 
         let prev_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
@@ -801,117 +805,176 @@ impl TemplateApp {
             .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
             .filter_map(|p| if p.0 <= cursor && cursor <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
             .next();
-          let is_user_list = word.as_ref().is_some_and(|f| f.1.starts_with('@'));
-          let emotes = if is_user_list { self.get_possible_users(&chat_panel.selected_channel, word) } else { self.get_possible_emotes(&chat_panel.selected_channel, word) };
-          if let Some((word, pos, emotes)) = emotes && !emotes.is_empty() {
-            if enter_emote && let Some(emote_text) = &chat_panel.selected_emote {
-              let msg = if chat_panel.draft_message.len() <= pos + word.len() || &chat_panel.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
-                format!("{}{} {}", &chat_panel.draft_message[..pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
-              } else {
-                format!("{}{}{}", &chat_panel.draft_message[..pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
-              };
-              chat_panel.draft_message = msg;
-              outgoing_msg.response.request_focus();
-              info!("{}", emote_text.len());
-              outgoing_msg.state.set_ccursor_range(
-                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(chat_panel.draft_message[..pos].len() + emote_text.len() + 1)))
+          let word_input = word.map(|x| (x.0.to_owned(), x.1.to_owned()));
+
+          if chat_panel.selected_emote_input.is_none() || chat_panel.selected_emote.is_none() {
+            chat_panel.selected_emote_input = word_input.to_owned();
+          }
+
+          if let Some((pos, word)) = chat_panel.selected_emote_input.as_ref().or(word_input.as_ref()) {
+
+            let is_user_list = word.starts_with('@');
+            let emotes = if is_user_list { self.get_possible_users(&chat_panel.selected_channel, Some(word)) } else { self.get_possible_emotes(&chat_panel.selected_channel, Some(word)) };
+
+            let update_ui_draft_msg = |word: &String, pos: &usize, emote_text: &String, draft_msg: &mut String, state: &mut TextEditState| {
+              let msg = /*if chat_panel.draft_message.len() <= pos + word.len() || &chat_panel.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
+                format!("{}{} {}", &chat_panel.draft_message[..*pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
+              } else {*/
+                format!("{}{}{}", &draft_msg[..*pos], emote_text, &draft_msg[pos + word.len()..]);
+              //};
+              *draft_msg = msg;
+              state.set_ccursor_range(
+                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(draft_msg[..*pos].len() + emote_text.len())))
               );
-              chat_panel.selected_emote = None;
-            }
-            else {
-              if goto_next_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
-                chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
+            };
+
+            if let Some(emotes) = emotes && !emotes.is_empty() && let Some(textbox_word) = word_input.as_ref().map(|(_, str)| str) {
+              if enter_emote && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
+                update_ui_draft_msg(textbox_word, pos, &format!("{} ", emote_text), &mut chat_panel.draft_message, &mut outgoing_msg.state);
+                outgoing_msg.response.request_focus();
+                chat_panel.selected_emote = None;
+                chat_panel.selected_emote_input = None;
               }
-              else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
-                chat_panel.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
-              }
-              else if chat_panel.selected_emote.is_none() || !emotes.iter().any(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) {
-                chat_panel.selected_emote = emotes.first().map(|x| x.0.to_owned());
-              }
-
-              // Overlay style emote selector
-              let msg_rect = outgoing_msg.response.rect.to_owned();
-              let ovl_height = ui.available_height() / 2.;
-              let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
-              let mut painter = ui.painter_at(painter_rect);
-              let painter_rect = painter.clip_rect();
-              painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
-
-              let mut y = painter_rect.bottom();
-              let mut x = painter_rect.left();
-              for emote in emotes {
-                let mut job = LayoutJob {
-                  wrap: egui::epaint::text::TextWrapping { 
-                    break_anywhere: false,
-                    ..Default::default()
-                  },
-                  first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
-                  ..Default::default()
-                };
-                job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
-                  font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
-                  ..Default::default() });
-                let galley = ui.fonts().layout_job(job);
-                let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
-
-                let width = if !is_user_list {
-                  let texture = emote.1.as_ref()
-                    .and_then(|f| f.texture.as_ref())
-                    .or_else(|| self.emote_loader.transparent_img.as_ref())
-                    .unwrap_or_log();
-
-                  let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
-                  if x + width + text_width > painter_rect.right() {
-                    y -= EMOTE_HEIGHT;
-                    x = painter_rect.left();
+              else {
+                if goto_next_emote {
+                  if let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
+                    chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
+                  } else {
+                    chat_panel.selected_emote = emotes.get(0).map(|x| x.0.to_owned());
                   }
+                }
+                else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
+                  chat_panel.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
+                }
+                else if chat_panel.selected_emote.is_some() && !emotes.iter().any(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) {
+                  chat_panel.selected_emote = None;
+                }
+                else if chat_panel.selected_emote_input.is_some() && word_input.as_ref() != chat_panel.selected_emote_input.as_ref() && !emotes.iter().any(|x| Some(&x.0) == word_input.as_ref().map(|(_,str)| str)) {
+                  chat_panel.selected_emote = None;
+                }
 
-                  painter.rect_filled(egui::Rect {
-                    min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
-                    max: egui::pos2(x + width + text_width, y),
-                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                if (goto_next_emote || goto_prev_emote) && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
+                  update_ui_draft_msg(textbox_word, pos, emote_text, &mut chat_panel.draft_message, &mut outgoing_msg.state);
+                }
 
-                  let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
-                  let rect = egui::Rect { 
-                    min: egui::pos2(x, y - EMOTE_HEIGHT ), 
-                    max: egui::pos2(x + width, y) 
+                // Overlay style emote selector
+                let msg_rect = outgoing_msg.response.rect.to_owned();
+                let ovl_height = ui.available_height() / 2.;
+                let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
+                let mut painter = ui.painter_at(painter_rect);
+                let painter_rect = painter.clip_rect();
+                painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
+
+                //TODO: refactor to pre-calculate layout and then paint, so it can paint only 5 rows centered on emote "cursor"
+                let mut y = painter_rect.bottom();
+                let mut x = painter_rect.left();
+                for emote in emotes.iter().take(24) {
+                  let mut job = LayoutJob {
+                    wrap: egui::epaint::text::TextWrapping { 
+                      break_anywhere: false,
+                      ..Default::default()
+                    },
+                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                    ..Default::default()
+                  };
+                  job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
+                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                    ..Default::default() });
+                  let galley = ui.fonts().layout_job(job);
+                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
+                  let width = if !is_user_list {
+                    let texture = emote.1.as_ref()
+                      .and_then(|f| f.texture.as_ref())
+                      .or_else(|| self.emote_loader.transparent_img.as_ref())
+                      .unwrap_or_log();
+
+                    let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
+                    if x + width + text_width > painter_rect.right() {
+                      y -= EMOTE_HEIGHT;
+                      x = painter_rect.left();
+                    }
+
+                    painter.rect_filled(egui::Rect {
+                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      max: egui::pos2(x + width + text_width, y),
+                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+
+                    let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
+                    let rect = egui::Rect { 
+                      min: egui::pos2(x, y - EMOTE_HEIGHT ), 
+                      max: egui::pos2(x + width, y) 
+                    };
+
+                    let mut mesh = egui::Mesh::with_texture(texture.id());
+                    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+                    painter.add(egui::Shape::mesh(mesh));
+                    width
+                  } else {
+                    if x + text_width > painter_rect.right() {
+                      y -= EMOTE_HEIGHT;
+                      x = painter_rect.left();
+                    }
+                    painter.rect_filled(egui::Rect {
+                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      max: egui::pos2(x + text_width + 1., y),
+                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                    0.
                   };
 
-                  let mut mesh = egui::Mesh::with_texture(texture.id());
-                  mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-                  painter.add(egui::Shape::mesh(mesh));
-                  width
-                } else {
-                  if x + text_width > painter_rect.right() {
-                    y -= EMOTE_HEIGHT;
-                    x = painter_rect.left();
-                  }
+                  let disp_text = emote.0.to_owned();
+                  painter.text(
+                    egui::pos2(x + width, y), 
+                    egui::Align2::LEFT_BOTTOM, 
+                    disp_text, 
+                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                    if chat_panel.selected_emote.as_ref() == Some(&emote.0) { Color32::RED } else { Color32::WHITE }
+                  );
+
+                  x = x + width + text_width;
+                }
+
+                if emotes.len() > 24 {
+                  y -= EMOTE_HEIGHT;
+                  x = painter_rect.left();
+                  let disp_text = format!("and {} additional results...", emotes.len() - 24);
+                  let mut job = LayoutJob {
+                    wrap: egui::epaint::text::TextWrapping { 
+                      break_anywhere: false,
+                      ..Default::default()
+                    },
+                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                    ..Default::default()
+                  };
+                  job.append(&disp_text, 0., egui::TextFormat { 
+                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                    ..Default::default() });
+                  let galley = ui.fonts().layout_job(job);
+                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
                   painter.rect_filled(egui::Rect {
                     min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
                     max: egui::pos2(x + text_width + 1., y),
                   }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-                  0.
-                };
-
-                let disp_text = emote.0.to_owned();
-                painter.text(
-                  egui::pos2(x + width, y), 
-                  egui::Align2::LEFT_BOTTOM, 
-                  disp_text, 
-                  FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
-                  if chat_panel.selected_emote == Some(emote.0) { Color32::RED } else { Color32::WHITE }
-                );
-
-                x = x + width + text_width;
+                  painter.text(
+                    egui::pos2(x, y), 
+                    egui::Align2::LEFT_BOTTOM, 
+                    disp_text, 
+                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                    Color32::GRAY
+                  );
+                }
               }
             }
-          }
-          else {
-            chat_panel.selected_emote = None;
+            else {
+              chat_panel.selected_emote = None;
+              chat_panel.selected_emote_input = None;
+            }
           }
         }
-        else if chat_panel.selected_emote.is_some() {
+        else {
           chat_panel.selected_emote = None;
+          chat_panel.selected_emote_input = None;
         }
 
         outgoing_msg.state.store(ctx, outgoing_msg.response.id);
@@ -1275,7 +1338,8 @@ impl TemplateApp {
       chat_scroll: _,
       selected_user,
       selected_msg,
-      selected_emote: _
+      selected_emote: _,
+      selected_emote_input: _
     } = chat_panel;
 
     let rect = area.to_owned()
@@ -1365,7 +1429,8 @@ impl TemplateApp {
       chat_scroll: _,
       selected_user,
       selected_msg,
-      selected_emote: _
+      selected_emote: _,
+      selected_emote_input: _
     } = chat_panel;
 
     let mut y_pos = 0.0;
@@ -1520,6 +1585,13 @@ impl TemplateApp {
         let rgx = regex::Regex::new("\\s+").unwrap_or_log();
         message.message = rgx.replace_all(message.message.trim_matches(' '), " ").to_string();
 
+        // strip down links in YT chats
+        if message.provider == ProviderName::YouTube && message.message.contains("https://www.youtube.com/redirect") {
+          let rgx = regex::Regex::new("http[^\\s]*q=([^\\s]*)").unwrap_or_log();
+          let str = rgx.replace_all(&message.message, "$1");
+          message.message = urlencoding::decode(&str).map(|x| x.into_owned()).unwrap_or_else(|_| str.to_string());
+        }
+
         if message.provider == ProviderName::YouTube && !self.channels.contains_key(&message.channel) {
           self.channel_tab_list.push(message.channel.to_owned());
           self.channels.insert(message.channel.to_owned(), Channel { 
@@ -1670,8 +1742,8 @@ impl TemplateApp {
   }
 
   #[cfg_attr(instrumentation, instrument(skip_all))]
-  fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
-    if let Some((pos, input_str)) = word {
+  fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<EmoteFrame>)>> {
+    if let Some(input_str) = word {
       if input_str.len() < 2  {
         return None;
       }
@@ -1726,7 +1798,7 @@ impl TemplateApp {
       let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       starts_with.append(&mut contains);
-      Some((input_str.to_owned(), pos, starts_with))
+      Some(starts_with)
     }
     else {
       None
@@ -1734,8 +1806,8 @@ impl TemplateApp {
   }
 
   #[cfg_attr(instrumentation, instrument(skip_all))]
-  fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<(usize, &str)>) -> Option<(String, usize, Vec<(String, Option<EmoteFrame>)>)> {
-    if let Some((pos, input_str)) = word {
+  fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<EmoteFrame>)>> {
+    if let Some(input_str) = word {
       if input_str.len() < 3  {
         return None;
       }
@@ -1759,7 +1831,7 @@ impl TemplateApp {
       let mut starts_with = starts_with_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       let mut contains = contains_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
       starts_with.append(&mut contains);
-      Some((input_str.to_owned(), pos, starts_with))
+      Some(starts_with)
     }
     else {
       None
