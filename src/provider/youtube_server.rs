@@ -64,18 +64,19 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .and(warp::body::json())
     .map(move |request: IncomingMsgRequest| (request, out_tx.clone()))
     .and_then( |(request, out_tx): (IncomingMsgRequest, Sender<IncomingMessage>)| async move {
-      println!("{}", &request.message);
+      //println!("{}", &request.message);
       let mut error = false;
+      let username = unescape(&request.username);
       match out_tx.send(IncomingMessage::PrivMsg { 
         message: ChatMessage { 
           provider: super::ProviderName::YouTube, 
           channel: format!("YT:{}", request.channel),
-          username: request.username.to_owned(), 
+          username: username.to_owned(), 
           timestamp: Utc::now(), 
-          message: request.message.to_owned(), 
+          message: unescape(&request.message), 
           profile: UserProfile {
             badges: None,
-            display_name: Some(request.username.to_owned()),
+            display_name: Some(username),
             color: match request.role.as_deref() {
               Some("moderator") => Some((94, 132, 241)),
               Some("member") => Some((43, 166, 64)),
@@ -125,6 +126,15 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     in_tx, 
     out_rx 
   }
+}
+
+fn unescape(str: &str) -> String {
+  str
+    .replace("&quot;", "\"")
+    .replace("&apos;", "'")
+    .replace("&gt;", ">")
+    .replace("&lt;", "<")
+    .replace("&amp;", "&")
 }
 
 #[derive(serde::Serialize)]

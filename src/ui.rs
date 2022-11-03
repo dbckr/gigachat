@@ -778,8 +778,7 @@ impl TemplateApp {
           }
         }
 
-        let enter_pressed = ui.input_mut().consume_key(egui::Modifiers::NONE, egui::Key::Enter);
-        if outgoing_msg.response.has_focus() && enter_pressed && !chat_panel.draft_message.is_empty() {
+        if outgoing_msg.response.has_focus() && ui.input_mut().consume_key(egui::Modifiers::NONE, egui::Key::Enter) && !chat_panel.draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
             let chat_tx = match sco.provider {
               ProviderName::Twitch => self.twitch_chat_manager.as_mut().map(|m| m.in_tx()),
