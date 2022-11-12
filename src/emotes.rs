@@ -6,7 +6,7 @@
 
 use async_channel::Receiver;
 use chrono::{DateTime, Utc};
-use tracing::{info, debug, warn};
+use tracing::{info, debug, warn, error};
 use curl::easy::Easy;
 use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
@@ -16,7 +16,7 @@ use std::{collections::{HashMap}, time::Duration, path::{PathBuf, Path}};
 use std::str;
 use tracing_unwrap::{OptionExt};
 
-use crate::provider::dgg;
+use crate::{provider::{dgg, channel::{ChannelShared, Channel}, Provider}, TemplateApp};
 
 pub mod fetch;
 pub mod imaging;
@@ -269,7 +269,7 @@ impl EmoteLoader {
 pub fn load_channel_emotes(
   channel_id: &String,
   token: &String,
-  cache_path: &PathBuf,
+  cache_path: &Path,
   force_redownload: bool
 ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
   let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
@@ -328,7 +328,7 @@ pub fn load_channel_emotes(
 }
 
 pub fn load_global_emotes(
-  cache_path: &PathBuf,
+  cache_path: &Path,
   force_redownload: bool
 ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
   let bttv_emotes = process_emote_json(
@@ -402,7 +402,7 @@ pub fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path:
   }
 }
 
-pub fn twitch_get_global_badges(token : &String, cache_path: &PathBuf, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
+pub fn twitch_get_global_badges(token : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     "global",
     "https://api.twitch.tv/helix/chat/badges/global",
@@ -427,7 +427,7 @@ pub fn twitch_get_global_badges(token : &String, cache_path: &PathBuf, force_red
   }
 }
 
-pub fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &PathBuf, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
+pub fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     room_id,
     &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
@@ -469,5 +469,114 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   } else {
       info!("Saving disabled: Failed to find path to data_dir.");
       None
+  }
+}
+
+fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+  emote.data = imaging::load_to_texture_handles(ctx, data);
+  emote.duration_msec = match emote.data.as_ref() {
+    Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+    _ => 0,
+  };
+  emote.loaded = EmoteStatus::Loaded;
+  emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
+  loading_emotes.remove(&emote.name);
+}
+
+pub trait LoadEmote {
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>);
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>);
+}
+
+impl LoadEmote for ChannelShared {
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+    if let Some(transient) = self.transient.as_mut() && let Some(emotes) = transient.channel_emotes.as_mut() && let Some(emote) = emotes.get_mut(emote_name) {
+      load_emote_data(emote, ctx, data, loading_emotes);
+    }
+  }
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+    if let Some(transient) = self.transient.as_mut() && let Some(badges) = transient.badge_emotes.as_mut() && let Some(emote) = badges.get_mut(badge_name) {
+      load_emote_data(emote, ctx, data, loading_emotes);
+    }
+  }
+}
+
+impl TemplateApp {
+  pub fn update_emote(&mut self, emote_name: &String, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>) {
+    if let Some(emote) = self.global_emotes.get_mut(emote_name) {
+      emote.data = imaging::load_to_texture_handles(ctx, data);
+      emote.duration_msec = match emote.data.as_ref() {
+        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+        _ => 0,
+      };
+      emote.loaded = EmoteStatus::Loaded;
+      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
+      self.emote_loader.loading_emotes.remove(&emote.name);
+    }
+  }
+}
+
+impl LoadEmote for Provider {
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+    if let Some(emote) = self.emotes.get_mut(emote_name) {
+      emote.data = imaging::load_to_texture_handles(ctx, data);
+      emote.duration_msec = match emote.data.as_ref() {
+        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+        _ => 0,
+      };
+      emote.loaded = EmoteStatus::Loaded;
+      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
+      loading_emotes.remove(&emote.name);
+    }
+  }
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+    if let Some(global_badges) = &mut self.global_badges && let Some(emote) = global_badges.get_mut(badge_name) {
+      emote.data = imaging::load_to_texture_handles(ctx, data);
+      emote.duration_msec = match emote.data.as_ref() {
+        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+        _ => 0,
+      };
+      emote.loaded = EmoteStatus::Loaded;
+      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
+      loading_emotes.remove(&emote.name);
+    }
+  }
+}
+
+pub trait AddEmote {
+  fn set_emotes(&mut self, emotes : Result<HashMap<String, Emote>, anyhow::Error>);
+  fn set_badges(&mut self, emotes : Result<HashMap<String, Emote>, anyhow::Error>);
+}
+
+impl AddEmote for Channel {
+  fn set_emotes(&mut self, emotes : Result<HashMap<String, Emote>, anyhow::Error>) {
+    match emotes {
+      Ok(emotes) => {
+        let shared = match self {
+          Channel::DGG { dgg: _, ref mut shared } => shared,
+          Channel::Twitch { twitch: _, ref mut shared } => shared,
+          Channel::Youtube { youtube: _, ref mut shared } => shared
+        };
+        if let Some(t) = shared.transient.as_mut() {
+          t.channel_emotes = Some(emotes)
+        }
+      },
+      Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", self.channel_name(), e); }
+    }
+  }
+  fn set_badges(&mut self, badges : Result<HashMap<String, Emote>, anyhow::Error>) {
+    match badges {
+      Ok(badges) => {
+        let shared = match self {
+          Channel::DGG { dgg: _, ref mut shared } => shared,
+          Channel::Twitch { twitch: _, ref mut shared } => shared,
+          Channel::Youtube { youtube: _, ref mut shared } => shared
+        };
+        if let Some(t) = shared.transient.as_mut() {
+          t.badge_emotes = Some(badges)
+        }
+      },
+      Err(e) => { error!("Failed to load badge json for channel {} due to error {:?}", self.channel_name(), e); }
+    }
   }
 }

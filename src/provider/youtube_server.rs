@@ -66,7 +66,7 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
     .and_then( |(request, out_tx): (IncomingMsgRequest, Sender<IncomingMessage>)| async move {
       //println!("{}", &request.message);
       let mut error = false;
-      let username = unescape(&request.username);
+      let username = unescape(&request.username).replace(' ', "_");
       match out_tx.send(IncomingMessage::PrivMsg { 
         message: ChatMessage { 
           provider: super::ProviderName::YouTube, 
@@ -88,8 +88,7 @@ pub fn start_listening(runtime: &Runtime) -> ChatManager {
           msg_type: match request.role.as_deref() {
             Some("error") => super::MessageType::Error,
             _ => super::MessageType::Chat 
-          },
-          ..Default::default()
+          }
         }
       }).await {
         Ok(_) => (),

@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap, path::{PathBuf, Path}};
+use std::{collections::HashMap, path::{Path}};
 use async_channel::{Sender, Receiver};
 use backoff::{backoff::Backoff};
 use chrono::{Utc, NaiveDateTime, DateTime};
@@ -17,35 +17,36 @@ use regex::Regex;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
-use super::{IncomingMessage, Channel, OutgoingMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient, make_request, ChatManager, convert_color_hex};
+use super::{IncomingMessage, OutgoingMessage, ProviderName, ChatMessage, UserProfile, make_request, ChatManager, convert_color_hex, channel::{Channel, ChannelTransient, DggChannel, ChannelShared}};
 use tracing_unwrap::{OptionExt, ResultExt};
 
 pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
 pub fn init_channel() -> Channel {
-  Channel {  
-    provider: ProviderName::DGG,  
-    channel_name: DGG_CHANNEL_NAME.to_owned(),
-    show_in_mentions_tab: true,
-    roomid: Default::default(),
-    send_history: Default::default(),
-    send_history_ix: None,
-    transient: None,
-    users: Default::default(),
-    dgg_cdn_url: "https://cdn.destiny.gg/2.42.0/".to_owned(),
-    dgg_status_url: "wss://live.destiny.gg/ws".to_owned(),
-    dgg_chat_url: "wss://chat.destiny.gg/ws".to_owned(),
+  Channel::DGG {  
+    shared: ChannelShared {   
+      channel_name: DGG_CHANNEL_NAME.to_owned(),
+      show_in_mentions_tab: true,
+      send_history: Default::default(),
+      send_history_ix: None,
+      transient: None,
+      users: Default::default()
+    },
+    dgg: DggChannel {
+      dgg_cdn_url: "https://cdn.destiny.gg/2.42.0/".to_owned(),
+      dgg_status_url: "wss://live.destiny.gg/ws".to_owned(),
+      dgg_chat_url: "wss://chat.destiny.gg/ws".to_owned(),
+      dgg_chat_manager: None
+    }
   }
 }
 
-pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
+pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channel: &mut ChannelShared, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
   let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
   let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
 
-  let status_url = channel.dgg_status_url.to_owned();
-  let chat_url = channel.dgg_chat_url.to_owned();
-
-  
+  let status_url = dgg.dgg_status_url.to_owned();
+  let chat_url = dgg.dgg_chat_url.to_owned();
 
   let mut out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
@@ -116,7 +117,7 @@ pub fn open_channel(user_name: &String, token: &String, channel: &mut Channel, r
 
   match emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
     channel_name: channel.channel_name.to_owned(), 
-    cdn_base_url: channel.dgg_cdn_url.to_owned(), 
+    cdn_base_url: dgg.dgg_cdn_url.to_owned(), 
     force_redownload: false 
   }) {  
     Ok(_) => {},
@@ -180,7 +181,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
   }
 }
 
-async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
+async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
   let cookie = format!("authtoken={}", token);
@@ -195,7 +196,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &String
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
   //let (mut write, mut read) = socket.split();
 
-  super::display_system_message_in_chat(&tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information);
+  super::display_system_message_in_chat(tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information);
 
   while !quitted {
     tokio::select! {
@@ -415,7 +416,7 @@ pub fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: 
   Ok(result)
 }
 
-pub fn load_dgg_emotes(cdn_base_url: &String, cache_path: &PathBuf, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
   let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, force_redownload)?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
@@ -470,7 +471,7 @@ impl CSSLoader {
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
     let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
-    let css_notabs = css.replace("\t", "  ");
+    let css_notabs = css.replace('\t', "  ");
     let caps = regex.captures_iter(css_notabs.as_str());
     let mut x = 0;
     for captures in caps {

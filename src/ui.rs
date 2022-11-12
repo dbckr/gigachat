@@ -9,11 +9,12 @@ use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
 use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response, text_edit::TextEditState};
-use egui::{Vec2, ColorImage, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
+use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Channel, Provider, ProviderName, ComboCounter, dgg, ChatManager, ChannelUser, MessageType, youtube_server, ChannelTransient, ChatManagerRx, ChannelStatus}, emotes::{imaging::load_file_into_buffer}, mod_selected_label::SelectableLabel};
-use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteStatus, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle, load_to_texture_handles}}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Provider, ProviderName, ComboCounter, ChatManager, MessageType, youtube_server, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared}, dgg}, mod_selected_label::SelectableLabel, emotes::{LoadEmote, AddEmote}};
+use crate::emotes::{imaging::load_file_into_buffer};
+use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
 #[cfg(instrumentation)]
@@ -152,8 +153,6 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub twitch_chat_manager: Option<TwitchChatManager>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub dgg_chat_manager: Option<ChatManager>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
   pub show_timestamps_changed: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub dragged_channel_tab: Option<String>,
@@ -208,8 +207,8 @@ impl eframe::App for TemplateApp {
     if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
       chat_mgr.close();
     }
-    if let Some(chat_mgr) = self.dgg_chat_manager.as_mut() {
-      chat_mgr.close();
+    for (_, channel) in self.channels.iter_mut() {
+      channel.close();
     }
   }
 
@@ -248,33 +247,22 @@ impl TemplateApp {
     if self.yt_chat_manager.is_none() && self.enable_yt_integration {
       self.yt_chat_manager = Some(youtube_server::start_listening(self.runtime.as_ref().unwrap()));
 
-      for (name, channel) in self.channels.iter_mut().filter(|f| f.1.provider == ProviderName::YouTube) {
+      /*for channel in self.channels.iter_mut().filter_map(|(_, channel)| if let Channel::Youtube { youtube, shared } = channel { Some(&shared) } else { None } ) {
         channel.transient = Some(ChannelTransient {
           channel_emotes: None,
           badge_emotes: None,
           status: Some(ChannelStatus {
-            title: Some(name.to_owned()),
+            title: Some(channel.channel_name.to_owned()),
             ..Default::default()
           })
         });
-      }
+      }*/
     }
 
     // workaround for odd rounding issues at certain DPI(s?)
     if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
     }
-
-    let set_emote_texture_data = |emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>| {
-      emote.data = load_to_texture_handles(ctx, data);
-      emote.duration_msec = match emote.data.as_ref() {
-        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
-        _ => 0,
-      };
-      emote.loaded = EmoteStatus::Loaded;
-      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
-      loading_emotes.remove(&emote.name);
-    };
 
     if let Ok(event) = self.emote_loader.rx.try_recv() {
       let loading_emotes = &mut self.emote_loader.loading_emotes;
@@ -289,11 +277,7 @@ impl TemplateApp {
             Err(x) => { error!("Error loading global emotes: {}", x); }
           };
         },
-        EmoteResponse::GlobalEmoteImageLoaded { name, data } => {
-          if let Some(emote) = self.global_emotes.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
-          }
-        },
+        EmoteResponse::GlobalEmoteImageLoaded { name, data } => { self.update_emote(&name, ctx, data); },
         EmoteResponse::TwitchGlobalBadgeListResponse { response } => {
           match response {
             Ok(badges) => {
@@ -305,31 +289,36 @@ impl TemplateApp {
           }
         },
         EmoteResponse::GlobalBadgeImageLoaded { name, data } => {
-          if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) 
-          && let Some(global_badges) = &mut provider.global_badges && let Some(emote) = global_badges.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
+          if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) {
+            provider.update_badge(&name, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data } => {
-          if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut()
-          .and_then(|t| t.channel_emotes.as_mut()).and_then(|f| { f.get_mut(&name)}) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
+          if let Some(channel) = self.channels.get_mut(&channel_name) {
+            match channel {
+              Channel::DGG { dgg: _, shared } |
+              Channel::Twitch { twitch: _, shared } | 
+              Channel::Youtube { youtube: _, shared } => shared.update_emote(&name, ctx, data, loading_emotes),
+            }
           }
         },
         EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data } => {
-          if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(emote) = channel.transient.as_mut()
-          .and_then(|t| t.badge_emotes.as_mut()).and_then(|f| { f.get_mut(&name)}) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
-          }
+          if let Some(channel) = self.channels.get_mut(&channel_name) {
+            match channel {
+              Channel::DGG { dgg: _, shared } | 
+              Channel::Twitch { twitch: _, shared } | 
+              Channel::Youtube { youtube: _, shared } => shared.update_badge(&name, ctx, data, loading_emotes),
+        }
+        }
         },
         EmoteResponse::TwitchMsgEmoteLoaded { name, id: _, data } => {
-          if let Some(p) = self.providers.get_mut(&ProviderName::Twitch) && let Some(emote) = p.emotes.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
+          if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) {
+            provider.update_emote(&name, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::YouTubeMsgEmoteLoaded { name, data } => {
-          if let Some(p) = self.providers.get_mut(&ProviderName::YouTube) && let Some(emote) = p.emotes.get_mut(&name) {
-            set_emote_texture_data(emote, ctx, data, loading_emotes);
+          if let Some(provider) = self.providers.get_mut(&ProviderName::YouTube) {
+            provider.update_emote(&name, ctx, data, loading_emotes);
           }
         },
         EmoteResponse::TwitchEmoteSetResponse { emote_set_id: _, response } => {
@@ -343,23 +332,13 @@ impl TemplateApp {
           }
         },
         EmoteResponse::ChannelEmoteListResponse { channel_name, response } => {
-          match response {
-            Ok(emotes) => {
-              if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(t) = channel.transient.as_mut() {
-                t.channel_emotes = Some(emotes)
-              }
-            },
-            Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel_name, e); }
+          if let Some(channel) = self.channels.get_mut(&channel_name) {
+            channel.set_emotes(response);
           }
         },
         EmoteResponse::ChannelBadgeListResponse { channel_name, response } => {
-          match response {
-            Ok(badges) => {
-              if let Some(channel) = self.channels.get_mut(&channel_name) && let Some(t) = channel.transient.as_mut() {
-                t.badge_emotes = Some(badges)
-              }
-            },
-            Err(e) => { error!("Failed to load badge json for channel {} due to error {:?}", &channel_name, e); }
+          if let Some(channel) = self.channels.get_mut(&channel_name) {
+            channel.set_badges(response);
           }
         }
       }
@@ -390,12 +369,20 @@ impl TemplateApp {
       if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
     msgs = 0;
-    while let Some(chat_mgr) = self.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
-      self.handle_incoming_message(x);
-      msgs += 1;
-      if msgs > 20 { break; } // Limit to prevent bad UI lag
+    let mut msglist : Vec<IncomingMessage> = Vec::new();
+    for (_, channel) in self.channels.iter_mut() {
+      if let Channel::DGG { dgg, shared: _ } = channel {
+        while let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
+          msglist.push(x);
+          msgs += 1;
+          if msgs > 20 { break; } // Limit to prevent bad UI lag
+        }
+        msgs = 0;
+      }
     }
-    msgs = 0;
+    for x in msglist {
+      self.handle_incoming_message(x);
+    }
     while let Some(chat_mgr) = self.yt_chat_manager.as_mut()  && let Ok(x) = chat_mgr.out_rx.try_recv() {
       self.handle_incoming_message(x);
       msgs += 1;
@@ -425,7 +412,7 @@ impl TemplateApp {
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
-            _ = ctx.output().open_url("https://github.com/dbckr/gigachat");
+            ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
           ui.separator();
           ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(SMALL_TEXT_SIZE).color(Color32::DARK_GRAY));
@@ -436,7 +423,7 @@ impl TemplateApp {
       ui.horizontal(|ui| {
         ui.horizontal_wrapped(|ui| {
           //let available_width = ui.available_width();
-          if let Some(width) = self.rhs_tab_width {
+          if self.rhs_selected_channel.is_some() && let Some(width) = self.rhs_tab_width {
             ui.set_max_width(ui.available_width() - width);
           }
 
@@ -633,7 +620,13 @@ impl TemplateApp {
 
   fn ui_channel_tab(&mut self, channel: &String, ui: &mut egui::Ui, ctx: &egui::Context, channel_removed: &mut Option<String>, drag_channel_release: &mut Option<String>) -> Option<Response> {
     if let Some(sco) = self.channels.get_mut(channel) {
-      if let Some(t) = sco.transient.as_mut() {            
+      let provider = match sco {
+        Channel::Twitch { twitch: _, shared: _ } => "Twitch",
+        Channel::DGG { dgg: _, shared: _ } => "DGG Chat",
+        Channel::Youtube { youtube: _, shared: _ } => "YouTube"
+      };
+      let shared = sco.shared_mut();
+      if let Some(t) = shared.transient.as_ref() {            
         let mut job = LayoutJob { ..Default::default() };
         job.append(if channel.len() > 16 { &channel[0..15] } else { channel }, 0., egui::TextFormat {
           font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
@@ -648,7 +641,7 @@ impl TemplateApp {
           });
         }
         if t.status.as_ref().is_some_and(|s| s.is_live) {
-          let red = if self.selected_channel.as_ref() == Some(&sco.channel_name) { 255 } else { 200 };
+          let red = if self.selected_channel.as_ref() == Some(&shared.channel_name) { 255 } else { 200 };
           job.append("🔴", 3., egui::TextFormat {
             font_id: FontId::new(SMALL_TEXT_SIZE / 1.7, FontFamily::Proportional), 
             color: Color32::from_rgb(red, 0, 0),
@@ -673,12 +666,6 @@ impl TemplateApp {
           self.dragged_channel_tab = None;
           *drag_channel_release = Some(channel.to_owned());
         }
-
-        let provider = match sco.provider {
-          ProviderName::Twitch => "Twitch",
-          ProviderName::DGG => "DGG Chat",
-          ProviderName::YouTube => "YouTube"
-        };
 
         //if t.status.is_some_and(|s| s.is_live) || channel.len() > 16 {
           clbl = clbl.on_hover_ui(|ui| {
@@ -714,13 +701,15 @@ impl TemplateApp {
         //}
         return Some(clbl);
       }
-      else if sco.provider == ProviderName::Twitch && let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
-        // channel has not been opened yet
-        warn!("Failed to open channel: {}", channel);
-        chat_mgr.open_channel(sco);
-      }
-      else if sco.provider == ProviderName::DGG {
-        self.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, sco, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
+      else {
+        warn!("Channel not opened yet, attempting to open: {}", channel);
+        match sco {
+          Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
+          Channel::DGG { dgg, shared } => {
+            dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
+          },
+          Channel::Youtube { youtube: _, shared: _ } => {}
+        }
       }
     }
     None
@@ -761,10 +750,10 @@ impl TemplateApp {
 
         if prev_history || next_history {
           if let Some(sco) = self.channels.get_mut(sc) {
-            let mut ix = sco.send_history_ix.unwrap_or(0);
-            let msg = sco.send_history.get(ix);
+            let mut ix = sco.shared().send_history_ix.unwrap_or(0);
+            let msg = sco.shared().send_history.get(ix);
             if prev_history {
-              ix = ix.add(1).min(sco.send_history.len() - 1);
+              ix = ix.add(1).min(sco.shared().send_history.len() - 1);
             } else {
               ix = ix.saturating_sub(1);
             };
@@ -774,24 +763,24 @@ impl TemplateApp {
                 Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(chat_panel.draft_message.len())))
               );
             }
-            sco.send_history_ix = Some(ix);
+            sco.shared_mut().send_history_ix = Some(ix);
           }
         }
 
         if outgoing_msg.response.has_focus() && ui.input_mut().consume_key(egui::Modifiers::NONE, egui::Key::Enter) && !chat_panel.draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
-            let chat_tx = match sco.provider {
-              ProviderName::Twitch => self.twitch_chat_manager.as_mut().map(|m| m.in_tx()),
-              ProviderName::DGG => self.dgg_chat_manager.as_mut().map(|m| m.in_tx()),
-              ProviderName::YouTube => self.yt_chat_manager.as_mut().map(|m| m.in_tx())
+            let (chat_tx, shared) = match sco {
+              Channel::Twitch { twitch: _, ref mut shared } => (self.twitch_chat_manager.as_mut().map(|m| m.in_tx()), shared),
+              Channel::DGG { ref mut dgg, ref mut shared } => (dgg.dgg_chat_manager.as_mut().map(|m| m.in_tx()), shared),
+              Channel::Youtube { youtube: _, ref mut shared } => (self.yt_chat_manager.as_mut().map(|m| m.in_tx()), shared)
             };
             if let Some(chat_tx) = chat_tx {
-              match chat_tx.try_send(OutgoingMessage::Chat { channel: sco.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+              match chat_tx.try_send(OutgoingMessage::Chat { channel: shared.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
                 Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
-                  sco.send_history.push_front(chat_panel.draft_message.to_owned());
+                  shared.send_history.push_front(chat_panel.draft_message.to_owned());
                   chat_panel.draft_message = String::new();
-                  sco.send_history_ix = None;
+                  shared.send_history_ix = None;
                 }
               }
             }
@@ -1056,11 +1045,11 @@ impl TemplateApp {
           }
           if ui.button("Reload channel emotes").clicked() {
             if let Some(ch) = self.channels.get_mut(&channel) {
-              match ch.provider {
-                ProviderName::Twitch => {
+              match ch {
+                Channel::Twitch { twitch, shared } => {
                   match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
-                    channel_id: ch.roomid.to_owned(), 
-                    channel_name: ch.channel_name.to_owned(),
+                    channel_id: twitch.room_id.to_owned(), 
+                    channel_name: shared.channel_name.to_owned(),
                     token: self.auth_tokens.twitch_auth_token.to_owned(), 
                     force_redownload: true
                   }) {  
@@ -1068,30 +1057,33 @@ impl TemplateApp {
                     Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
                   };
                 },
-                ProviderName::DGG => {
+                Channel::DGG { dgg, shared } => {
                   match self.emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
-                    channel_name: ch.channel_name.to_owned(),
-                    cdn_base_url: ch.dgg_cdn_url.to_owned(),
+                    channel_name: shared.channel_name.to_owned(),
+                    cdn_base_url: dgg.dgg_cdn_url.to_owned(),
                     force_redownload: true
                   }) {
                     Ok(_) => {},
                     Err(e) => { error!("Failed to load badge/emote json for channel {} due to error {:?}", &channel, e); }
                   };
                 },
-                ProviderName::YouTube => {}
+                Channel::Youtube { youtube: _, shared: _ } => {}
               };
             }
             self.show_channel_options = None;
           }
           if ui.button("Split screen").clicked() {
             self.rhs_selected_channel = Some(channel.to_owned());
+            if self.selected_channel == self.rhs_selected_channel {
+              self.selected_channel = None;
+            }
             self.show_channel_options = None;
           }
         } else {
           let channels = self.channels.iter_mut();
           ui.label("Show mentions from:");
           for (name, channel) in channels {
-            ui.checkbox(&mut channel.show_in_mentions_tab, name);
+            ui.checkbox(&mut channel.shared_mut().show_in_mentions_tab, name);
           }
         }
       }).unwrap_or_log();
@@ -1212,8 +1204,11 @@ impl TemplateApp {
       }
       if !self.auth_tokens.twitch_auth_token.is_empty() {
         let mut mgr = TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap_or_log());
-        for (_, channel) in self.channels.iter_mut().filter(|(_, c)| c.provider == ProviderName::Twitch) {
-          mgr.open_channel(channel);
+        for (_, channel) in self.channels.iter_mut() {
+          match channel {
+            Channel::Twitch { twitch: _, ref mut shared } => mgr.open_channel(shared),
+            _ => {}
+          }
         }
         self.twitch_chat_manager = Some(mgr);
         match self.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { token: self.auth_tokens.twitch_auth_token.to_owned(), force_redownload: false }) {  
@@ -1223,14 +1218,16 @@ impl TemplateApp {
       }
     }
     if changed_dgg_token {
-      if let Some(mgr) = self.dgg_chat_manager.as_mut() {
-        mgr.close();
-      }
 
-      if let Some((_, channel)) = self.channels.iter_mut().find(|(_, c)| c.provider == ProviderName::DGG) {
-        let mgr = dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, channel, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader);
-        self.dgg_chat_manager = Some(mgr);
-      }            
+      for (_, channel) in self.channels.iter_mut() {
+        if let Channel::DGG { dgg, ref mut shared } = channel {
+            if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
+              chat_mgr.close();
+            }
+            let mgr = dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader);
+              dgg.dgg_chat_manager = Some(mgr);
+          }
+      }       
     }
 }
 
@@ -1264,8 +1261,9 @@ impl TemplateApp {
             username: Default::default()
           });
 
-          Channel {
-            ..Default::default()
+          Channel::Youtube { 
+            youtube: YoutubeChannel {}, 
+            shared: ChannelShared { ..Default::default() } 
           }
         }
         /*ProviderName::YouTube => {
@@ -1281,7 +1279,7 @@ impl TemplateApp {
         }*/
       };
 
-      let name = c.channel_name.to_owned();
+      let name = c.channel_name().to_owned();
       self.channels.insert(name.to_owned(), c);
       self.channel_tab_list.push(name.to_owned());
       self.selected_channel = Some(name);
@@ -1413,7 +1411,6 @@ impl TemplateApp {
       show_auth_ui : _,
       show_channel_options : _,
       twitch_chat_manager : _,
-      dgg_chat_manager : _,
       show_timestamps_changed,
       dragged_channel_tab : _,
       rhs_tab_width: _,
@@ -1448,7 +1445,7 @@ impl TemplateApp {
 
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
-        if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.show_in_mentions_tab) {
+        if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.shared().show_in_mentions_tab) {
           history_iters.push(hist.iter_mut().peekable());
         }
       }
@@ -1465,8 +1462,11 @@ impl TemplateApp {
         if let Some(twitch_chat_manager) = self.twitch_chat_manager.as_ref() {
           usernames.insert(ProviderName::Twitch, twitch_chat_manager.username.to_lowercase());
         }
-        if let Some(dgg_chat_manager) = self.dgg_chat_manager.as_ref() {
-          usernames.insert(ProviderName::DGG, dgg_chat_manager.username.to_lowercase());
+        for (_, channel) in channels.iter_mut() {
+          match channel {
+            Channel::DGG { ref mut dgg, shared: _ } => if let Some(chat_mgr) = dgg.dgg_chat_manager.as_ref() { usernames.insert(ProviderName::DGG, chat_mgr.username.to_lowercase()); },
+            _ => {}
+          }
         }
       }
       
@@ -1593,21 +1593,23 @@ impl TemplateApp {
 
         if message.provider == ProviderName::YouTube && !self.channels.contains_key(&message.channel) {
           self.channel_tab_list.push(message.channel.to_owned());
-          self.channels.insert(message.channel.to_owned(), Channel { 
-            channel_name: message.channel.to_owned(),  
-            provider: ProviderName::YouTube, 
-            transient: Some(ChannelTransient { 
-              channel_emotes: None,
-              badge_emotes: None,
-              status: None }),
-            ..Default::default() 
+          self.channels.insert(message.channel.to_owned(), Channel::Youtube { 
+            youtube: YoutubeChannel {}, 
+            shared: ChannelShared { 
+              channel_name: message.channel.to_owned(),  
+              transient: Some(ChannelTransient { 
+                channel_emotes: None,
+                badge_emotes: None,
+                status: None }),
+              ..Default::default() 
+            }    
           });
         }
 
         if message.username.is_empty() && message.channel.is_empty() && message.msg_type != MessageType::Chat {
           let provider_channels = self.channels.iter().filter_map(|(_, c)| {
-            if c.provider == message.provider { 
-              Some(c.channel_name.to_owned())
+            if c.provider() == message.provider { 
+              Some(c.channel_name().to_owned())
             } else {
               None
             }
@@ -1618,7 +1620,7 @@ impl TemplateApp {
               chat_history, 
               message.to_owned(),
               provider_emotes, 
-              self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
+              self.channels.get(&channel).and_then(|f| f.transient()).and_then(|f| f.channel_emotes.as_ref()),
               &self.global_emotes, 
               &mut self.emote_loader);
           }
@@ -1626,14 +1628,14 @@ impl TemplateApp {
           let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
 
           if let Some(c) = self.channels.get_mut(&channel) {
-            c.users.insert(message.username.to_lowercase(), ChannelUser {
+            c.shared_mut().users.insert(message.username.to_lowercase(), ChannelUser {
               username: message.username.to_owned(),
               display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
               is_active: true
             });
             // Twitch has some usernames that have completely different display names (e.g. Japanese character display names)
             if let Some(display_name) = message.profile.display_name.as_ref() && display_name.to_lowercase() != message.username.to_lowercase() {
-              c.users.insert(display_name.to_lowercase(), ChannelUser {
+              c.shared_mut().users.insert(display_name.to_lowercase(), ChannelUser {
                 username: message.username.to_owned(),
                 display_name: message.profile.display_name.as_ref().unwrap_or(&message.username).to_owned(),
                 is_active: true
@@ -1645,13 +1647,13 @@ impl TemplateApp {
             chat_history, 
             message,
             provider_emotes, 
-            self.channels.get(&channel).and_then(|f| f.transient.as_ref()).and_then(|f| f.channel_emotes.as_ref()),
+            self.channels.get(&channel).and_then(|f| f.transient()).and_then(|f| f.channel_emotes.as_ref()),
             &self.global_emotes, 
             &mut self.emote_loader);
         }
       },
       IncomingMessage::StreamingStatus { channel, status } => {
-        if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient.as_mut()) {
+        if let Some(t) = self.channels.get_mut(&channel).and_then(|f| f.transient_mut()) {
           t.status = status;
         }
       },
@@ -1671,21 +1673,19 @@ impl TemplateApp {
         }
       },
       IncomingMessage::RoomId { channel, room_id } => {
-        if let Some(sco) = self.channels.get_mut(&channel) /*&& let Some(t) = sco.transient.as_mut()*/ {
-          sco.roomid = room_id;
+        if let Some(sco) = self.channels.get_mut(&channel) && let Channel::Twitch { twitch, shared } = sco {
+          twitch.room_id = room_id;
           match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
-            channel_id: sco.roomid.to_owned(), 
-            channel_name: sco.channel_name.to_owned(),
+            channel_id: twitch.room_id.to_owned(), 
+            channel_name: shared.channel_name.to_owned(),
             token: self.auth_tokens.twitch_auth_token.to_owned(), 
             force_redownload: false
           }) {
             Ok(_) => {},
             Err(e) => warn!("Failed to request channel badge and emote list for {} due to error: {:?}", &channel, e)
           };
-
           //t.badge_emotes = emotes::twitch_get_channel_badges(&self.auth_tokens.twitch_auth_token, &sco.roomid, &self.emote_loader.base_path, true);
           //info!("loaded channel badges for {}:{}", channel, sco.roomid);
-          //break;
         }
       },
       IncomingMessage::EmoteSets { provider,  emote_sets } => {
@@ -1707,13 +1707,13 @@ impl TemplateApp {
         if let Some(c) = self.channels.get_mut(&channel) {
           // Usernames may have completely different display names (e.g. Japanese character display names)
           if display_name.to_lowercase() != username.to_lowercase() {
-            c.users.insert(display_name.to_lowercase(), ChannelUser {
+            c.shared_mut().users.insert(display_name.to_lowercase(), ChannelUser {
               username: username.to_owned(),
               display_name: display_name.to_owned(),
               is_active: true
             });
           }
-          c.users.insert(username.to_lowercase(), ChannelUser {
+          c.shared_mut().users.insert(username.to_lowercase(), ChannelUser {
             username,
             display_name,
             is_active: true
@@ -1724,13 +1724,13 @@ impl TemplateApp {
         if let Some(c) = self.channels.get_mut(&channel) {
           // Usernames may have completely different display names (e.g. Japanese character display names)
           if display_name.to_lowercase() != username.to_lowercase() {
-            c.users.insert(display_name.to_lowercase(), ChannelUser {
+            c.shared_mut().users.insert(display_name.to_lowercase(), ChannelUser {
               username: username.to_owned(),
               display_name: display_name.to_owned(),
               is_active: false
             });
           }
-          c.users.insert(username.to_lowercase(), ChannelUser {
+          c.shared_mut().users.insert(username.to_lowercase(), ChannelUser {
             username,
             display_name,
             is_active: false
@@ -1753,7 +1753,7 @@ impl TemplateApp {
       let mut contains_emotes : HashMap<String, Option<EmoteFrame>> = Default::default();
       // Find similar emotes. Show emotes starting with same string first, then any that contain the string.
       if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get(channel_name) {
-          if let Some(transient) = channel.transient.as_ref() && let Some(channel_emotes) = transient.channel_emotes.as_ref() {
+          if let Some(transient) = channel.transient() && let Some(channel_emotes) = transient.channel_emotes.as_ref() {
           for (name, emote) in channel_emotes { // Channel emotes
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
@@ -1765,7 +1765,7 @@ impl TemplateApp {
             }
           }
         }
-        if let Some(provider) = self.providers.get_mut(&channel.provider) { // Provider emotes
+        if let Some(provider) = self.providers.get_mut(&channel.provider()) { // Provider emotes
           for name in provider.my_sub_emotes.iter() {
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
@@ -1780,7 +1780,7 @@ impl TemplateApp {
           }
         }
         // Global emotes, only if not DGG
-        if channel.provider != ProviderName::DGG {
+        if channel.provider() != ProviderName::DGG {
           for (name, emote) in &mut self.global_emotes { 
             let name_l = name.to_lowercase();
             if name_l.starts_with(word_lower) || name_l.contains(word_lower) {
@@ -1817,7 +1817,7 @@ impl TemplateApp {
       let mut contains_users : HashMap<String, Option<EmoteFrame>> = Default::default();
       
       if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
-        for (name_lower, user) in channel.users.iter().filter(|(_k, v)| v.is_active) {
+        for (name_lower, user) in channel.shared().users.iter().filter(|(_k, v)| v.is_active) {
           if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
             _ = match name_lower.starts_with(word_lower) {
               true => starts_with_users.try_insert(user.display_name.to_owned(), None),
@@ -1853,14 +1853,14 @@ fn create_uichatmessage<'a>(
   let (provider_emotes, provider_badges) = providers.get(&row.provider)
     .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
   let (channel_emotes, channel_badges) = channels.get(&row.channel)
-    .and_then(|c| c.transient.as_ref())
+    .and_then(|c| c.transient())
     .map(|t| (t.channel_emotes.as_ref(), t.badge_emotes.as_ref())).unwrap_or((None, None));
 
   let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes, emote_loader);
   let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges, emote_loader);
   let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
   let mentions = if let Some(channel) = channels.get(&row.channel) {
-    get_mentions_in_message(row, &channel.users)
+    get_mentions_in_message(row, &channel.shared().users)
   } else { None };
 
   let color = row.profile.color.or(user_color).map(|f| f.to_owned());
@@ -2110,20 +2110,18 @@ impl<'a> HistoryIterator<'a> {
     //let usernames = &mut self.usernames;
     //let filtered_iters = self.iterators.iter_mut().map(|x| x.filter(|(msg, _)| !self.mentions_only || mentioned_in_message(usernames, &msg.provider, &msg.message)).peekable());
     let filtered_iters = self.iterators.iter_mut();
-    let mut i = 0;
-    for iter in filtered_iters {
+    for (i, iter) in filtered_iters.enumerate() {
       if let Some((msg, _y)) = iter.peek() && msg.timestamp < ts {
         ts = msg.timestamp.to_owned();
         min_i = i;
       }
-      i += 1;
     }
 
     self.iterators.get_mut(min_i).and_then(|x| x.next())
   }
 }
 
-fn mentioned_in_message(usernames: &HashMap<ProviderName, String>, provider: &ProviderName, message : &String) -> bool {
+fn mentioned_in_message(usernames: &HashMap<ProviderName, String>, provider: &ProviderName, message : &str) -> bool {
   if let Some(username) = usernames.get(provider) {
     message.split(' ').into_iter().map(|f| {
       f.trim_start_matches('@').trim_end_matches(',').to_lowercase()

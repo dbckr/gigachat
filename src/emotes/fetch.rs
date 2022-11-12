@@ -123,7 +123,7 @@ pub fn process_emote_json(
       };
       emotes.push(Emote { name, id, url: imgurl, path: "twitch/".to_owned(), extension, ..Default::default()});
     }
-  } else if v["channelEmotes"].is_null() == false {
+  } else if !v["channelEmotes"].is_null() {
     // BTTV
     let emote_size = match EMOTE_DOWNLOADSIZE {
       EmoteSize::Small => "1x",
@@ -144,7 +144,7 @@ pub fn process_emote_json(
       let imgurl = format!("https://cdn.betterttv.net/emote/{}/{}", &id, emote_size);
       emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
     }
-  } else if v["room"].is_null() == false {
+  } else if !v["room"].is_null() {
     // FFZ
     let emote_size = match EMOTE_DOWNLOADSIZE {
       EmoteSize::Small => "1",
@@ -167,9 +167,9 @@ pub fn process_emote_json(
       );
       emotes.push(Emote {name, id, url: imgurl, path: "ffz/".to_owned(), ..Default::default()});
     }
-  } else if v[0].is_null() == false {
+  } else if !v[0].is_null() {
     for i in v.as_array_mut().unwrap_or_log() {
-      if i["code"].is_null() == false {
+      if !i["code"].is_null() {
         // BTTV Global
         let emote_size = match EMOTE_DOWNLOADSIZE {
           EmoteSize::Small => "1x",
@@ -181,7 +181,7 @@ pub fn process_emote_json(
         let ext = i["imageType"].to_string().trim_matches('"').to_owned();
         let imgurl = format!("https://cdn.betterttv.net/emote/{}/{}", &id, emote_size);
         emotes.push(Emote {name, id, url: imgurl, path: "bttv/".to_owned(), extension: Some(ext), ..Default::default()});
-      } else if i["name"].is_null() == false {
+      } else if !i["name"].is_null() {
         // 7TV
         let emote_size = match EMOTE_DOWNLOADSIZE {
           EmoteSize::Small => "1",

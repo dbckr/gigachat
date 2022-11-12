@@ -7,7 +7,7 @@
 use async_channel::{Sender, Receiver};
 //use rand::{distributions::{Alphanumeric, DistString}};
 use tracing::info;
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use curl::easy::Easy;
@@ -15,9 +15,12 @@ use tracing_unwrap::{ResultExt};
 
 use crate::emotes::{Emote};
 
+use self::channel::ChannelStatus;
+
 pub mod twitch;
 pub mod youtube_server;
 pub mod dgg;
+pub mod channel;
 
 #[derive(Clone)]
 pub enum IncomingMessage {
@@ -84,37 +87,6 @@ impl ChatManagerRx for ChatManager {
   fn out_rx(&mut self) -> &mut Receiver<IncomingMessage> {
     &mut self.out_rx
   }
-}
-
-pub struct ChannelTransient {
-  pub channel_emotes: Option<HashMap<String, Emote>>,
-  pub badge_emotes: Option<HashMap<String, Emote>>,
-  pub status: Option<ChannelStatus>
-}
-
-#[derive(Default)]
-#[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
-pub struct Channel {
-  pub channel_name: String,
-  pub roomid: String,
-  pub provider: ProviderName,
-  pub show_in_mentions_tab: bool,
-  pub send_history: VecDeque<String>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
-  pub send_history_ix: Option<usize>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
-  pub transient: Option<ChannelTransient>,
-  #[cfg_attr(feature = "persistence", serde(skip))]
-  pub users: HashMap<String, ChannelUser>,
-  pub dgg_chat_url: String,
-  pub dgg_status_url: String,
-  pub dgg_cdn_url: String
-}
-
-pub struct ChannelUser {
-  pub username: String,
-  pub display_name: String,
-  pub is_active: bool
 }
 
 #[derive(Clone)]
@@ -204,22 +176,13 @@ pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut
     }
     let mut transfer = easy.transfer();
     transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).map(|x| (&mut result).push_str(&x)).expect_or_log("failed to build string from http response body");
+      String::from_utf8(data.to_vec()).map(|x| result.push_str(&x)).expect_or_log("failed to build string from http response body");
       Ok(data.len())
     })?;
     transfer.perform()?;
     drop(transfer);
 
     Ok(result)
-}
-
-#[derive(Clone,Debug,Default)]
-pub struct ChannelStatus {
-  pub game_name: Option<String>,
-  pub is_live: bool,
-  pub title: Option<String>,
-  pub viewer_count: Option<usize>,
-  pub started_at: Option<String>
 }
 
 pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: String, provider: ProviderName, message: String, msg_type: MessageType) {

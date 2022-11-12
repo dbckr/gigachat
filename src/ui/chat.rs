@@ -236,7 +236,7 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zer
   }
   else {
     ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
-      ui.label(format!("{}\n{}", word, path.replace("", "").replace('/',"")));
+      ui.label(format!("{}\n{}", word, path.replace('/',"")));
       ui.image(texture, texture.size_vec2());
     });
     *last_emote_width = Some((x, y));

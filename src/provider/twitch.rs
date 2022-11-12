@@ -13,9 +13,9 @@ use futures::prelude::*;
 use irc::client::{prelude::*};
 use itertools::Itertools;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
-use crate::{provider::{Channel, convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::{fetch::get_json_from_url}};
+use crate::{provider::{convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::{fetch::get_json_from_url}};
 use tracing_unwrap::{OptionExt, ResultExt};
-use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChannelTransient, ChatManagerRx};
+use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelShared, TwitchChannel}};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
@@ -91,24 +91,25 @@ impl TwitchChatManager {
   }
 
   pub fn init_channel(&mut self, channel_name : &str) -> Channel {
-    let mut channel = Channel {  
-      provider: ProviderName::Twitch, 
-      channel_name: channel_name.to_lowercase(),
-      show_in_mentions_tab: true,
-      roomid: Default::default(),
-      send_history: Default::default(),
-      send_history_ix: None,
-      transient: None,
-      users: Default::default(),
-      dgg_cdn_url: Default::default(),
-      dgg_status_url: Default::default(),
-      dgg_chat_url: Default::default()
+    let mut channel = Channel::Twitch { 
+      shared: ChannelShared {
+        channel_name: channel_name.to_lowercase(),
+        show_in_mentions_tab: true,
+        
+        send_history: Default::default(),
+        send_history_ix: None,
+        transient: None,
+        users: Default::default()
+      },
+      twitch: TwitchChannel {
+        room_id: Default::default()
+      }
     };
-    self.open_channel(&mut channel);
+    self.open_channel(channel.shared_mut());
     channel
   }
 
-  pub fn open_channel(&mut self, channel: &mut Channel) {
+  pub fn open_channel(&mut self, channel: &mut ChannelShared) {
     channel.transient = Some(ChannelTransient {
       channel_emotes: None,
       badge_emotes: None,
@@ -143,7 +144,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect_or_log("failed to send cap req");
 
-  super::display_system_message_in_chat(&tx, String::new(), ProviderName::Twitch, "Connected to chat.".to_owned(), MessageType::Information);
+  super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, "Connected to chat.".to_owned(), MessageType::Information);
 
   // If reconnecting, rejoin any previously joined channels
   for channel in channels.iter() {
@@ -160,7 +161,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
       let room_ids = active_room_ids.values().collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
-        let status_data = get_channel_statuses(room_ids, &token);
+        let status_data = get_channel_statuses(room_ids, token);
 
         for (channel, room_id) in active_room_ids.iter() {
           let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
