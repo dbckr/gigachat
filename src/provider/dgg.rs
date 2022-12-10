@@ -9,7 +9,7 @@ use async_channel::{Sender, Receiver};
 use backoff::{backoff::Backoff};
 use chrono::{Utc, NaiveDateTime, DateTime};
 use curl::easy::{Easy};
-use futures::{StreamExt, SinkExt};
+use futures::{StreamExt, SinkExt, TryFutureExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
 use crate::{provider::MessageType, emotes::EmoteRequest};
@@ -137,9 +137,10 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
 impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    for handle in &self.handles {
-      handle.abort();
+    //std::thread::sleep(std::time::Duration::from_millis(500));
+    for handle in self.handles.iter_mut() {
+      let _ = handle.inspect_err(|f| error!("{:?}", f));
+      //handle.abort();
     }
   }
 }
@@ -495,11 +496,11 @@ impl CSSLoader {
         1000
       };
 
-      if let Some(prefix) = prefix && let Some(width) = width && let Some(steps) = steps {
+      if let Some(prefix) = prefix && let Some(width) = width {
         result.insert(prefix.to_owned(), CssAnimationData {
           width,
           cycle_time_msec: time_msec,
-          steps
+          steps: steps.unwrap_or(1)
         });
       }
     }

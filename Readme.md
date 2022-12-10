@@ -30,6 +30,7 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 
 # Todo
 
+- Twitch emotes not refreshing properly (not picking up new emotes)
 - Put exact match emote first in selector
 - Websocket connections do not recover after being killed by VPN connecting
 - Rarely closing app leaves config in invalid state, will crash on start until config file is deleted

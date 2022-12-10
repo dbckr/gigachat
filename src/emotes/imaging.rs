@@ -158,18 +158,25 @@ fn load_image(
 fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
-  let frame_time = (data.cycle_time_msec / data.steps) as u16;
-  let frame_width = if img.width() % data.width == 0 {
-    data.width
-  } else {
-    img.width() / data.steps as u32
-  };
-  while x_start < img.width() {
-    if x_start + frame_width <= img.width() {
-      let frame = img.crop_imm(x_start, 0, frame_width, img.height());
-      frames.push((to_egui_image(frame), frame_time));
+
+  if data.steps == 1 {
+    let frame = img.crop_imm(x_start, 0, data.width, img.height());
+    frames.push((to_egui_image(frame), data.cycle_time_msec as u16));
+  }
+  else {
+    let frame_time = (data.cycle_time_msec / data.steps) as u16;
+    let frame_width = if img.width() % data.width == 0 {
+      data.width
+    } else {
+      img.width() / data.steps as u32
+    };
+    while x_start < img.width() {
+      if x_start + frame_width <= img.width() {
+        let frame = img.crop_imm(x_start, 0, frame_width, img.height());
+        frames.push((to_egui_image(frame), frame_time));
+      }
+      x_start += frame_width;
     }
-    x_start += frame_width;
   }
   Ok(frames)
 }

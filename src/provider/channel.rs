@@ -17,6 +17,7 @@ use super::{ProviderName, ChatManager, ChatManagerRx, OutgoingMessage};
 pub struct ChannelShared {
   pub channel_name: String,
   pub show_in_mentions_tab: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history: VecDeque<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history_ix: Option<usize>,

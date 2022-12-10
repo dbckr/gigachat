@@ -86,8 +86,10 @@ impl TwitchChatManager {
 
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    self.handle.abort();
+    //std::thread::sleep(std::time::Duration::from_millis(500));
+    let handle = &mut self.handle;
+    let _ = handle.inspect_err(|f| error!("{:?}", f));
+    //self.handle.abort();
   }
 
   pub fn init_channel(&mut self, channel_name : &str) -> Channel {
@@ -157,7 +159,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
   let mut last_status_check : Option<DateTime<Utc>> = None;
   loop {
     // check channel statuses
-    if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_seconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC) {
+    if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_milliseconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC * 1000) {
       let room_ids = active_room_ids.values().collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
@@ -269,7 +271,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
                     "ROOMSTATE" => {
                       active_room_ids.insert(channel_name.to_owned(), get_tag_value(&tags, "room-id").unwrap_or_log().to_owned());
                       // small delay to not spam twitch API when joining channels at app start
-                      last_status_check = Some(Utc::now() - chrono::Duration::seconds(TWITCH_STATUS_FETCH_INTERVAL_SEC - 2));
+                      last_status_check = Some(Utc::now() - chrono::Duration::milliseconds(TWITCH_STATUS_FETCH_INTERVAL_SEC * 1000 - 250));
                       tx.try_send(IncomingMessage::RoomId { 
                         channel: channel_name.to_owned(),
                         room_id: get_tag_value(&tags, "room-id").unwrap_or_log().to_owned() })
