@@ -128,8 +128,7 @@ pub struct Emote {
   pub zero_width: bool,
   pub css_anim: Option<CssAnimationData>,
   pub priority: isize,
-  pub hidden: bool,
-  pub texture_expiration: Option<DateTime<Utc>>
+  pub hidden: bool
 }
 
 pub struct EmoteLoader {
@@ -144,8 +143,8 @@ pub struct EmoteLoader {
 impl Default for EmoteLoader {
   fn default() -> Self {
     Self { 
-      tx: async_channel::unbounded::<EmoteRequest>().0,
-      rx: async_channel::unbounded::<EmoteResponse>().1, 
+      tx: async_channel::bounded::<EmoteRequest>(10000).0,
+      rx: async_channel::bounded::<EmoteResponse>(10000).1, 
       handle: Default::default(), 
       transparent_img: None,
       base_path: Default::default(), 
@@ -156,8 +155,8 @@ impl Default for EmoteLoader {
 
 impl EmoteLoader {
   pub fn new(app_name: &str, runtime: &Runtime) -> Self {
-    let (in_tx, in_rx) = async_channel::unbounded::<EmoteRequest>();
-    let (out_tx, out_rx) = async_channel::unbounded::<EmoteResponse>();
+    let (in_tx, in_rx) = async_channel::bounded::<EmoteRequest>(10000);
+    let (out_tx, out_rx) = async_channel::bounded::<EmoteResponse>(10000);
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..9 {
@@ -479,7 +478,6 @@ fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(Col
     _ => 0,
   };
   emote.loaded = EmoteStatus::Loaded;
-  emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
   loading_emotes.remove(&emote.name);
 }
 
@@ -510,7 +508,6 @@ impl TemplateApp {
         _ => 0,
       };
       emote.loaded = EmoteStatus::Loaded;
-      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
       self.emote_loader.loading_emotes.remove(&emote.name);
     }
   }
@@ -525,7 +522,6 @@ impl LoadEmote for Provider {
         _ => 0,
       };
       emote.loaded = EmoteStatus::Loaded;
-      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
       loading_emotes.remove(&emote.name);
     }
   }
@@ -537,7 +533,6 @@ impl LoadEmote for Provider {
         _ => 0,
       };
       emote.loaded = EmoteStatus::Loaded;
-      emote.texture_expiration = None;//Some(chrono::Utc::now().add(chrono::Duration::hours(12)));
       loading_emotes.remove(&emote.name);
     }
   }

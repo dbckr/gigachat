@@ -8,6 +8,7 @@ license = "MPL-2.0"
 default = ["native-tls", "persistence" ]
 native-tls = ["tokio-tungstenite/native-tls"]
 persistence = [ "eframe/persistence" ]
+dhat-heap = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,8 +16,8 @@ persistence = [ "eframe/persistence" ]
 web-sys = "0.3.58"
 futures = "0.3.0"
 tokio = { version = "1.17.0", features = ["full"] }
-egui = { version = "0.19" }
-eframe = { version = "0.19.0", features = ["wgpu"] }
+egui = { version = "0.20.1" }
+eframe = { version = "0.20.1", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = "1.0.58"
 args = "2.0.0"
@@ -47,7 +48,7 @@ tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
 tracing-test = "0.2.3"
 fontdue = "0.7.2"
-tracing-unwrap = "0.9.2"
+tracing-unwrap = "0.10.0"
 warp = "0.3"
 resvg = "0.23.0"
 usvg = "0.23.0"
@@ -55,14 +56,17 @@ tiny-skia = "0.6.6"
 urlencoding = "2.1.2"
 tracing-flame = "0.2.0"
 backoff = { version = "0.4.0", features = ["tokio"] }
+ahash = "0.8.2"
+dhat = "0.3.2"
 
 [profile.release]
-opt-level = 2 # fast and small wasm
+#opt-level = 2 # fast and small wasm
+debug = 1
 
 [patch.crates-io]
-egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
+#egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #egui = { path = "../egui/egui" }
-eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
+#eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
 #eframe = { path = "../egui/eframe" }
 #weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 #winit = { path = "../winit" }

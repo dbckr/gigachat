@@ -30,6 +30,12 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 
 # Todo
 
+- Memory leaking
+  - Seems to sometimes happen along with twitch chats not showing any new messages
+  - Still happens with no emote or badge image loading
+  - After enough time (was around 5Gb mem), focusing from minimized shows corrupted looking text and hard crash on attempting to change tab
+    - Moving window to another monitor (dpi change?) fixes the corrupted text
+  - High single thread CPU use when window is visible, even with only one chat tab (only after high memory use and/or corruption issue)
 - Twitch emotes not refreshing properly (not picking up new emotes)
 - Put exact match emote first in selector
 - Websocket connections do not recover after being killed by VPN connecting

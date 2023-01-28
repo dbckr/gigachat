@@ -380,13 +380,6 @@ pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &Emote, request : Emo
       EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
     },
     EmoteStatus::Loaded => {
-      if emote.texture_expiration.is_some_and(|f| (f - chrono::Utc::now()).num_seconds() < 0) && !emote_loader.loading_emotes.contains_key(&emote.name) {
-        if let Err(e) = emote_loader.tx.try_send(request) {
-          info!("Error sending emote load request: {}", e);
-        }
-        emote_loader.loading_emotes.insert(emote.name.to_owned(), chrono::Utc::now());
-      }
-
       let frames_opt = emote.data.as_ref();
       match frames_opt {
         Some(frames) => {

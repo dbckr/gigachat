@@ -4,8 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf};
+use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf, hash::{Hash, Hasher}};
 
+use ahash::AHasher;
 use curl::easy::Easy;
 use egui::{TextureHandle, ColorImage};
 use image::{DynamicImage};
@@ -248,8 +249,10 @@ pub fn load_image_into_texture_handle(
   ctx: &egui::Context,
   image: ColorImage,
 ) -> TextureHandle {
-  let uid = rand::random::<u64>(); //TODO: hash the image to create uid
-  ctx.load_texture(uid.to_string(), image, egui::TextureFilter::Linear)
+  let mut s = AHasher::default();
+  image.pixels.hash(&mut s);
+  let uid = s.finish();
+  ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
 }
 
 pub fn to_egui_image(

@@ -28,8 +28,8 @@ pub struct TwitchChatManager {
 
 impl TwitchChatManager {
   pub fn new(username: &String, token: &String, runtime: &Runtime) -> Self {
-    let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
-    let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
+    let (mut out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
+    let (in_tx, mut in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
     let token2 = token.to_owned();
     let name2 = username.to_owned();
 
@@ -214,7 +214,8 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
                     //tmi-sent-ts
                     timestamp: get_tag_value(tags, "tmi-sent-ts")
                       .and_then(|x| x.parse::<usize>().ok())
-                      .map(|x| DateTime::from_utc(NaiveDateTime::from_timestamp(x as i64 / 1000, (x % 1000 * 1000_usize.pow(2)) as u32 ), Utc))
+                      .and_then(|x| NaiveDateTime::from_timestamp_opt(x as i64 / 1000, (x % 1000 * 1000_usize.pow(2)) as u32 ))
+                      .map(|x| DateTime::from_utc(x, Utc))
                       .unwrap_or_else(chrono::Utc::now),
                     message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
                     profile: get_user_profile(tags),

@@ -17,8 +17,8 @@ use tracing::{error, log::{warn}};
 use super::{OutgoingMessage, IncomingMessage, ChatMessage, ChatManager, UserProfile, ProviderName};
 
 pub fn start_listening(runtime: &Runtime) -> ChatManager {
-  let (out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
-  let (in_tx, in_rx) = async_channel::unbounded::<OutgoingMessage>();
+  let (out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
+  let (in_tx, in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
   //let (z_tx, z_rx) =  async_channel::unbounded::<OutgoingMessage>();
 
   let in_tx_2 = in_tx.clone();

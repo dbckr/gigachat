@@ -42,8 +42,8 @@ pub fn init_channel() -> Channel {
 }
 
 pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channel: &mut ChannelShared, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
-  let (mut out_tx, out_rx) = async_channel::unbounded::<IncomingMessage>();
-  let (in_tx, mut in_rx) = async_channel::unbounded::<OutgoingMessage>();
+  let (mut out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
+  let (in_tx, mut in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
 
   let status_url = dgg.dgg_status_url.to_owned();
   let chat_url = dgg.dgg_chat_url.to_owned();
@@ -137,10 +137,9 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
 impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    //std::thread::sleep(std::time::Duration::from_millis(500));
     for handle in self.handles.iter_mut() {
       let _ = handle.inspect_err(|f| error!("{:?}", f));
-      //handle.abort();
+      handle.abort();
     }
   }
 }
@@ -223,7 +222,9 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         username: msg.nick.to_lowercase(), 
-                        timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
+                        timestamp: NaiveDateTime::from_timestamp_opt(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
+                          .map(|x| DateTime::from_utc(x, Utc))
+                          .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
                         profile: UserProfile { 
                           badges: if !features.is_empty() { Some(features) } else { None },
@@ -243,7 +244,9 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                       let cmsg = ChatMessage { 
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
-                        timestamp: DateTime::from_utc(NaiveDateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 ), Utc), 
+                        timestamp: NaiveDateTime::from_timestamp_opt(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
+                          .map(|x| DateTime::from_utc(x, Utc))
+                          .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
                         msg_type: MessageType::Announcement,
                         ..Default::default()
@@ -411,8 +414,7 @@ pub fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: 
       zero_width: false,
       css_anim: None,
       priority: emote.priority,
-      hidden: emote.hidden,
-      texture_expiration: None });
+      hidden: emote.hidden });
   }
   Ok(result)
 }
@@ -448,8 +450,7 @@ pub fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, force_redownload: 
       css_anim: css_anim.map(|x| x.to_owned()),
       display_name: None,
       priority: 0,
-      hidden: false,
-      texture_expiration: None });
+      hidden: false });
   }
   Ok(result)
 }

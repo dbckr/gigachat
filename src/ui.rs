@@ -23,16 +23,16 @@ use tracing::{instrument, trace_span};
 pub mod chat;
 pub mod chat_estimate;
 
-const BUTTON_TEXT_SIZE : f32 = 20.0;
-const BODY_TEXT_SIZE : f32 = 20.0;
-const SMALL_TEXT_SIZE : f32 = 16.0;
+const BUTTON_TEXT_SIZE : f32 = 14.0;
+const BODY_TEXT_SIZE : f32 = 14.0;
+const SMALL_TEXT_SIZE : f32 = 11.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
 /// Emotes in chat messages will be scaled to this height
 pub const EMOTE_HEIGHT : f32 = 28.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
-const MIN_LINE_HEIGHT : f32 = 22.0;
+const MIN_LINE_HEIGHT : f32 = 18.0;
 const COMBO_LINE_HEIGHT : f32 = 38.0;
 
 pub enum ChannelTabDragEvent {
@@ -185,9 +185,6 @@ impl TemplateApp {
         Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
       };
     }
-    /*if r.dgg_chat_manager.is_none() && let Some((_, sco)) = r.channels.iter_mut().find(|f| f.1.provider == ProviderName::DGG) {
-      r.dgg_chat_manager = Some(dgg::open_channel(&r.auth_tokens.dgg_username, &r.auth_tokens.dgg_auth_token, sco, r.runtime.as_ref().unwrap_or_log(), &r.emote_loader));
-    }*/
     r
   }
 }
@@ -706,6 +703,9 @@ impl TemplateApp {
         match sco {
           Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
           Channel::DGG { dgg, shared } => {
+            if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
+              chat_mgr.close();
+            }
             dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
           },
           Channel::Youtube { youtube: _, shared: _ } => {}
@@ -1001,7 +1001,7 @@ impl TemplateApp {
           rounding: Rounding::none(), 
           shadow: eframe::epaint::Shadow::default(),
           fill: Color32::TRANSPARENT,
-          stroke: Stroke::none()
+          stroke: Stroke::NONE
         })
         .show(ctx, |ui| {
           if ui.button(RichText::new(" 🡳 ").size(48.)).clicked() {
@@ -1218,18 +1218,16 @@ impl TemplateApp {
       }
     }
     if changed_dgg_token {
-
       for (_, channel) in self.channels.iter_mut() {
         if let Channel::DGG { dgg, ref mut shared } = channel {
             if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
               chat_mgr.close();
             }
-            let mgr = dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader);
-              dgg.dgg_chat_manager = Some(mgr);
+            dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
           }
       }       
     }
-}
+  }
 
   fn ui_add_channel_menu(&mut self, ctx: &egui::Context) {
     let mut add_channel = |providers: &mut HashMap<ProviderName, Provider>, auth_tokens: &mut AuthTokens, channel_options: &mut AddChannelMenu| {
