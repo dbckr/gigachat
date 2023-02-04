@@ -1171,22 +1171,22 @@ impl TemplateApp {
             }
           }
           let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
-          if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
+          /*if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
             let rgx = regex::Regex::new("code=(.*?)&").unwrap_or_log();
             let cleaned = rgx.captures(dgg_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
             if !cleaned.is_empty() {
-              let token = dgg::complete_authenticate(cleaned, &self.auth_tokens.dgg_verifier);
+              let verifier = self.auth_tokens.dgg_verifier.to_owned();
+              let token = dgg::complete_authenticate(cleaned, &verifier).await;
+              
               self.auth_tokens.dgg_auth_token = token.expect_or_log("failed to get dgg token");
               self.auth_tokens.dgg_verifier = Default::default();
               self.auth_tokens.show_dgg_auth_token = false;
             }
           }
-          else if !dgg_token.is_empty() {
+          else*/ if !dgg_token.is_empty() {
             self.auth_tokens.show_dgg_auth_token = false;
           }
           self.show_auth_ui = false;
-
-      
         }
       }).unwrap_or_log();
       if ctx.input().pointer.any_click() 

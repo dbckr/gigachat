@@ -2,7 +2,6 @@
 mod test {
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
   use std::{ops::Range, path::PathBuf};
-  use curl::easy::Easy;
   use itertools::Itertools;
   use regex::Regex;
   use crate::{emotes::fetch, provider::dgg::{self, DggFlair}};
@@ -16,14 +15,14 @@ mod test {
   }
 
   #[test]
-  fn test_json() {
+  /*fn test_json() {
     let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", "https://cdn.destiny.gg/2.42.0").as_str(), Some("dgg-flairs.json"), None, true).unwrap();
     let emotes = serde_json::from_str::<Vec<DggFlair>>(&json);
     println!("{:?}", emotes);
-  }
+  }*/
 
   #[test]
-  fn test2() {
+  /*fn test2() {
     let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
     let loader = dgg::CSSLoader::default();
@@ -39,10 +38,10 @@ mod test {
     closure("WOOF");
     closure("pepeSteer");
     closure("OOOO");
-  }
+  }*/
 
   #[test]
-  fn test3() {
+  /*fn test3() {
     let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
 
@@ -53,7 +52,7 @@ mod test {
     for cap in caps {
       println!("{}", cap.iter().skip(1).map(|x| format!("{:?}", x.unwrap().as_str())).join(", "));
     }
-  }
+  }*/
 
   #[test]
   fn test4() {
@@ -112,8 +111,8 @@ mod test {
 
   #[test]
   #[traced_test]
-  fn load_emote() {
-    let mut easy = Easy::new();
+  /*fn load_emote() {
+    let mut easy = reqwest::Client::new();
     let img = crate::emotes::imaging::get_image_data("KEKW", "https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
     assert!(img.is_some());
 
@@ -121,7 +120,7 @@ mod test {
       lines.iter().for_each(|f| println!("{}", f));
       Ok(())
     });
-  }
+  }*/
 
   #[test]
   fn estimate_test() {

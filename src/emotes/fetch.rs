@@ -5,8 +5,8 @@
  */
 
 use std::{fs::{File, OpenOptions, DirBuilder}, path::Path, io::{Write, BufRead, Read}};
-use curl::easy::Easy;
 use itertools::Itertools;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tracing::{debug, warn};
 use std::io::BufReader;
 use super::{Emote};
@@ -21,14 +21,14 @@ enum EmoteSize {
 
 const EMOTE_DOWNLOADSIZE : EmoteSize = EmoteSize::Medium;
 
-pub fn process_badge_json(
+pub async fn process_badge_json(
   room_id: &str,
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload)?;
+  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() { // Twitch Badges
@@ -52,14 +52,14 @@ pub fn process_badge_json(
   Ok(emotes)
 }
 
-pub fn process_twitch_follower_emote_json(
+pub async fn process_twitch_follower_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //info!("processing emote json {}", filename);
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload)?;
+  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -88,14 +88,14 @@ pub fn process_twitch_follower_emote_json(
   Ok(emotes)
 }
 
-pub fn process_emote_json(
+pub async fn process_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //info!("processing emote json {}", filename);
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload)?;
+  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -218,7 +218,7 @@ pub fn process_emote_json(
   Ok(emotes)
 }
 
-pub fn get_json_from_url(
+pub async fn get_json_from_url(
   url: &str,
   filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
@@ -233,23 +233,17 @@ pub fn get_json_from_url(
 
   if force_redownload || !file_exists {
     debug!("Downloading {}", url);
-    let mut easy = Easy::new();
-    easy.url(url)?;
-    if let Some(headers) = headers {
-      let mut list = curl::easy::List::new();
-      for head in headers {
-        list.append(&format!("{}: {}", head.0, head.1))?;
-      }
-      easy.http_headers(list)?;
-    }
-    let mut transfer = easy.transfer();
-    transfer.write_function(|data| {
-      for byte in data {
-        buffer.push(byte.to_owned());
-      }
-      Ok(data.len())
-    })?;
-    transfer.perform()?;
+    let mut hmap = HeaderMap::new();
+    headers.map(|x| x.iter().for_each(|(h,v)| {
+      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+    }));
+    let client = reqwest::Client::new();
+    let req = client
+      .get(url)
+      .headers(hmap);
+    let resp = req.send().await?;
+    buffer = resp.bytes().await?.to_vec();
   }
   
   if !buffer.is_empty() {
@@ -283,7 +277,7 @@ pub fn get_json_from_url(
   Ok(json)
 }
 
-pub fn get_binary_from_url(
+pub async fn get_binary_from_url(
   url: &str,
   filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
@@ -293,23 +287,17 @@ pub fn get_binary_from_url(
 
   if filename.is_none() || filename.as_ref().is_some_and(|f| !Path::new(f).exists()) {
     debug!("Downloading {}", url);
-    let mut easy = Easy::new();
-    easy.url(url)?;
-    if let Some(headers) = headers {
-      let mut list = curl::easy::List::new();
-      for head in headers {
-        list.append(&format!("{}: {}", head.0, head.1))?;
-      }
-      easy.http_headers(list)?;
-    }
-    let mut transfer = easy.transfer();
-    transfer.write_function(|data| {
-      for byte in data {
-        buffer.push(byte.to_owned());
-      }
-      Ok(data.len())
-    })?;
-    transfer.perform()?;
+    let mut hmap = HeaderMap::new();
+    headers.map(|x| x.iter().for_each(|(h,v)| {
+      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+    }));
+    let client = reqwest::Client::new();
+    let req = client
+      .get(url)
+      .headers(hmap);
+    let resp = req.send().await?;
+    buffer = resp.bytes().await?.to_vec();
   }
 
   if let Some(filename) = filename {

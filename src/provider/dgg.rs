@@ -8,7 +8,6 @@ use std::{collections::HashMap, path::{Path}};
 use async_channel::{Sender, Receiver};
 use backoff::{backoff::Backoff};
 use chrono::{Utc, NaiveDateTime, DateTime};
-use curl::easy::{Easy};
 use futures::{StreamExt, SinkExt, TryFutureExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
@@ -355,15 +354,15 @@ pub fn begin_authenticate(ctx: &egui::Context) -> String {
   code_verifier
 }
 
-pub fn complete_authenticate(code: &str, code_verifier: &String) -> Option<String> {
-  let mut easy = Easy::new();
+pub async fn complete_authenticate(code: &str, code_verifier: &String) -> Option<String> {
+  let mut easy = reqwest::Client::new();
   let url = format!("https://www.destiny.gg/oauth/token?grant_type=authorization_code&code={}&client_id={}&redirect_uri={}&code_verifier={}",
     code,
     CLIENT_ID,
     REDIRECT_URI,
     code_verifier);
 
-  match make_request(&url, None, &mut easy) {
+  match make_request(&url, None, &mut easy).await {
     Ok(resp) => {
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
@@ -375,13 +374,13 @@ pub fn complete_authenticate(code: &str, code_verifier: &String) -> Option<Strin
   }
 }
 
-pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
-  let mut easy = Easy::new();
+pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
+  let mut easy = reqwest::Client::new();
   let url = format!("https://www.destiny.gg/oauth/token?grant_type=refresh_token&client_id={}&refresh_token={}",
     CLIENT_ID,
     refresh_token);
 
-  match make_request(&url, None, &mut easy) {
+  match make_request(&url, None, &mut easy).await {
     Ok(resp) => {
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
@@ -393,9 +392,9 @@ pub fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
-pub fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &cache_path.join("dgg-flairs.json");
-  let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload)?;
+  let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload).await?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {
@@ -421,13 +420,13 @@ pub fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: 
   Ok(result)
 }
 
-pub fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
-  let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, force_redownload)?;
+  let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, force_redownload).await?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
   let json_path = &cache_path.join("dgg-emotes.json");
-  let json = fetch::get_json_from_url(format!("{}/emotes/emotes.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload)?;
+  let json = fetch::get_json_from_url(format!("{}/emotes/emotes.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload).await?;
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {

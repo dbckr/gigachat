@@ -163,7 +163,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
       let room_ids = active_room_ids.values().collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
-        let status_data = get_channel_statuses(room_ids, token);
+        let status_data = get_channel_statuses(room_ids, token).await;
 
         for (channel, room_id) in active_room_ids.iter() {
           let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
@@ -383,14 +383,14 @@ pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
   ctx.output().open_url(&authorize_url);
 }
 
-fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<TwitchChannelStatus> {
+async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();
   }
   let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
   let json = match get_json_from_url(&url, None, Some([
     ("Authorization", &format!("Bearer {}", token)),
-    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), true) {
+    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), true).await {
       Ok(json) => json,
       Err(e) => { error!("failed getting twitch statuses: {}", e); return Default::default(); }
     };

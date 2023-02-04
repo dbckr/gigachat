@@ -7,27 +7,27 @@
 use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf, hash::{Hash, Hasher}};
 
 use ahash::AHasher;
-use curl::easy::Easy;
 use egui::{TextureHandle, ColorImage};
 use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
+use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use tracing::{info, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 
 use super::CssAnimationData;
 
-pub fn get_image_data(
+pub async fn get_image_data(
   name: &str,
   url: &str,
   path: PathBuf,
   id: &str,
   extension: &Option<String>,
-  easy: &mut Easy,
+  easy: &mut reqwest::Client,
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let inner =
-    || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
+    async || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
       DirBuilder::new().recursive(true).create(&path)?;
 
       let paths = match glob(&format!("{}{}.*", &path.to_str().expect_or_log("path to string failed"), id)) {
@@ -43,19 +43,12 @@ pub fn get_image_data(
         }
         None => {
           let mut extension = extension.as_ref().map(|f| f.to_owned());
-          let mut success = false;
-          let mut buffer: Vec<u8> = Default::default();
 
-          easy.url(url)?;
-          let mut transfer = easy.transfer();
+          let req = easy.get(url);
+          let resp = req.send().await?;
           
-          transfer.header_function(|data| {
-            let result = std::str::from_utf8(data);
-            //info!("result {:?}", result);
-            if let Ok(header) = result && header.contains("200 OK") {
-              success = true;
-            }
-            if extension.is_none() && let Ok(header) = result && (header.to_lowercase().contains("content-disposition") || header.to_lowercase().contains("content-type")) {
+          resp.headers().iter().for_each(|(name, value)| {
+            if extension.is_none() && let Ok(header) = value.to_str() && (name == CONTENT_DISPOSITION || name == CONTENT_TYPE) {
               //TODO: extract extension using regex
               if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
                 extension = Some("png".to_owned());
@@ -73,20 +66,9 @@ pub fn get_image_data(
                 extension = Some("png".to_owned());
               }
             }
-            true
-          })?;
-          transfer.write_function(|data| {
-            for byte in data {
-              buffer.push(byte.to_owned());
-            }
-            Ok(data.len())
-          })?;
-          transfer.perform()?;
-          drop(transfer);
+          });
 
-          if !success {
-            return Err(anyhow::Error::msg("Bad HTTP response or unable to read file extension from HTTP header"))
-          }
+          let buffer = resp.bytes().await?.to_vec();
 
           // If 7TV or unknown extension, try loading it as gif and webp to determine format
           // (7TV is completely unreliable for determining format)
@@ -118,7 +100,7 @@ pub fn get_image_data(
       }
     };
 
-  match inner() {
+  match inner().await {
     Ok(x) => Some(x),
     Err(x) => { warn!("Failed to load emote {} from url {} due to error: {}", name, url, x); None },
   }

@@ -5,12 +5,12 @@
  */
 
 use async_channel::{Sender, Receiver};
+use reqwest::header::{HeaderValue, HeaderName, HeaderMap};
 //use rand::{distributions::{Alphanumeric, DistString}};
 use tracing::info;
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use curl::easy::Easy;
 use tracing_unwrap::{ResultExt};
 
 use crate::emotes::{Emote};
@@ -163,26 +163,17 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   }
 }
 
-pub fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut Easy) -> Result<String, anyhow::Error> {
-  let mut result = String::default();
-
-    easy.url(url)?;
-    if let Some(headers) = headers {
-      let mut list = curl::easy::List::new();
-      for head in headers {
-        list.append(&format!("{}: {}", head.0, head.1))?;
-      }
-      easy.http_headers(list)?;
-    }
-    let mut transfer = easy.transfer();
-    transfer.write_function(|data| { 
-      String::from_utf8(data.to_vec()).map(|x| result.push_str(&x)).expect_or_log("failed to build string from http response body");
-      Ok(data.len())
-    })?;
-    transfer.perform()?;
-    drop(transfer);
-
-    Ok(result)
+pub async fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut reqwest::Client) -> Result<String, anyhow::Error> {
+    let mut hmap = HeaderMap::new();
+    headers.map(|x| x.iter().for_each(|(h,v)| {
+      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+    }));
+    let req = easy
+      .get(url)
+      .headers(hmap);
+    let resp = req.send().await?;
+    Ok(resp.text().await?)
 }
 
 pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: String, provider: ProviderName, message: String, msg_type: MessageType) {

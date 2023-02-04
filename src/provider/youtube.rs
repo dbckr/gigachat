@@ -23,7 +23,7 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
 
   let task = runtime.spawn(async move { 
     // periodically poll youtube API for new chat messages
-    let mut easy = Easy::new();
+    let mut easy = reqwest::Client::new();
     let mut activelivechat_id : Option<String> = None;
     let mut next_page_token : Option<String> = None;
 
