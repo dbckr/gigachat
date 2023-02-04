@@ -292,6 +292,7 @@ pub fn get_binary_from_url(
   let mut buffer: Vec<u8> = Default::default();
 
   if filename.is_none() || filename.as_ref().is_some_and(|f| !Path::new(f).exists()) {
+    debug!("Downloading {}", url);
     let mut easy = Easy::new();
     easy.url(url)?;
     if let Some(headers) = headers {
@@ -324,7 +325,7 @@ pub fn get_binary_from_url(
       BufReader::new(file).read_to_end(&mut buffer).expect_or_log("Failed to read file");
     }
     else {
-      let mut f = OpenOptions::new().create_new(true).write(true).open(&filename).expect_or_log("Unable to open file");
+      let mut f = OpenOptions::new().create(true).write(true).open(&filename).expect_or_log("Unable to open file");
       f.write_all(&buffer).expect_or_log("Failed to write to file");
     }
   }

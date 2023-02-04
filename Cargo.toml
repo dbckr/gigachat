@@ -1,6 +1,6 @@
 [package]
 name = "gigachat"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MPL-2.0"
 
@@ -31,16 +31,16 @@ image = "0.24.1"
 imageproc = "0.23.0"
 glob = "0.3.0"
 itertools = "0.10.3"
-gif = "0.11.3"
-webp-animation = "0.6.0"
-gif-dispose = "3.1.1"
+gif = "0.12.0"
+webp-animation = "0.7.0"
+gif-dispose = "4.0.0"
 regex = "1.5.5"
 async-channel = "1.6.1"
 serde = "1.0.136"
 directories-next = "2.0.0"
 sha256 = "1.0.3"
-base64 = "0.13.0"
-tokio-tungstenite = "0.17.1"
+base64 = "0.21.0"
+tokio-tungstenite = "0.18.0"
 httparse = "1.7.1"
 #thiserror = "1.0.31"
 tracing = "0.1.35"
@@ -50,9 +50,9 @@ tracing-test = "0.2.3"
 fontdue = "0.7.2"
 tracing-unwrap = "0.10.0"
 warp = "0.3"
-resvg = "0.23.0"
-usvg = "0.23.0"
-tiny-skia = "0.6.6"
+resvg = "0.28.0"
+usvg = "0.28.0"
+tiny-skia = "0.8.2"
 urlencoding = "2.1.2"
 tracing-flame = "0.2.0"
 backoff = { version = "0.4.0", features = ["tokio"] }
@@ -70,7 +70,7 @@ debug = 1
 #eframe = { path = "../egui/eframe" }
 #weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
 #winit = { path = "../winit" }
-tracing-unwrap = { git = "https://github.com/dbckr/tracing-unwrap", branch = "dev" }
+#tracing-unwrap = { git = "https://github.com/dbckr/tracing-unwrap", branch = "dev" }
 
 # webp compile issue
 # https://github.com/qnighy/libwebp-sys2-rs/issues/12

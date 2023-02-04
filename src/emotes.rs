@@ -472,11 +472,13 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
 }
 
 fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
-  emote.data = imaging::load_to_texture_handles(ctx, data);
-  emote.duration_msec = match emote.data.as_ref() {
-    Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
-    _ => 0,
-  };
+  if emote.data.is_none() {
+    emote.data = imaging::load_to_texture_handles(ctx, data);
+    emote.duration_msec = match emote.data.as_ref() {
+      Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
+      _ => 0,
+    };
+  }
   emote.loaded = EmoteStatus::Loaded;
   loading_emotes.remove(&emote.name);
 }
@@ -502,13 +504,7 @@ impl LoadEmote for ChannelShared {
 impl TemplateApp {
   pub fn update_emote(&mut self, emote_name: &String, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>) {
     if let Some(emote) = self.global_emotes.get_mut(emote_name) {
-      emote.data = imaging::load_to_texture_handles(ctx, data);
-      emote.duration_msec = match emote.data.as_ref() {
-        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
-        _ => 0,
-      };
-      emote.loaded = EmoteStatus::Loaded;
-      self.emote_loader.loading_emotes.remove(&emote.name);
+      load_emote_data(emote, ctx, data, &mut self.emote_loader.loading_emotes)
     }
   }
 }
@@ -516,24 +512,12 @@ impl TemplateApp {
 impl LoadEmote for Provider {
   fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
     if let Some(emote) = self.emotes.get_mut(emote_name) {
-      emote.data = imaging::load_to_texture_handles(ctx, data);
-      emote.duration_msec = match emote.data.as_ref() {
-        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
-        _ => 0,
-      };
-      emote.loaded = EmoteStatus::Loaded;
-      loading_emotes.remove(&emote.name);
+      load_emote_data(emote, ctx, data, loading_emotes)
     }
   }
   fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
     if let Some(global_badges) = &mut self.global_badges && let Some(emote) = global_badges.get_mut(badge_name) {
-      emote.data = imaging::load_to_texture_handles(ctx, data);
-      emote.duration_msec = match emote.data.as_ref() {
-        Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
-        _ => 0,
-      };
-      emote.loaded = EmoteStatus::Loaded;
-      loading_emotes.remove(&emote.name);
+      load_emote_data(emote, ctx, data, loading_emotes)
     }
   }
 }

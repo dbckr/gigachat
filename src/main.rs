@@ -66,7 +66,7 @@ fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<
     "WARN" => tracing::level_filters::LevelFilter::WARN,
     "ERROR" => tracing::level_filters::LevelFilter::ERROR,
     _ => tracing::level_filters::LevelFilter::ERROR
-  }).unwrap_or(tracing::level_filters::LevelFilter::INFO);
+  }).unwrap_or(tracing::level_filters::LevelFilter::DEBUG);
 
   let file = tracing_subscriber::fmt::layer()
     .with_line_number(true)

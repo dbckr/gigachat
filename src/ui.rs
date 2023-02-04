@@ -32,7 +32,7 @@ const WORD_LENGTH_MAX : usize = 30;
 pub const EMOTE_HEIGHT : f32 = 28.0;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
-const MIN_LINE_HEIGHT : f32 = 18.0;
+const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 38.0;
 
 pub enum ChannelTabDragEvent {
@@ -257,9 +257,9 @@ impl TemplateApp {
     }
 
     // workaround for odd rounding issues at certain DPI(s?)
-    if ctx.pixels_per_point() == 1.75 {
+    /*if ctx.pixels_per_point() == 1.75 {
       ctx.set_pixels_per_point(1.50);
-    }
+    }*/
 
     if let Ok(event) = self.emote_loader.rx.try_recv() {
       let loading_emotes = &mut self.emote_loader.loading_emotes;
@@ -989,8 +989,8 @@ impl TemplateApp {
 
       let jump_rect = if area.state.offset.y != y_size - area.inner_rect.height() && y_size > area.inner_rect.height() {
         let rect = Rect {
-          min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 60. },
-          max: area.inner_rect.max,
+          min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 70. },
+          max: area.inner_rect.max
         };
         let jumpwin = egui::Window::new(format!("JumpToBottom {}", id))
         .fixed_rect(rect)
@@ -1004,7 +1004,7 @@ impl TemplateApp {
           stroke: Stroke::NONE
         })
         .show(ctx, |ui| {
-          if ui.button(RichText::new(" 🡳 ").size(48.)).clicked() {
+          if ui.button(RichText::new("🡳").size(48.).monospace()).clicked() {
             chat_panel.chat_scroll = Some(Vec2 { x: 0., y: y_size });
           }
         });

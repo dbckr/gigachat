@@ -19,6 +19,7 @@ use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClient
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
 use super::{IncomingMessage, OutgoingMessage, ProviderName, ChatMessage, UserProfile, make_request, ChatManager, convert_color_hex, channel::{Channel, ChannelTransient, DggChannel, ChannelShared}};
 use tracing_unwrap::{OptionExt, ResultExt};
+use base64::{Engine as _, engine::general_purpose};
 
 pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
@@ -338,7 +339,8 @@ const CLIENT_ID : &str = "dbrq5gUQDWmv6jBzFt9UwpN8VQOIeO7i";
 pub fn begin_authenticate(ctx: &egui::Context) -> String {
   let secret = sha256::digest("S0eHxQsXfbo!l=Pk~pf7[ZWSC.C7BlWK1YFNgKkqxQ!ojZ1C~tYyVh3+SsxCn-kY");
   let code_verifier = format!("{:x}{:x}", rand::random::<u128>(), rand::random::<u128>());
-  let code_challenge = base64::encode(sha256::digest(format!("{}{}", code_verifier, secret)));
+  //let code_challenge = base64::encode(sha256::digest(format!("{}{}", code_verifier, secret)));
+  let code_challenge = general_purpose::STANDARD.encode(sha256::digest(format!("{}{}", code_verifier, secret)));
 
   let state = format!("{}", rand::random::<u128>());
   let authorize_url = format!("https://www.destiny.gg/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&code_challenge={}", 
