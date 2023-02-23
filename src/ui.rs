@@ -742,12 +742,12 @@ impl TemplateApp {
         ui.set_width(ui.available_width() / 2.);
       }
 
-      let (goto_next_emote, goto_prev_emote, enter_emote) = if chat_panel.selected_emote_input.is_some() {
+      let (goto_next_emote, goto_prev_emote, mut enter_emote) = if chat_panel.selected_emote_input.is_some() {
         let mut input = ui.input_mut();
         let next = input.consume_key(Modifiers::ALT, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::Tab);
         let prev = input.consume_key(Modifiers::ALT, Key::ArrowLeft) || input.consume_key(Modifiers::SHIFT, Key::Tab);
-        let select = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (input.consume_key(Modifiers::ALT, Key::ArrowDown) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
-        (next, prev, select)
+        let enter_emote = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (input.consume_key(Modifiers::ALT, Key::ArrowDown) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
+        (next, prev, enter_emote)
       } 
       else { 
         (false, false, false) 
@@ -836,141 +836,149 @@ impl TemplateApp {
             };
 
             if let Some(emotes) = emotes && !emotes.is_empty() && let Some(textbox_word) = word_input.as_ref().map(|(_, str)| str) {
+              // Overlay style emote selector
+              let msg_rect = outgoing_msg.response.rect.to_owned();
+              let ovl_height = ui.available_height() / 2.;
+              let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
+              let mut painter = ui.painter_at(painter_rect);
+              let painter_rect = painter.clip_rect();
+              painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
+
+              //TODO: refactor to pre-calculate layout and then paint, so it can paint only 5 rows centered on emote "cursor"
+              let mut y = painter_rect.bottom();
+              let mut x = painter_rect.left();
+              for emote in emotes.iter().take(24) {
+                let mut job = LayoutJob {
+                  wrap: egui::epaint::text::TextWrapping { 
+                    break_anywhere: false,
+                    ..Default::default()
+                  },
+                  first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                  ..Default::default()
+                };
+                job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
+                  font_id: get_body_text_style(ctx),
+                  ..Default::default() });
+                let galley = ui.fonts().layout_job(job);
+                let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
+                let width = if !is_user_list {
+                  let texture = emote.1.as_ref()
+                    .and_then(|f| f.texture.as_ref())
+                    .or_else(|| self.emote_loader.transparent_img.as_ref())
+                    .unwrap_or_log();
+
+                  let width = texture.size_vec2().x * (emote_height / texture.size_vec2().y);
+                  if x + width + text_width > painter_rect.right() {
+                    y -= emote_height;
+                    x = painter_rect.left();
+                  }
+
+                  painter.rect_filled(egui::Rect {
+                    min: egui::pos2(x, y - emote_height - 1.),
+                    max: egui::pos2(x + width + text_width, y),
+                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+
+                  let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
+                  let rect = egui::Rect { 
+                    min: egui::pos2(x, y - emote_height ), 
+                    max: egui::pos2(x + width, y) 
+                  };
+
+                  let mut mesh = egui::Mesh::with_texture(texture.id());
+                  mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+                  painter.add(egui::Shape::mesh(mesh));
+                  width
+                } else {
+                  if x + text_width > painter_rect.right() {
+                    y -= emote_height;
+                    x = painter_rect.left();
+                  }
+                  painter.rect_filled(egui::Rect {
+                    min: egui::pos2(x, y - emote_height - 1.),
+                    max: egui::pos2(x + text_width + 1., y),
+                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                  0.
+                };
+
+                let disp_text = emote.0.to_owned();
+                painter.text(
+                  egui::pos2(x + width, y), 
+                  egui::Align2::LEFT_BOTTOM, 
+                  disp_text, 
+                  get_body_text_style(ctx), 
+                  if chat_panel.selected_emote.as_ref() == Some(&emote.0) { Color32::RED } else { Color32::WHITE }
+                );
+
+                let rendered_rect = egui::Rect::from_two_pos(Pos2::new(x, y - emote_height), Pos2::new(x + width + text_width, y));
+                if let Some(click_pos) = ui.input().pointer.press_origin() && rendered_rect.contains(click_pos) {
+                  chat_panel.selected_emote = Some(emote.0.to_owned());
+                  enter_emote = true;
+                }
+                else if let Some(hover_pos) = ui.input().pointer.hover_pos() && rendered_rect.contains(hover_pos) {
+                  chat_panel.selected_emote = Some(emote.0.to_owned());
+                }
+
+                x = x + width + text_width;
+              }
+
+              if emotes.len() > 24 {
+                y -= emote_height;
+                x = painter_rect.left();
+                let disp_text = format!("and {} additional results...", emotes.len() - 24);
+                let mut job = LayoutJob {
+                  wrap: egui::epaint::text::TextWrapping { 
+                    break_anywhere: false,
+                    ..Default::default()
+                  },
+                  first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
+                  ..Default::default()
+                };
+                job.append(&disp_text, 0., egui::TextFormat { 
+                  font_id:  get_body_text_style(ctx),
+                  ..Default::default() });
+                let galley = ui.fonts().layout_job(job);
+                let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
+
+                painter.rect_filled(egui::Rect {
+                  min: egui::pos2(x, y - emote_height - 1.),
+                  max: egui::pos2(x + text_width + 1., y),
+                }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                painter.text(
+                  egui::pos2(x, y), 
+                  egui::Align2::LEFT_BOTTOM, 
+                  disp_text, 
+                  get_body_text_style(ctx),
+                  Color32::GRAY
+                );
+              }
+
+              if goto_next_emote {
+                if let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
+                  chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
+                } else {
+                  chat_panel.selected_emote = emotes.get(0).map(|x| x.0.to_owned());
+                }
+              }
+              else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
+                chat_panel.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
+              }
+              else if chat_panel.selected_emote.is_some() && !emotes.iter().any(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) {
+                chat_panel.selected_emote = None;
+              }
+              else if chat_panel.selected_emote_input.is_some() && word_input.as_ref() != chat_panel.selected_emote_input.as_ref() && !emotes.iter().any(|x| Some(&x.0) == word_input.as_ref().map(|(_,str)| str)) {
+                chat_panel.selected_emote = None;
+              }
+
+              if (goto_next_emote || goto_prev_emote) && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
+                update_ui_draft_msg(textbox_word, pos, emote_text, &mut chat_panel.draft_message, &mut outgoing_msg.state);
+              }
+
               if enter_emote && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
                 update_ui_draft_msg(textbox_word, pos, &format!("{} ", emote_text), &mut chat_panel.draft_message, &mut outgoing_msg.state);
                 outgoing_msg.response.request_focus();
                 chat_panel.selected_emote = None;
                 chat_panel.selected_emote_input = None;
-              }
-              else {
-                if goto_next_emote {
-                  if let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
-                    chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
-                  } else {
-                    chat_panel.selected_emote = emotes.get(0).map(|x| x.0.to_owned());
-                  }
-                }
-                else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
-                  chat_panel.selected_emote = emotes.get(ix - 1).map(|x| x.0.to_owned());
-                }
-                else if chat_panel.selected_emote.is_some() && !emotes.iter().any(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) {
-                  chat_panel.selected_emote = None;
-                }
-                else if chat_panel.selected_emote_input.is_some() && word_input.as_ref() != chat_panel.selected_emote_input.as_ref() && !emotes.iter().any(|x| Some(&x.0) == word_input.as_ref().map(|(_,str)| str)) {
-                  chat_panel.selected_emote = None;
-                }
-
-                if (goto_next_emote || goto_prev_emote) && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
-                  update_ui_draft_msg(textbox_word, pos, emote_text, &mut chat_panel.draft_message, &mut outgoing_msg.state);
-                }
-
-                // Overlay style emote selector
-                let msg_rect = outgoing_msg.response.rect.to_owned();
-                let ovl_height = ui.available_height() / 2.;
-                let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
-                let mut painter = ui.painter_at(painter_rect);
-                let painter_rect = painter.clip_rect();
-                painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
-
-                //TODO: refactor to pre-calculate layout and then paint, so it can paint only 5 rows centered on emote "cursor"
-                let mut y = painter_rect.bottom();
-                let mut x = painter_rect.left();
-                for emote in emotes.iter().take(24) {
-                  let mut job = LayoutJob {
-                    wrap: egui::epaint::text::TextWrapping { 
-                      break_anywhere: false,
-                      ..Default::default()
-                    },
-                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
-                    ..Default::default()
-                  };
-                  job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
-                    font_id: get_body_text_style(ctx),
-                    ..Default::default() });
-                  let galley = ui.fonts().layout_job(job);
-                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
-
-                  let width = if !is_user_list {
-                    let texture = emote.1.as_ref()
-                      .and_then(|f| f.texture.as_ref())
-                      .or_else(|| self.emote_loader.transparent_img.as_ref())
-                      .unwrap_or_log();
-
-                    let width = texture.size_vec2().x * (emote_height / texture.size_vec2().y);
-                    if x + width + text_width > painter_rect.right() {
-                      y -= emote_height;
-                      x = painter_rect.left();
-                    }
-
-                    painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - emote_height - 1.),
-                      max: egui::pos2(x + width + text_width, y),
-                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-
-                    let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
-                    let rect = egui::Rect { 
-                      min: egui::pos2(x, y - emote_height ), 
-                      max: egui::pos2(x + width, y) 
-                    };
-
-                    let mut mesh = egui::Mesh::with_texture(texture.id());
-                    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-                    painter.add(egui::Shape::mesh(mesh));
-                    width
-                  } else {
-                    if x + text_width > painter_rect.right() {
-                      y -= emote_height;
-                      x = painter_rect.left();
-                    }
-                    painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - emote_height - 1.),
-                      max: egui::pos2(x + text_width + 1., y),
-                    }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-                    0.
-                  };
-
-                  let disp_text = emote.0.to_owned();
-                  painter.text(
-                    egui::pos2(x + width, y), 
-                    egui::Align2::LEFT_BOTTOM, 
-                    disp_text, 
-                    get_body_text_style(ctx), 
-                    if chat_panel.selected_emote.as_ref() == Some(&emote.0) { Color32::RED } else { Color32::WHITE }
-                  );
-
-                  x = x + width + text_width;
-                }
-
-                if emotes.len() > 24 {
-                  y -= emote_height;
-                  x = painter_rect.left();
-                  let disp_text = format!("and {} additional results...", emotes.len() - 24);
-                  let mut job = LayoutJob {
-                    wrap: egui::epaint::text::TextWrapping { 
-                      break_anywhere: false,
-                      ..Default::default()
-                    },
-                    first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
-                    ..Default::default()
-                  };
-                  job.append(&disp_text, 0., egui::TextFormat { 
-                    font_id:  get_body_text_style(ctx),
-                    ..Default::default() });
-                  let galley = ui.fonts().layout_job(job);
-                  let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
-
-                  painter.rect_filled(egui::Rect {
-                    min: egui::pos2(x, y - emote_height - 1.),
-                    max: egui::pos2(x + text_width + 1., y),
-                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-                  painter.text(
-                    egui::pos2(x, y), 
-                    egui::Align2::LEFT_BOTTOM, 
-                    disp_text, 
-                    get_body_text_style(ctx),
-                    Color32::GRAY
-                  );
-                }
               }
             }
             else {
