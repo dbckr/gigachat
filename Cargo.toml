@@ -1,6 +1,6 @@
 [package]
 name = "gigachat"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MPL-2.0"
 
@@ -19,7 +19,7 @@ tokio = { version = "1.17.0", features = ["full"] }
 egui = { version = "0.20.1" }
 eframe = { version = "0.20.1", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
-anyhow = "1.0.58"
+anyhow = { version = "1.0.58", features = ["backtrace"] }
 args = "2.0.0"
 getopts = "0.2.0"
 #curl = "0.4.38"
@@ -50,7 +50,7 @@ tracing-appender = "0.2.2"
 tracing-test = "0.2.3"
 fontdue = "0.7.2"
 tracing-unwrap = "0.10.0"
-warp = "0.3"
+warp = "0.3.3"
 resvg = "0.28.0"
 usvg = "0.28.0"
 tiny-skia = "0.8.2"

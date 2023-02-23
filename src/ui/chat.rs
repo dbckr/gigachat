@@ -6,15 +6,16 @@
 
 use tracing::info;
 use chrono::{Timelike, DateTime, Utc};
-use egui::{emath, Rounding};
-use egui::{Color32, FontFamily, FontId, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
+use egui::{emath, Rounding, TextStyle};
+use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
 use itertools::Itertools;
 use tracing_unwrap::OptionExt;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
 
-use super::{SMALL_TEXT_SIZE, BADGE_HEIGHT, BODY_TEXT_SIZE, MIN_LINE_HEIGHT, EMOTE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
+use super::EMOTE_SCALING;
+use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
 
 const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
@@ -38,6 +39,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent
 }
 
 pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>, bool) {
+  let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
   if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
@@ -110,7 +112,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
     
           if let Some(uname_text) = username {
             let uname_rich_text = RichText::new(&format!("{}:", uname_text))
-              .size(BODY_TEXT_SIZE)
+              .font(crate::ui::get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
             if uname.clicked() {
@@ -136,7 +138,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
           let emote = chat_msg.emotes.get(word);
           if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
             let tex = texture.as_ref().unwrap_or(transparent_img);
-            add_ui_emote_image(word, path, tex, zero_width, &mut last_emote_width, ui, EMOTE_HEIGHT);
+            add_ui_emote_image(word, path, tex, zero_width, &mut last_emote_width, ui, emote_height);
           }
           /*else if word == "👍" {
             // Can use a font rendering crate directly
@@ -156,7 +158,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).size(BODY_TEXT_SIZE).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
+                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
                 if link.hovered() {
                   ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
                 }
@@ -183,7 +185,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
                 let mut text = match is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
                   false => RichText::new(word).color(convert_color(&message_color))
-                }.size(BODY_TEXT_SIZE);
+                }.font(crate::ui::get_body_text_style(ui.ctx()));
 
                 if italicize {
                   text = text.italics()
@@ -290,7 +292,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   };
   if show_channel_name {
     job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
-        font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
+        font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()), 
         color: channel_color.linear_multiply(0.6), 
         valign: Align::Center,
         ..Default::default()
@@ -298,7 +300,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
   }
   if show_timestamp {
     job.append(&format!("{} ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
-      font_id: FontId::new(SMALL_TEXT_SIZE, FontFamily::Proportional), 
+      font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()),
       color: Color32::DARK_GRAY, 
       valign: Align::Center,
       ..Default::default()
@@ -308,7 +310,7 @@ pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, chann
 
   if let Some(username) = username {
     job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), ui.spacing().item_spacing.x, egui::TextFormat {
-      font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+      font_id: crate::ui::get_body_text_style(ui.ctx()),
       color: convert_color(profile.color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)),
       valign: Align::Center,
       ..Default::default()

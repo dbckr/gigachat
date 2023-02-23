@@ -8,7 +8,7 @@ use tracing::{info, error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response, text_edit::TextEditState};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle};
 use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -23,13 +23,10 @@ use tracing::{instrument, trace_span};
 pub mod chat;
 pub mod chat_estimate;
 
-const BUTTON_TEXT_SIZE : f32 = 14.0;
-const BODY_TEXT_SIZE : f32 = 14.0;
-const SMALL_TEXT_SIZE : f32 = 11.0;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
-/// Emotes in chat messages will be scaled to this height
-pub const EMOTE_HEIGHT : f32 = 28.0;
+/// Emotes in chat messages will be scaled to this height, relative to chat text font size
+pub const EMOTE_SCALING : f32 = 1.4;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
@@ -122,6 +119,7 @@ pub struct ChatPanelOptions {
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
+  body_text_size : f32,
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
   pub providers: HashMap<ProviderName, Provider>,
@@ -166,8 +164,12 @@ impl TemplateApp {
   pub fn new(cc: &eframe::CreationContext<'_>, runtime: tokio::runtime::Runtime) -> Self {
     cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
     let mut r = TemplateApp {
+      body_text_size: 14.0,
       ..Default::default()
     };
+
+    update_font_sizes(&r, &cc.egui_ctx);
+
     #[cfg(feature = "persistence")]
     if let Some(storage) = cc.storage {
         r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
@@ -187,6 +189,20 @@ impl TemplateApp {
     }
     r
   }
+}
+
+fn update_font_sizes(r: &TemplateApp, ctx: &egui::Context) {
+    let mut styles = egui::Style::default();
+    styles.text_styles.insert(
+      egui::TextStyle::Small,
+      FontId::new(11.0, egui::FontFamily::Proportional));
+    styles.text_styles.insert(
+      egui::TextStyle::Body,
+      FontId::new(r.body_text_size, egui::FontFamily::Proportional));
+    styles.text_styles.insert(
+      egui::TextStyle::Button,
+      FontId::new(14.0, egui::FontFamily::Proportional));
+    ctx.set_style(styles);
 }
 
 impl eframe::App for TemplateApp {
@@ -341,18 +357,6 @@ impl TemplateApp {
       }
     }
 
-    let mut styles = egui::Style::default();
-    styles.text_styles.insert(
-      egui::TextStyle::Small,
-      FontId::new(/*18.0*/ SMALL_TEXT_SIZE, egui::FontFamily::Proportional));
-    styles.text_styles.insert(
-      egui::TextStyle::Body,
-      FontId::new(/*18.0*/ BODY_TEXT_SIZE, egui::FontFamily::Proportional));
-    styles.text_styles.insert(
-      egui::TextStyle::Button,
-      FontId::new(/*24.0*/ BUTTON_TEXT_SIZE, egui::FontFamily::Proportional));
-    ctx.set_style(styles);
-
     self.ui_add_channel_menu(ctx);
 
     self.ui_auth_menu(ctx);
@@ -389,30 +393,38 @@ impl TemplateApp {
     let mut channel_swap = false;
     let mut drag_channel_release : Option<String> = None;
 
+    let body_font_size = self.body_text_size;
+
     egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
-          if ui.menu_button(RichText::new("Add a channel").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("Add a channel").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
             self.show_add_channel_menu = true;
           }
           ui.separator();
-          if ui.menu_button(RichText::new("Configure Logins").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("Configure Logins").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
             self.show_auth_ui = true;
           }
           ui.separator();
-          ui.menu_button(RichText::new("Options").size(SMALL_TEXT_SIZE), |ui| {
-            ui.checkbox(&mut self.enable_combos, "Enable Combos");
-            if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
-              self.show_timestamps_changed = true;
-            };
-            ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
+          ui.menu_button(RichText::new("Options").text_style(TextStyle::Small), |ui| {
+            ui.scope(|ui| {
+              let fontid = TextStyle::Button.resolve(ui.style().as_ref());
+              ui.style_mut().text_styles.insert(TextStyle::Body, fontid);
+
+              ui.add(egui::Slider::new(&mut self.body_text_size, 10.0..=40.0).step_by(0.5).text(RichText::new("Font Size").text_style(TextStyle::Small)));
+              ui.checkbox(&mut self.enable_combos, "Enable Combos");
+              if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
+                self.show_timestamps_changed = true;
+              };
+              ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
+            });
           });
           ui.separator();
-          if ui.menu_button(RichText::new("View on Github").size(SMALL_TEXT_SIZE), |ui| { ui.close_menu(); }).response.clicked() {
+          if ui.menu_button(RichText::new("View on Github").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
             ctx.output().open_url("https://github.com/dbckr/gigachat");
           }
           ui.separator();
-          ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(SMALL_TEXT_SIZE).color(Color32::DARK_GRAY));
+          ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
         });
       });
       ui.separator();
@@ -424,7 +436,7 @@ impl TemplateApp {
             ui.set_max_width(ui.available_width() - width);
           }
 
-          let label = RichText::new("Mentions").size(BUTTON_TEXT_SIZE);
+          let label = RichText::new("Mentions").text_style(TextStyle::Button);
           let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
           if clbl.clicked() {
             channel_swap = true;
@@ -485,6 +497,10 @@ impl TemplateApp {
         }
       });
     });
+
+    if body_font_size != self.body_text_size {
+      update_font_sizes(self, ctx);
+    }
 
     let lhs_chat_state = ChatPanelOptions {
         selected_channel: self.selected_channel.to_owned(),
@@ -626,13 +642,13 @@ impl TemplateApp {
       if let Some(t) = shared.transient.as_ref() {            
         let mut job = LayoutJob { ..Default::default() };
         job.append(if channel.len() > 16 { &channel[0..15] } else { channel }, 0., egui::TextFormat {
-          font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
+          font_id: get_text_style(TextStyle::Button, ctx),
           color: Color32::LIGHT_GRAY,
           ..Default::default()
         });
         if channel.len() > 16 {
           job.append("..", 0., egui::TextFormat {
-            font_id: FontId::new(BUTTON_TEXT_SIZE, FontFamily::Proportional), 
+            font_id: get_text_style(TextStyle::Button, ctx),
             color: Color32::LIGHT_GRAY,
             ..Default::default()
           });
@@ -640,9 +656,9 @@ impl TemplateApp {
         if t.status.as_ref().is_some_and(|s| s.is_live) {
           let red = if self.selected_channel.as_ref() == Some(&shared.channel_name) { 255 } else { 200 };
           job.append("🔴", 3., egui::TextFormat {
-            font_id: FontId::new(SMALL_TEXT_SIZE / 1.7, FontFamily::Proportional), 
+            font_id: get_text_style(TextStyle::Small, ctx),
             color: Color32::from_rgb(red, 0, 0),
-            valign: Align::Center,
+            valign: Align::BOTTOM,
             ..Default::default()
           });
         }
@@ -667,7 +683,7 @@ impl TemplateApp {
         //if t.status.is_some_and(|s| s.is_live) || channel.len() > 16 {
           clbl = clbl.on_hover_ui(|ui| {
             if let Some(status) = &t.status && status.is_live {
-              ui.label(RichText::new(format!("{} ({})", channel, provider)).size(BODY_TEXT_SIZE * 1.5));
+              ui.label(RichText::new(format!("{} ({})", channel, provider)).size(get_body_text_style(ctx).size * 1.5));
               if let Some(title) = status.title.as_ref() {
                 ui.label(title);
               }
@@ -717,6 +733,9 @@ impl TemplateApp {
 
   #[cfg_attr(instrumentation, instrument(skip_all))]
   fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
+
+    let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
+
     let mut response : ChatFrameResponse = Default::default();
     ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
       if half_width {
@@ -778,7 +797,7 @@ impl TemplateApp {
               match chat_tx.try_send(OutgoingMessage::Chat { channel: shared.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
                 Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
-                  shared.send_history.push_front(chat_panel.draft_message.to_owned());
+                  shared.send_history.push_front(chat_panel.draft_message.trim_end().to_owned());
                   chat_panel.draft_message = String::new();
                   shared.send_history_ix = None;
                 }
@@ -866,7 +885,7 @@ impl TemplateApp {
                     ..Default::default()
                   };
                   job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
-                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                    font_id: get_body_text_style(ctx),
                     ..Default::default() });
                   let galley = ui.fonts().layout_job(job);
                   let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
@@ -877,20 +896,20 @@ impl TemplateApp {
                       .or_else(|| self.emote_loader.transparent_img.as_ref())
                       .unwrap_or_log();
 
-                    let width = texture.size_vec2().x * (EMOTE_HEIGHT / texture.size_vec2().y);
+                    let width = texture.size_vec2().x * (emote_height / texture.size_vec2().y);
                     if x + width + text_width > painter_rect.right() {
-                      y -= EMOTE_HEIGHT;
+                      y -= emote_height;
                       x = painter_rect.left();
                     }
 
                     painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      min: egui::pos2(x, y - emote_height - 1.),
                       max: egui::pos2(x + width + text_width, y),
                     }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
 
                     let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
                     let rect = egui::Rect { 
-                      min: egui::pos2(x, y - EMOTE_HEIGHT ), 
+                      min: egui::pos2(x, y - emote_height ), 
                       max: egui::pos2(x + width, y) 
                     };
 
@@ -900,11 +919,11 @@ impl TemplateApp {
                     width
                   } else {
                     if x + text_width > painter_rect.right() {
-                      y -= EMOTE_HEIGHT;
+                      y -= emote_height;
                       x = painter_rect.left();
                     }
                     painter.rect_filled(egui::Rect {
-                      min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                      min: egui::pos2(x, y - emote_height - 1.),
                       max: egui::pos2(x + text_width + 1., y),
                     }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
                     0.
@@ -915,7 +934,7 @@ impl TemplateApp {
                     egui::pos2(x + width, y), 
                     egui::Align2::LEFT_BOTTOM, 
                     disp_text, 
-                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                    get_body_text_style(ctx), 
                     if chat_panel.selected_emote.as_ref() == Some(&emote.0) { Color32::RED } else { Color32::WHITE }
                   );
 
@@ -923,7 +942,7 @@ impl TemplateApp {
                 }
 
                 if emotes.len() > 24 {
-                  y -= EMOTE_HEIGHT;
+                  y -= emote_height;
                   x = painter_rect.left();
                   let disp_text = format!("and {} additional results...", emotes.len() - 24);
                   let mut job = LayoutJob {
@@ -935,20 +954,20 @@ impl TemplateApp {
                     ..Default::default()
                   };
                   job.append(&disp_text, 0., egui::TextFormat { 
-                    font_id: FontId::new(BODY_TEXT_SIZE, FontFamily::Proportional),
+                    font_id:  get_body_text_style(ctx),
                     ..Default::default() });
                   let galley = ui.fonts().layout_job(job);
                   let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
 
                   painter.rect_filled(egui::Rect {
-                    min: egui::pos2(x, y - EMOTE_HEIGHT - 1.),
+                    min: egui::pos2(x, y - emote_height - 1.),
                     max: egui::pos2(x + text_width + 1., y),
                   }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
                   painter.text(
                     egui::pos2(x, y), 
                     egui::Align2::LEFT_BOTTOM, 
                     disp_text, 
-                    FontId::new(BODY_TEXT_SIZE, egui::FontFamily::Proportional), 
+                    get_body_text_style(ctx),
                     Color32::GRAY
                   );
                 }
@@ -1104,90 +1123,95 @@ impl TemplateApp {
     let mut changed_dgg_token = false;
     if self.show_auth_ui {
       let auth_menu = egui::Window::new("Auth Tokens").collapsible(false).show(ctx, |ui| {
-        ui.horizontal(|ui| {
-          ui.label("Twitch Username:");
-          ui.text_edit_singleline(&mut self.auth_tokens.twitch_username);
-        });
-        ui.horizontal(|ui| {
-          ui.label("Twitch Token:");
-          if self.auth_tokens.show_twitch_auth_token {
-            ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
-          }
-          else if !self.auth_tokens.twitch_auth_token.is_empty() {
-            ui.label("<Auth token hidden>");
-          }
-          else {
-            ui.label("Not logged in");
-          }
-          if ui.button("Log In").clicked() {
-            self.auth_tokens.twitch_auth_token = "".to_owned();
-            self.auth_tokens.show_twitch_auth_token = true;
-            twitch::authenticate(ctx, self.runtime.as_ref().unwrap_or_log());
-          }
-        });
-        ui.separator();
-        ui.horizontal(|ui| {
-          ui.label("DGG Username:");
-          ui.text_edit_singleline(&mut self.auth_tokens.dgg_username);
-        });
-        ui.horizontal(|ui| {
-          ui.label("DGG Token:");
-          if self.auth_tokens.show_dgg_auth_token {
-            ui.text_edit_singleline(&mut self.auth_tokens.dgg_auth_token);
-          }
-          else if !self.auth_tokens.dgg_auth_token.is_empty() {
-            ui.label("<Auth token hidden>");
-          }
-          else {
-            ui.label("Not logged in");
-          }
-          if ui.button("Log In").clicked() {
-            self.auth_tokens.dgg_auth_token = "".to_owned();
-            self.auth_tokens.show_dgg_auth_token = true;
-            ctx.output().open_url("https://www.destiny.gg/profile/developer");
-            //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
-          }
-        });
-        if self.auth_tokens.show_dgg_auth_token {
+        ui.scope(|ui| {
+          let fontid = TextStyle::Button.resolve(ui.style().as_ref());
+          ui.style_mut().text_styles.insert(TextStyle::Body, fontid);
+
           ui.horizontal(|ui| {
-            ui.label("  go to destiny.gg > Account > Developers > Connections > Add login key");
+            ui.label("Twitch Username:");
+            ui.text_edit_singleline(&mut self.auth_tokens.twitch_username);
           });
-        }
-        /*ui.horizontal(|ui| {
-          ui.label("YouTube");
-          ui.text_edit_singleline(&mut self.auth_tokens.youtube_auth_token);
-        });
-        ui.separator();*/
-        if ui.button("Ok").clicked() {
-          changed_twitch_token = self.auth_tokens.show_twitch_auth_token;
-          changed_dgg_token = self.auth_tokens.show_dgg_auth_token;
-          let twitch_token = self.auth_tokens.twitch_auth_token.to_owned();
-          if twitch_token.starts_with('#') || twitch_token.starts_with("access") {
-            let rgx = regex::Regex::new("access_token=(.*?)&").unwrap_or_log();
-            let cleaned = rgx.captures(twitch_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
-            self.auth_tokens.twitch_auth_token = cleaned.to_owned();
-            if !cleaned.is_empty() {
-              self.auth_tokens.show_twitch_auth_token = false;
+          ui.horizontal(|ui| {
+            ui.label("Twitch Token:");
+            if self.auth_tokens.show_twitch_auth_token {
+              ui.text_edit_singleline(&mut self.auth_tokens.twitch_auth_token);
             }
+            else if !self.auth_tokens.twitch_auth_token.is_empty() {
+              ui.label("<Auth token hidden>");
+            }
+            else {
+              ui.label("Not logged in");
+            }
+            if ui.button("Log In").clicked() {
+              self.auth_tokens.twitch_auth_token = "".to_owned();
+              self.auth_tokens.show_twitch_auth_token = true;
+              twitch::authenticate(ctx, self.runtime.as_ref().unwrap_or_log());
+            }
+          });
+          ui.separator();
+          ui.horizontal(|ui| {
+            ui.label("DGG Username:");
+            ui.text_edit_singleline(&mut self.auth_tokens.dgg_username);
+          });
+          ui.horizontal(|ui| {
+            ui.label("DGG Token:");
+            if self.auth_tokens.show_dgg_auth_token {
+              ui.text_edit_singleline(&mut self.auth_tokens.dgg_auth_token);
+            }
+            else if !self.auth_tokens.dgg_auth_token.is_empty() {
+              ui.label("<Auth token hidden>");
+            }
+            else {
+              ui.label("Not logged in");
+            }
+            if ui.button("Log In").clicked() {
+              self.auth_tokens.dgg_auth_token = "".to_owned();
+              self.auth_tokens.show_dgg_auth_token = true;
+              ctx.output().open_url("https://www.destiny.gg/profile/developer");
+              //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
+            }
+          });
+          if self.auth_tokens.show_dgg_auth_token {
+            ui.horizontal(|ui| {
+              ui.label("  go to destiny.gg > Account > Developers > Connections > Add login key");
+            });
           }
-          let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
-          /*if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
-            let rgx = regex::Regex::new("code=(.*?)&").unwrap_or_log();
-            let cleaned = rgx.captures(dgg_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
-            if !cleaned.is_empty() {
-              let verifier = self.auth_tokens.dgg_verifier.to_owned();
-              let token = dgg::complete_authenticate(cleaned, &verifier).await;
-              
-              self.auth_tokens.dgg_auth_token = token.expect_or_log("failed to get dgg token");
-              self.auth_tokens.dgg_verifier = Default::default();
+          /*ui.horizontal(|ui| {
+            ui.label("YouTube");
+            ui.text_edit_singleline(&mut self.auth_tokens.youtube_auth_token);
+          });
+          ui.separator();*/
+          if ui.button("Ok").clicked() {
+            changed_twitch_token = self.auth_tokens.show_twitch_auth_token;
+            changed_dgg_token = self.auth_tokens.show_dgg_auth_token;
+            let twitch_token = self.auth_tokens.twitch_auth_token.to_owned();
+            if twitch_token.starts_with('#') || twitch_token.starts_with("access") {
+              let rgx = regex::Regex::new("access_token=(.*?)&").unwrap_or_log();
+              let cleaned = rgx.captures(twitch_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
+              self.auth_tokens.twitch_auth_token = cleaned.to_owned();
+              if !cleaned.is_empty() {
+                self.auth_tokens.show_twitch_auth_token = false;
+              }
+            }
+            let dgg_token = self.auth_tokens.dgg_auth_token.to_owned();
+            /*if dgg_token.starts_with('?') || dgg_token.starts_with("code") {
+              let rgx = regex::Regex::new("code=(.*?)&").unwrap_or_log();
+              let cleaned = rgx.captures(dgg_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
+              if !cleaned.is_empty() {
+                let verifier = self.auth_tokens.dgg_verifier.to_owned();
+                let token = dgg::complete_authenticate(cleaned, &verifier).await;
+                
+                self.auth_tokens.dgg_auth_token = token.expect_or_log("failed to get dgg token");
+                self.auth_tokens.dgg_verifier = Default::default();
+                self.auth_tokens.show_dgg_auth_token = false;
+              }
+            }
+            else*/ if !dgg_token.is_empty() {
               self.auth_tokens.show_dgg_auth_token = false;
             }
+            self.show_auth_ui = false;
           }
-          else*/ if !dgg_token.is_empty() {
-            self.auth_tokens.show_dgg_auth_token = false;
-          }
-          self.show_auth_ui = false;
-        }
+        });
       }).unwrap_or_log();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
@@ -1285,34 +1309,39 @@ impl TemplateApp {
     };
     if self.show_add_channel_menu {
       let add_menu = egui::Window::new("Add Channel").collapsible(false).show(ctx, |ui| {
-        let mut name_input : Option<egui::Response> = None;
-        ui.horizontal(|ui| {
-          ui.label("Provider:");
-          ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::Twitch, "Twitch");
-          //ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::YouTube, "Youtube");
-          ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::DGG, "destiny.gg");
-        });
-        if self.add_channel_menu.provider == ProviderName::Twitch {
-          ui.horizontal(|ui| {
-            ui.label("Channel Name:");
-            name_input = Some(ui.text_edit_singleline(&mut self.add_channel_menu.channel_name));
-            //name_input.request_focus();
-          });
-        }
-        /*if self.add_channel_menu.provider == ProviderName::YouTube {
-          ui.horizontal(|ui| {
-            ui.label("Channel ID:");
-            ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
-          });
-        }*/
+        ui.scope(|ui| {
+          let fontid = TextStyle::Button.resolve(ui.style().as_ref());
+          ui.style_mut().text_styles.insert(TextStyle::Body, fontid);
 
-        if name_input.is_some() && !self.add_channel_menu.channel_name.starts_with("YT:") && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
-          add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu); 
-          self.show_add_channel_menu = false;
-        }
-        if ui.button("Cancel").clicked() {
-          self.show_add_channel_menu = false;
-        }
+          let mut name_input : Option<egui::Response> = None;
+          ui.horizontal(|ui| {
+            ui.label("Provider:");
+            ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::Twitch, "Twitch");
+            //ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::YouTube, "Youtube");
+            ui.selectable_value(&mut self.add_channel_menu.provider, ProviderName::DGG, "destiny.gg");
+          });
+          if self.add_channel_menu.provider == ProviderName::Twitch {
+            ui.horizontal(|ui| {
+              ui.label("Channel Name:");
+              name_input = Some(ui.text_edit_singleline(&mut self.add_channel_menu.channel_name));
+              //name_input.request_focus();
+            });
+          }
+          /*if self.add_channel_menu.provider == ProviderName::YouTube {
+            ui.horizontal(|ui| {
+              ui.label("Channel ID:");
+              ui.text_edit_singleline(&mut self.add_channel_menu.channel_id);
+            });
+          }*/
+
+          if name_input.is_some() && !self.add_channel_menu.channel_name.starts_with("YT:") && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+            add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu); 
+            self.show_add_channel_menu = false;
+          }
+          if ui.button("Cancel").clicked() {
+            self.show_add_channel_menu = false;
+          }
+        });
       }).unwrap_or_log();
       if ctx.input().pointer.any_click() 
           && let Some(pos) = ctx.input().pointer.interact_pos() 
@@ -1390,6 +1419,7 @@ impl TemplateApp {
 #[cfg_attr(instrumentation, instrument(skip_all))]
   fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
     let TemplateApp {
+      body_text_size: _,
       runtime : _,
       providers,
       channels,
@@ -1834,6 +1864,14 @@ impl TemplateApp {
       None
     }
   }
+}
+
+fn get_body_text_style(ctx: &egui::Context) -> FontId {
+    TextStyle::resolve(&TextStyle::Body, ctx.style().as_ref())
+}
+
+fn get_text_style(text_style: TextStyle, ctx: &egui::Context) -> FontId {
+  text_style.resolve(ctx.style().as_ref())
 }
 
 #[cfg_attr(instrumentation, instrument(skip_all))]

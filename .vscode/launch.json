@@ -3,7 +3,7 @@
   "configurations": [
       {
           "name": "(Windows) Launch",
-          "type": "cppvsdbg", // lldb || cppvsdbg
+          "type": "lldb", // lldb || cppvsdbg
           "request": "launch",
           "program": "${workspaceRoot}/target/debug/gigachat.exe",
           "args": [],
