@@ -17,8 +17,8 @@ use crate::emotes::{imaging::load_file_into_buffer};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle}}};
 use self::{chat::EmoteFrame, chat_estimate::TextRange};
 
-#[cfg(instrumentation)]
-use tracing::{instrument, trace_span};
+#[cfg(feature = "instrumentation")]
+use tracing::{instrument};
 
 pub mod chat;
 pub mod chat_estimate;
@@ -31,6 +31,7 @@ const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 38.0;
+//const EMOTE_RX_PER_FRAME : usize = 10;
 
 pub enum ChannelTabDragEvent {
   MoveRight { channel : String },
@@ -120,6 +121,7 @@ pub struct ChatPanelOptions {
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
   body_text_size : f32,
+  chat_history_limit : usize,
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
   pub providers: HashMap<ProviderName, Provider>,
@@ -165,6 +167,7 @@ impl TemplateApp {
     cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
     let mut r = TemplateApp {
       body_text_size: 14.0,
+      chat_history_limit: 2000,
       ..Default::default()
     };
 
@@ -252,7 +255,7 @@ impl eframe::App for TemplateApp {
 }
 
 impl TemplateApp {
-  #[cfg_attr(instrumentation, instrument(skip_all))]
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn update_inner(&mut self, ctx: &egui::Context) {
     if self.emote_loader.transparent_img.is_none() {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
@@ -260,17 +263,6 @@ impl TemplateApp {
 
     if self.yt_chat_manager.is_none() && self.enable_yt_integration {
       self.yt_chat_manager = Some(youtube_server::start_listening(self.runtime.as_ref().unwrap()));
-
-      /*for channel in self.channels.iter_mut().filter_map(|(_, channel)| if let Channel::Youtube { youtube, shared } = channel { Some(&shared) } else { None } ) {
-        channel.transient = Some(ChannelTransient {
-          channel_emotes: None,
-          badge_emotes: None,
-          status: Some(ChannelStatus {
-            title: Some(channel.channel_name.to_owned()),
-            ..Default::default()
-          })
-        });
-      }*/
     }
 
     // workaround for odd rounding issues at certain DPI(s?)
@@ -278,7 +270,7 @@ impl TemplateApp {
       ctx.set_pixels_per_point(1.50);
     }*/
 
-    if let Ok(event) = self.emote_loader.rx.try_recv() {
+    while let Ok(event) = self.emote_loader.rx.try_recv() {
       let loading_emotes = &mut self.emote_loader.loading_emotes;
       match event {
         EmoteResponse::GlobalEmoteListResponse { response } => {
@@ -418,6 +410,7 @@ impl TemplateApp {
                 self.show_timestamps_changed = true;
               };
               ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
+              ui.add(egui::Slider::new(&mut self.chat_history_limit, 100..=10000).step_by(100.).text(RichText::new("Chat history limit").text_style(TextStyle::Small)));
             });
           });
           ui.separator();
@@ -426,6 +419,11 @@ impl TemplateApp {
           }
           ui.separator();
           ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
+          ui.separator();
+          
+          let tx_len = self.emote_loader.tx.len();
+          let rx_len = self.emote_loader.rx.len();
+          ui.label(RichText::new(format!("tx: {tx_len}, rx: {rx_len}")).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
         });
       });
       ui.separator();
@@ -517,7 +515,7 @@ impl TemplateApp {
     let mut popped_height = 0.;
     let mut rhs_popped_height = 0.;
     for (_channel, history) in self.chat_histories.iter_mut() {
-      if history.len() > 2000 && let Some(popped) = history.pop_front() 
+      if history.len() > self.chat_history_limit && let Some(popped) = history.pop_front() 
         && let Some(mut height) = popped.1 {
         if self.enable_combos && popped.0.combo_data.as_ref().is_some_and(|c| !c.is_end) {
           // add nothing to y_pos
@@ -732,7 +730,7 @@ impl TemplateApp {
     None
   }
 
-  #[cfg_attr(instrumentation, instrument(skip_all))]
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
 
     let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
@@ -1432,9 +1430,10 @@ impl TemplateApp {
     }
   }
 
-#[cfg_attr(instrumentation, instrument(skip_all))]
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
     let TemplateApp {
+      chat_history_limit: _,
       body_text_size: _,
       runtime : _,
       providers,
@@ -1784,7 +1783,7 @@ impl TemplateApp {
     };
   }
 
-  #[cfg_attr(instrumentation, instrument(skip_all))]
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<EmoteFrame>)>> {
     if let Some(input_str) = word {
       if input_str.len() < 2  {
@@ -1848,7 +1847,7 @@ impl TemplateApp {
     }
   }
 
-  #[cfg_attr(instrumentation, instrument(skip_all))]
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<EmoteFrame>)>> {
     if let Some(input_str) = word {
       if input_str.len() < 3  {
@@ -1890,7 +1889,7 @@ fn get_text_style(text_style: TextStyle, ctx: &egui::Context) -> FontId {
   text_style.resolve(ctx.style().as_ref())
 }
 
-#[cfg_attr(instrumentation, instrument(skip_all))]
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn create_uichatmessage<'a>(
   row: &'a ChatMessage,
   ui: &mut egui::Ui, 
@@ -2012,7 +2011,7 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
   }
 }
 
-#[cfg_attr(instrumentation, instrument(skip_all))]
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUser>) -> Option<Vec<String>> {
   Some(row.message.split(' ').into_iter().filter_map(|f| {
     let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
@@ -2020,7 +2019,7 @@ fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUse
   }).collect_vec())
 }
 
-#[cfg_attr(instrumentation, instrument(skip_all))]
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<String, Emote>>, channel_emotes: Option<&HashMap<String, Emote>>, global_emotes: &HashMap<String, Emote>, emote_loader: &mut EmoteLoader) -> HashMap<String, EmoteFrame> {
   let mut result : HashMap<String, chat::EmoteFrame> = Default::default();
   for word in row.message.to_owned().split(' ') {
@@ -2049,7 +2048,7 @@ fn get_emotes_for_message(row: &ChatMessage, provider_emotes: Option<&HashMap<St
   result
 }
 
-#[cfg_attr(instrumentation, instrument(skip_all))]
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_badges_for_message(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&HashMap<String, Emote>>, channel_badges: Option<&HashMap<String, Emote>>, emote_loader: &mut EmoteLoader) -> (Option<Vec<(String, EmoteFrame)>>, Option<(u8,u8,u8)>) {
   let mut result : Vec<(String, chat::EmoteFrame)> = Default::default();
   if badges.is_none() { return (None, None); }

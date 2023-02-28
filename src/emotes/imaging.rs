@@ -14,16 +14,19 @@ use glob::glob;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT};
 use tracing::{info, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
-
 use super::CssAnimationData;
 
+#[cfg(feature = "instrumentation")]
+use tracing::{instrument};
+
+#[cfg_attr(feature = "instrumentation", instrument)]
 pub async fn get_image_data(
   name: &str,
   url: &str,
   path: PathBuf,
   id: &str,
   extension: &Option<String>,
-  easy: &reqwest::Client,
+  client: &reqwest::Client,
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let inner =
@@ -44,41 +47,7 @@ pub async fn get_image_data(
         None => {
           let mut extension = extension.as_ref().map(|f| f.to_owned());
 
-          let req = easy.get(url);
-          let resp = req.send().await?;
-          
-          resp.headers().iter().for_each(|(name, value)| {
-            if extension.is_none() && let Ok(header) = value.to_str() {
-              if name == CONTENT_DISPOSITION || name == CONTENT_TYPE {
-                //TODO: extract extension using regex
-                if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
-                  extension = Some("png".to_owned());
-                }
-                else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
-                  extension = Some("gif".to_owned());
-                }
-                else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
-                  extension = Some("webp".to_owned());
-                }
-                else if url.ends_with(".svg") { // YT svg emote urls
-                  extension = Some("svg".to_owned());
-                }
-              }
-              else if name == ACCEPT {
-                if header.to_lowercase().contains("image/png") {
-                  extension = Some("png".to_owned());
-                }
-                else if header.to_lowercase().contains("image/gif") {
-                  extension = Some("gif".to_owned());
-                }
-                else if header.to_lowercase().contains("image/webp") {
-                  extension = Some("webp".to_owned());
-                }
-              }
-            }
-          });
-
-          let buffer = resp.bytes().await?.to_vec();
+          let buffer = download_image(&mut extension, url, client).await?;
 
           // If 7TV or unknown extension, try loading it as gif and webp to determine format
           // (7TV is completely unreliable for determining format)
@@ -116,6 +85,46 @@ pub async fn get_image_data(
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
+async fn download_image(extension: &mut Option<String>, url: &str, client: &reqwest::Client) -> Result<Vec<u8>, anyhow::Error> {
+  let req = client.get(url);
+  let resp = req.send().await?;
+  
+  resp.headers().iter().for_each(|(name, value)| {
+    if extension.is_none() && let Ok(header) = value.to_str() {
+      if name == CONTENT_DISPOSITION || name == CONTENT_TYPE {
+        //TODO: extract extension using regex
+        if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
+          *extension = Some("png".to_owned());
+        }
+        else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
+          *extension = Some("gif".to_owned());
+        }
+        else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
+          *extension = Some("webp".to_owned());
+        }
+        else if url.ends_with(".svg") { // YT svg emote urls
+          *extension = Some("svg".to_owned());
+        }
+      }
+      else if name == ACCEPT {
+        if header.to_lowercase().contains("image/png") {
+          *extension = Some("png".to_owned());
+        }
+        else if header.to_lowercase().contains("image/gif") {
+          *extension = Some("gif".to_owned());
+        }
+        else if header.to_lowercase().contains("image/webp") {
+          *extension = Some("webp".to_owned());
+        }
+      }
+    }
+  });
+
+  Ok(resp.bytes().await?.to_vec())
+}
+
+#[cfg_attr(feature = "instrumentation", instrument)]
 fn load_image(
   extension: &str,
   buffer: &[u8],
@@ -148,6 +157,7 @@ fn load_image(
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
 fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
@@ -174,6 +184,7 @@ fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<V
   Ok(frames)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let mut gif_opts = gif::DecodeOptions::new();
@@ -197,6 +208,7 @@ pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow
   Ok(loaded_frames)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let decoder = match webp_animation::Decoder::new(buffer) {
@@ -223,6 +235,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyho
   Ok(loaded_frames)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   if let Ok(mut file) = File::open(filepath) {
     let mut buf: Vec<u8> = Default::default();
@@ -233,10 +246,12 @@ pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
   frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect())
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn load_image_into_texture_handle(
   ctx: &egui::Context,
   image: ColorImage,
@@ -247,6 +262,7 @@ pub fn load_image_into_texture_handle(
   ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn to_egui_image(
   image: image::DynamicImage
 ) -> ColorImage {

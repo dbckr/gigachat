@@ -17,6 +17,9 @@ use crate::{provider::{convert_color_hex, ProviderName, ChannelStatus, MessageTy
 use tracing_unwrap::{OptionExt, ResultExt};
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelShared, TwitchChannel}};
 
+#[cfg(feature = "instrumentation")]
+use tracing::{instrument};
+
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
 pub struct TwitchChatManager {
@@ -130,6 +133,7 @@ impl ChatManagerRx for TwitchChatManager {
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
   let web_client = reqwest::Client::new();
 
@@ -383,6 +387,7 @@ pub fn authenticate() -> String {
   format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String, client: &reqwest::Client) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();

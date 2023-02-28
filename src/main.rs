@@ -78,7 +78,7 @@ fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<
     .with_filter(log_level)
     .boxed();  
 
-  let flame_guard = if cfg!(feature = "dhat-heap") {
+  let flame_guard = if cfg!(feature = "instrumentation") {
     let (flame_layer, flame_guard) = FlameLayer::with_file("./flamelayer.output").unwrap();
     let subscriber = Registry::default().with(file).with(flame_layer);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");

@@ -20,6 +20,9 @@ use super::{IncomingMessage, OutgoingMessage, ProviderName, ChatMessage, UserPro
 use tracing_unwrap::{OptionExt, ResultExt};
 use base64::{Engine as _, engine::general_purpose};
 
+#[cfg(feature = "instrumentation")]
+use tracing::{instrument};
+
 pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
 pub fn init_channel() -> Channel {
@@ -144,6 +147,7 @@ impl ChatManager {
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
   let request = dgg_status_url.into_client_request()?;
   let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
@@ -181,6 +185,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
@@ -391,6 +396,7 @@ pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &cache_path.join("dgg-flairs.json");
   let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, client, force_redownload).await?;
@@ -419,6 +425,7 @@ pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, client: &req
   Ok(result)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
   let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, client, force_redownload).await?;
@@ -470,6 +477,7 @@ impl Default for CSSLoader {
 }
 
 impl CSSLoader {
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
     let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();

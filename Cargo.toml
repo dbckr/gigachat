@@ -8,46 +8,45 @@ license = "MPL-2.0"
 default = ["native-tls", "persistence" ]
 native-tls = ["tokio-tungstenite/native-tls"]
 persistence = [ "eframe/persistence" ]
+instrumentation = []
 dhat-heap = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-web-sys = "0.3.58"
-futures = "0.3.0"
-tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
+web-sys = "0.3.61"
+futures = "0.3.26"
+tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "macros"] }
 egui = { version = "0.21.0" }
 eframe = { version = "0.21.3", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = { version = "1.0.58" }
 args = "2.0.0"
 getopts = "0.2.0"
-#curl = "0.4.38"
 reqwest = { version = "0.11.14", features = ["gzip", "brotli"] }
-serde_json = "1.0"
+serde_json = "1.0.93"
 rand = "0.8.4"
 chrono = "0.4.7"
 hex = "0.4.3"
-image = "0.24.1"
+image = "0.24.5"
 imageproc = "0.23.0"
-glob = "0.3.0"
-itertools = "0.10.3"
+glob = "0.3.1"
+itertools = "0.10.5"
 gif = "0.12.0"
 webp-animation = "0.7.0"
 gif-dispose = "4.0.0"
-regex = "1.5.5"
-async-channel = "1.6.1"
-serde = "1.0.136"
+regex = "1.7.1"
+async-channel = "1.8.0"
+serde = "1.0.152"
 directories-next = "2.0.0"
-sha256 = "1.0.3"
+sha256 = "1.1.2"
 base64 = "0.21.0"
 tokio-tungstenite = "0.18.0"
-httparse = "1.7.1"
+httparse = "1.8.0"
 tracing = "0.1.35"
 tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
 tracing-test = "0.2.3"
-fontdue = "0.7.2"
 tracing-unwrap = "0.10.0"
 warp = "0.3.3"
 resvg = "0.29.0"
@@ -56,10 +55,10 @@ tiny-skia = "0.8.2"
 urlencoding = "2.1.2"
 tracing-flame = "0.2.0"
 backoff = { version = "0.4.0", features = ["tokio"] }
-ahash = "0.8.2"
-#dhat = "0.3.2"
+ahash = "0.8.3"
 num_cpus = "1.15.0"
 libwebp-sys2 = "0.1.2"
+#dhat = "0.3.2"
 
 [profile.release]
 #opt-level = 2 # fast and small wasm

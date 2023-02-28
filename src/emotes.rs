@@ -15,6 +15,9 @@ use std::{collections::{HashMap}, path::{PathBuf, Path}};
 use std::str;
 use tracing_unwrap::{OptionExt};
 
+#[cfg(feature = "instrumentation")]
+use tracing::{instrument};
+
 use crate::{provider::{dgg, channel::{ChannelShared, Channel}, Provider}, TemplateApp};
 
 pub mod fetch;
@@ -153,13 +156,15 @@ impl Default for EmoteLoader {
 }
 
 impl EmoteLoader {
+  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   pub fn new(app_name: &str, runtime: &Runtime) -> Self {
     let (in_tx, in_rx) = async_channel::bounded::<EmoteRequest>(10000);
     let (out_tx, out_rx) = async_channel::bounded::<EmoteResponse>(10000);
+    let cache_path = cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files");
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
     for n in 1..num_cpus::get_physical() {
-      let cache_path = cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files");
+      let cache_path = cache_path.clone();
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
@@ -169,26 +174,26 @@ impl EmoteLoader {
         loop {
           let recv_msg = in_rx.recv().await;
           if let Ok(msg) = recv_msg {
-            let sent_msg = match msg {
+            let out_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
                 //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, css_anim).await;
-                out_tx.send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data }).await
+                EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data }
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
                 let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
-                out_tx.send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data }).await
+                EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data }
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 //info!("{n} loading global emote {} '{}'", name, url);
                 let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
-                out_tx.send(EmoteResponse::GlobalEmoteImageLoaded { name, data }).await
+                EmoteResponse::GlobalEmoteImageLoaded { name, data }
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 //info!("{n} loading global badge {}", name);
                 let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
-                out_tx.send(EmoteResponse::GlobalBadgeImageLoaded { name, data }).await
+                EmoteResponse::GlobalBadgeImageLoaded { name, data }
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //info!("{n} loading twitch emote {} '{}'", name, id);
@@ -196,45 +201,45 @@ impl EmoteLoader {
                 if data.is_none() {
                   data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &client, None).await
                 }
-                out_tx.send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data }).await
+                EmoteResponse::TwitchMsgEmoteLoaded { name, id, data }
               },
               EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
                 //info!("{n} loading youtube emote '{}'", name);
                 let data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &client, None).await;
-                out_tx.send(EmoteResponse::YouTubeMsgEmoteLoaded { name, data }).await
+                EmoteResponse::YouTubeMsgEmoteLoaded { name, data }
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {
                 let data = twitch_get_emote_set(&token, &emote_set_id, &cache_path, &client, force_redownload).await;
-                out_tx.send(EmoteResponse::TwitchEmoteSetResponse { emote_set_id, response: data }).await
+                EmoteResponse::TwitchEmoteSetResponse { emote_set_id, response: data }
               },
               EmoteRequest::TwitchBadgeEmoteListRequest { channel_id, channel_name, token, force_redownload } => {
-                let data = load_channel_emotes(&channel_id, &token, &cache_path, &client, force_redownload).await;
-                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: data }).await {
+                let data = load_channel_emotes(&channel_id, &token, &cache_path, &client, force_redownload);
+                let badge_list = twitch_get_channel_badges(&token, &channel_id, &cache_path, &client, force_redownload);
+                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: data.await }).await {
                   Ok(()) => (),
                   Err(e) => warn!("Error sending event: {}", e)
                 };
-                let badge_list = twitch_get_channel_badges(&token, &channel_id, &cache_path, &client, force_redownload).await;
-                out_tx.send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list }).await
+                EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list.await }
               },
               EmoteRequest::DggFlairEmotesRequest { channel_name, cdn_base_url, force_redownload } => {
-                let emote_list = dgg::load_dgg_emotes(&cdn_base_url, &cache_path, &client, force_redownload).await;
-                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: emote_list }).await {
+                let emote_list = dgg::load_dgg_emotes(&cdn_base_url, &cache_path, &client, force_redownload);
+                let badge_list = dgg::load_dgg_flairs(&cdn_base_url, &cache_path, &client, force_redownload);
+                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: emote_list.await }).await {
                   Ok(()) => (),
                   Err(e) => warn!("Error sending event: {}", e)
                 };
-                let badge_list = dgg::load_dgg_flairs(&cdn_base_url, &cache_path, &client, force_redownload).await;
-                out_tx.send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list }).await
+                EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list.await }
               },
               EmoteRequest::GlobalEmoteListRequest { force_redownload } => {
                 let data = load_global_emotes(&cache_path, &client, force_redownload).await;
-                out_tx.send(EmoteResponse::GlobalEmoteListResponse { response: data }).await
+                EmoteResponse::GlobalEmoteListResponse { response: data }
               },
               EmoteRequest::TwitchGlobalBadgeListRequest { token, force_redownload } => {
                 let data = twitch_get_global_badges(&token, &cache_path, &client, force_redownload).await;
-                out_tx.send(EmoteResponse::TwitchGlobalBadgeListResponse { response: data }).await
+                EmoteResponse::TwitchGlobalBadgeListResponse { response: data }
               }
             };
-            match sent_msg {
+            match out_tx.send(out_msg).await {
               Ok(()) => (),
               Err(e) => warn!("Error sending event: {}", e)
             };
@@ -254,7 +259,7 @@ impl EmoteLoader {
       rx: out_rx,
       handle: tasks,
       transparent_img: None,
-      base_path: cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files"),
+      base_path: cache_path,
       loading_emotes: Default::default()
      }
   }
@@ -264,6 +269,7 @@ impl EmoteLoader {
   }  
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_channel_emotes(
   channel_id: &String,
   token: &String,
@@ -330,6 +336,7 @@ pub async fn load_channel_emotes(
   Ok(result)
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_global_emotes(
   cache_path: &Path,
   client: &reqwest::Client,
@@ -377,6 +384,7 @@ async fn process_badge_json(room_id: &str, url: &str, cache_path: &Path, path: &
   fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().unwrap_or_log(), headers, client, force_redownload).await
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   if emote_set_id.contains(':') || emote_set_id.contains('-') || emote_set_id.contains("emotesv2") {
     return Ok(Default::default());
@@ -409,6 +417,7 @@ pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     "global",
@@ -435,6 +444,7 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     room_id,
@@ -461,6 +471,7 @@ pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   // Lifted from egui
   if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", app_name) {
@@ -481,6 +492,7 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   }
 }
 
+#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
   if emote.data.is_none() {
     emote.data = imaging::load_to_texture_handles(ctx, data);
