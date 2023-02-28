@@ -335,7 +335,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
 const REDIRECT_URI : &str = "https://dbckr.github.io/GigachatAuth";
 const CLIENT_ID : &str = "dbrq5gUQDWmv6jBzFt9UwpN8VQOIeO7i";
 
-pub fn begin_authenticate(ctx: &egui::Context) -> String {
+pub fn begin_authenticate() -> String {
   let secret = sha256::digest("S0eHxQsXfbo!l=Pk~pf7[ZWSC.C7BlWK1YFNgKkqxQ!ojZ1C~tYyVh3+SsxCn-kY");
   let code_verifier = format!("{:x}{:x}", rand::random::<u128>(), rand::random::<u128>());
   //let code_challenge = base64::encode(sha256::digest(format!("{}{}", code_verifier, secret)));
@@ -349,8 +349,7 @@ pub fn begin_authenticate(ctx: &egui::Context) -> String {
     code_challenge);
 
   info!("{}", &authorize_url);
-
-  ctx.output().open_url(&authorize_url);
+  //ctx.output(|o| o.open_url(&authorize_url));
   code_verifier
 }
 
@@ -392,9 +391,9 @@ pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
-pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &cache_path.join("dgg-flairs.json");
-  let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload).await?;
+  let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, client, force_redownload).await?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {
@@ -420,13 +419,13 @@ pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, force_redown
   Ok(result)
 }
 
-pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
-  let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, force_redownload).await?;
+  let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, client, force_redownload).await?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
 
   let json_path = &cache_path.join("dgg-emotes.json");
-  let json = fetch::get_json_from_url(format!("{}/emotes/emotes.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, force_redownload).await?;
+  let json = fetch::get_json_from_url(format!("{}/emotes/emotes.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, client, force_redownload).await?;
   let emotes = serde_json::from_str::<Vec<DggEmote>>(&json)?;
   let mut result : HashMap<String, Emote> = Default::default();
   for emote in emotes {

@@ -9,8 +9,7 @@ mod test {
   use tracing_unwrap::{OptionExt};
 
   fn test() {
-    let context : egui::Context = Default::default();
-    let verifier = dgg::begin_authenticate(&context);
+    let verifier = dgg::begin_authenticate();
     println!("{}", verifier);
   }
 

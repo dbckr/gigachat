@@ -39,7 +39,7 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   //info!("ascii {}", is_ascii_art.is_some());
 
   let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
-  let header_rows = &ui.fonts().layout_job(job).rows;
+  let header_rows = &ui.fonts(|f| f.layout_job(job)).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.push((header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }, false));
   }
@@ -141,7 +141,7 @@ fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact
 
 pub fn get_text_rect(ui: &egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<(usize, egui::Vec2)> {
   let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, crate::ui::get_body_text_style(ui.ctx()), is_ascii_art.is_some());
-  let galley = ui.fonts().layout_job(job);
+  let galley = ui.fonts(|f| f.layout_job(job));
   galley.rows.iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
 }
 

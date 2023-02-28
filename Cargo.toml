@@ -15,15 +15,15 @@ dhat-heap = []
 [dependencies]
 web-sys = "0.3.58"
 futures = "0.3.0"
-tokio = { version = "1.17.0", features = ["full"] }
-egui = { version = "0.20.1" }
-eframe = { version = "0.20.1", features = ["wgpu"] }
+tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
+egui = { version = "0.21.0" }
+eframe = { version = "0.21.3", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
-anyhow = { version = "1.0.58", features = ["backtrace"] }
+anyhow = { version = "1.0.58" }
 args = "2.0.0"
 getopts = "0.2.0"
 #curl = "0.4.38"
-reqwest = { version = "0.11.14", features = ["blocking"] }
+reqwest = { version = "0.11.14", features = ["gzip", "brotli"] }
 serde_json = "1.0"
 rand = "0.8.4"
 chrono = "0.4.7"
@@ -43,7 +43,6 @@ sha256 = "1.0.3"
 base64 = "0.21.0"
 tokio-tungstenite = "0.18.0"
 httparse = "1.7.1"
-#thiserror = "1.0.31"
 tracing = "0.1.35"
 tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
@@ -51,28 +50,22 @@ tracing-test = "0.2.3"
 fontdue = "0.7.2"
 tracing-unwrap = "0.10.0"
 warp = "0.3.3"
-resvg = "0.28.0"
-usvg = "0.28.0"
+resvg = "0.29.0"
+usvg = "0.29.0"
 tiny-skia = "0.8.2"
 urlencoding = "2.1.2"
 tracing-flame = "0.2.0"
 backoff = { version = "0.4.0", features = ["tokio"] }
 ahash = "0.8.2"
-dhat = "0.3.2"
+#dhat = "0.3.2"
+num_cpus = "1.15.0"
+libwebp-sys2 = "0.1.2"
 
 [profile.release]
 #opt-level = 2 # fast and small wasm
-debug = 1
+debug = 0
 
 [patch.crates-io]
-#egui = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
-#egui = { path = "../egui/egui" }
-#eframe = { git = "https://github.com/dbckr/egui", branch = "shift-enter-newline" }
-#eframe = { path = "../egui/eframe" }
-#weezl = { git = "https://github.com/dbckr/lzw", branch = "decode-without-starting-clear-code" }
-#winit = { path = "../winit" }
-#tracing-unwrap = { git = "https://github.com/dbckr/tracing-unwrap", branch = "dev" }
-
 # webp compile issue
 # https://github.com/qnighy/libwebp-sys2-rs/issues/12
 libwebp-sys2 = { git = "https://github.com/qnighy/libwebp-sys2-rs", tag = "v0.1.2" }

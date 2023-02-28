@@ -26,9 +26,10 @@ pub async fn process_badge_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
+  let data = get_json_from_url(url, Some(filename), headers, client, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() { // Twitch Badges
@@ -56,10 +57,11 @@ pub async fn process_twitch_follower_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //info!("processing emote json {}", filename);
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
+  let data = get_json_from_url(url, Some(filename), headers, client, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -92,10 +94,11 @@ pub async fn process_emote_json(
   url: &str,
   filename: &str,
   headers: Option<Vec<(&str, &String)>>,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<Vec<Emote>, anyhow::Error> {
   //info!("processing emote json {}", filename);
-  let data = get_json_from_url(url, Some(filename), headers, force_redownload).await?;
+  let data = get_json_from_url(url, Some(filename), headers, client, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
   if v["data"].is_array() {
@@ -222,6 +225,7 @@ pub async fn get_json_from_url(
   url: &str,
   filename: Option<&str>,
   headers: Option<Vec<(&str, &String)>>,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<String, anyhow::Error> {
 
@@ -238,7 +242,7 @@ pub async fn get_json_from_url(
       let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
       hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
     }));
-    let client = reqwest::Client::new();
+    //let client = reqwest::Client::new();
     let req = client
       .get(url)
       .headers(hmap);

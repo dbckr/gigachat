@@ -26,7 +26,7 @@ pub mod chat_estimate;
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
 /// Emotes in chat messages will be scaled to this height, relative to chat text font size
-pub const EMOTE_SCALING : f32 = 1.4;
+pub const EMOTE_SCALING : f32 = 1.6;
 const BADGE_HEIGHT : f32 = 18.0;
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
@@ -233,8 +233,9 @@ impl eframe::App for TemplateApp {
     eframe::egui::Vec2::new(1024.0, 2048.0)
   }
 
-  fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> eframe::egui::Rgba {
-    eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200).into()
+  fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> [f32;4] {
+    //eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200).into()
+    [0., 0., 0., 200.]
   }
 
   fn persist_native_window(&self) -> bool {
@@ -421,7 +422,7 @@ impl TemplateApp {
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
-            ctx.output().open_url("https://github.com/dbckr/gigachat");
+            ctx.output_mut(|o| o.open_url("https://github.com/dbckr/gigachat"));
           }
           ui.separator();
           ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
@@ -476,7 +477,7 @@ impl TemplateApp {
               }
             }
             if !swapped && Some(drag_channel) != self.rhs_selected_channel.as_ref()
-                && ctx.input().pointer.primary_clicked()
+                && ctx.input(|i| i.pointer.primary_clicked())
                 && let Some(x) = tabs.iter_mut().find(|(name, _)| name == drag_channel)  {
               self.selected_channel = Some(drag_channel.to_owned());
               x.1.mark_changed();
@@ -743,10 +744,9 @@ impl TemplateApp {
       }
 
       let (goto_next_emote, goto_prev_emote, mut enter_emote) = if chat_panel.selected_emote_input.is_some() {
-        let mut input = ui.input_mut();
-        let next = input.consume_key(Modifiers::ALT, Key::ArrowRight) || input.consume_key(Modifiers::NONE, Key::Tab);
-        let prev = input.consume_key(Modifiers::ALT, Key::ArrowLeft) || input.consume_key(Modifiers::SHIFT, Key::Tab);
-        let enter_emote = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (input.consume_key(Modifiers::ALT, Key::ArrowDown) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
+        let next = ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowRight)) || ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        let prev = ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowLeft)) || ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
+        let enter_emote = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowDown)) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
         (next, prev, enter_emote)
       } 
       else { 
@@ -764,8 +764,8 @@ impl TemplateApp {
           .lock_focus(chat_panel.selected_emote_input.is_some())
           .show(ui);
 
-        let prev_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowUp);
-        let next_history = outgoing_msg.response.has_focus() && ui.input_mut().consume_key(Modifiers::NONE, Key::ArrowDown);
+        let prev_history = outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowUp));
+        let next_history = outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown));
 
         if prev_history || next_history {
           if let Some(sco) = self.channels.get_mut(sc) {
@@ -786,7 +786,7 @@ impl TemplateApp {
           }
         }
 
-        if outgoing_msg.response.has_focus() && ui.input_mut().consume_key(egui::Modifiers::NONE, egui::Key::Enter) && !chat_panel.draft_message.is_empty() {
+        if outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) && !chat_panel.draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
             let (chat_tx, shared) = match sco {
               Channel::Twitch { twitch: _, ref mut shared } => (self.twitch_chat_manager.as_mut().map(|m| m.in_tx()), shared),
@@ -838,16 +838,17 @@ impl TemplateApp {
             if let Some(emotes) = emotes && !emotes.is_empty() && let Some(textbox_word) = word_input.as_ref().map(|(_, str)| str) {
               // Overlay style emote selector
               let msg_rect = outgoing_msg.response.rect.to_owned();
-              let ovl_height = ui.available_height() / 2.;
+              let ovl_height = (ui.available_height() - msg_rect.height()) / 2.;
               let painter_rect = msg_rect.expand2(egui::vec2(0., ovl_height)).translate(egui::vec2(0., (msg_rect.height() + ovl_height + 8.) * -1.));
+
               let mut painter = ui.painter_at(painter_rect);
-              let painter_rect = painter.clip_rect();
               painter.set_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new(format!("emoteselector {}", id))));
 
               //TODO: refactor to pre-calculate layout and then paint, so it can paint only 5 rows centered on emote "cursor"
               let mut y = painter_rect.bottom();
               let mut x = painter_rect.left();
-              for emote in emotes.iter().take(24) {
+              let mut drawn_emote_count = 0;
+              for emote in emotes.iter() {
                 let mut job = LayoutJob {
                   wrap: egui::epaint::text::TextWrapping { 
                     break_anywhere: false,
@@ -859,7 +860,7 @@ impl TemplateApp {
                 job.append(&emote.0.to_owned(), 0., egui::TextFormat { 
                   font_id: get_body_text_style(ctx),
                   ..Default::default() });
-                let galley = ui.fonts().layout_job(job);
+                let galley = ui.fonts(|f| f.layout_job(job));
                 let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
 
                 let width = if !is_user_list {
@@ -870,6 +871,9 @@ impl TemplateApp {
 
                   let width = texture.size_vec2().x * (emote_height / texture.size_vec2().y);
                   if x + width + text_width > painter_rect.right() {
+                    if y - emote_height * 3. < painter_rect.top() {
+                      break;
+                    }
                     y -= emote_height;
                     x = painter_rect.left();
                   }
@@ -891,6 +895,9 @@ impl TemplateApp {
                   width
                 } else {
                   if x + text_width > painter_rect.right() {
+                    if y - emote_height * 3. < painter_rect.top() {
+                      break;
+                    }
                     y -= emote_height;
                     x = painter_rect.left();
                   }
@@ -911,21 +918,22 @@ impl TemplateApp {
                 );
 
                 let rendered_rect = egui::Rect::from_two_pos(Pos2::new(x, y - emote_height), Pos2::new(x + width + text_width, y));
-                if let Some(click_pos) = ui.input().pointer.press_origin() && rendered_rect.contains(click_pos) {
+                if let Some(click_pos) = ui.input(|i| i.pointer.press_origin()) && rendered_rect.contains(click_pos) {
                   chat_panel.selected_emote = Some(emote.0.to_owned());
                   enter_emote = true;
                 }
-                else if let Some(hover_pos) = ui.input().pointer.hover_pos() && rendered_rect.contains(hover_pos) {
+                else if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) && rendered_rect.contains(hover_pos) {
                   chat_panel.selected_emote = Some(emote.0.to_owned());
                 }
 
                 x = x + width + text_width;
+                drawn_emote_count += 1;
               }
 
-              if emotes.len() > 24 {
+              if emotes.len() > drawn_emote_count {
                 y -= emote_height;
                 x = painter_rect.left();
-                let disp_text = format!("and {} additional results...", emotes.len() - 24);
+                let disp_text = format!("and {} additional results...", emotes.len() - drawn_emote_count);
                 let mut job = LayoutJob {
                   wrap: egui::epaint::text::TextWrapping { 
                     break_anywhere: false,
@@ -937,7 +945,7 @@ impl TemplateApp {
                 job.append(&disp_text, 0., egui::TextFormat { 
                   font_id:  get_body_text_style(ctx),
                   ..Default::default() });
-                let galley = ui.fonts().layout_job(job);
+                let galley = ui.fonts(|f| f.layout_job(job));
                 let text_width = galley.rows.iter().map(|r| r.rect.width()).next().unwrap_or(16.) + 16.;
 
                 painter.rect_filled(egui::Rect {
@@ -1044,9 +1052,9 @@ impl TemplateApp {
       //self.selected_user_chat_history_overlay(area.inner_rect, ui);
       // Window for selected chatter's history
       let history_rect = self.selected_user_chat_history_window(id, &mut chat_panel, ui.max_rect(), ctx);
-      if ctx.input().pointer.any_click()
+      if ctx.input(|i| i.pointer.any_click())
           && selected_user_before == chat_panel.selected_user
-          && let Some(pos) = ctx.input().pointer.interact_pos() 
+          && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
           && area.inner_rect.contains(pos) 
           && !history_rect.contains(pos)
           && !jump_rect.contains(pos) {
@@ -1114,12 +1122,12 @@ impl TemplateApp {
           }
         }
       }).unwrap_or_log();
-      if ctx.input().pointer.any_click() 
-          && let Some(pos) = ctx.input().pointer.interact_pos() 
+      if ctx.input(|i| i.pointer.any_click())
+          && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
           && !add_menu.response.rect.contains(pos) {
         self.show_channel_options = None;
       }
-      else if ctx.input().key_pressed(Key::Escape) {
+      else if ctx.input(|i| i.key_pressed(Key::Escape)) {
         self.show_channel_options = None;
       }
     }
@@ -1153,7 +1161,7 @@ impl TemplateApp {
             if ui.button("Log In").clicked() {
               self.auth_tokens.twitch_auth_token = "".to_owned();
               self.auth_tokens.show_twitch_auth_token = true;
-              twitch::authenticate(ctx, self.runtime.as_ref().unwrap_or_log());
+              ctx.output_mut(|o| o.open_url(twitch::authenticate()));
             }
           });
           ui.separator();
@@ -1175,7 +1183,7 @@ impl TemplateApp {
             if ui.button("Log In").clicked() {
               self.auth_tokens.dgg_auth_token = "".to_owned();
               self.auth_tokens.show_dgg_auth_token = true;
-              ctx.output().open_url("https://www.destiny.gg/profile/developer");
+              ctx.output_mut(|o| o.open_url("https://www.destiny.gg/profile/developer"));
               //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
             }
           });
@@ -1221,12 +1229,12 @@ impl TemplateApp {
           }
         });
       }).unwrap_or_log();
-      if ctx.input().pointer.any_click() 
-          && let Some(pos) = ctx.input().pointer.interact_pos() 
+      if ctx.input(|i| i.pointer.any_click())
+          && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
           && !auth_menu.response.rect.contains(pos) {
         self.show_auth_ui = false;
       }
-      else if ctx.input().key_pressed(Key::Escape) {
+      else if ctx.input(|i| i.key_pressed(Key::Escape)) {
         self.show_auth_ui = false;
       }
     }
@@ -1342,7 +1350,7 @@ impl TemplateApp {
             });
           }*/
 
-          if name_input.is_some() && !self.add_channel_menu.channel_name.starts_with("YT:") && name_input.unwrap_or_log().has_focus() && ui.input().key_pressed(egui::Key::Enter) || ui.button("Add channel").clicked() {
+          if name_input.is_some() && !self.add_channel_menu.channel_name.starts_with("YT:") && name_input.unwrap_or_log().has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) || ui.button("Add channel").clicked() {
             add_channel(&mut self.providers, &mut self.auth_tokens, &mut self.add_channel_menu); 
             self.show_add_channel_menu = false;
           }
@@ -1351,12 +1359,12 @@ impl TemplateApp {
           }
         });
       }).unwrap_or_log();
-      if ctx.input().pointer.any_click() 
-          && let Some(pos) = ctx.input().pointer.interact_pos() 
+      if ctx.input(|i| i.pointer.any_click())
+          && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
           && !add_menu.response.rect.contains(pos) {
         self.show_add_channel_menu = false;
       }
-      else if ctx.input().key_pressed(Key::Escape) {
+      else if ctx.input(|i| i.key_pressed(Key::Escape)) {
         self.show_add_channel_menu = false;
       }
     }
@@ -1937,7 +1945,7 @@ fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &mut egui::Ui
     if let Some((pos, msg)) = selected_msg.as_ref() {
       (area, clicked) = msg_context_menu(ui, pos, msg);
     }
-    if clicked || set_selected_msg.is_none() && ui.input().pointer.any_click() && ui.ctx().pointer_interact_pos().is_some() && !area.contains(ui.ctx().pointer_interact_pos().unwrap_or_log()) {
+    if clicked || set_selected_msg.is_none() && ui.input(|i| i.pointer.any_click()) && ui.ctx().pointer_interact_pos().is_some() && !area.contains(ui.ctx().pointer_interact_pos().unwrap_or_log()) {
       *selected_msg = None;
     }
 }
@@ -1954,7 +1962,7 @@ fn msg_context_menu(ui: &egui::Ui, point: &Vec2, msg: &ChatMessage) -> (Rect, bo
       .stick_to_bottom(true);
     chat_area.show_viewport(ui, |ui, _viewport| {  
       if ui.button("Copy Message").clicked() {
-        ui.output().copied_text = msg.message.to_owned();
+        ui.output_mut(|o| o.copied_text = msg.message.to_owned());
         clicked = true;
       }
     });

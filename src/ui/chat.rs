@@ -122,7 +122,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
               msg_right_clicked = true;
             }
             if uname.hovered() {
-              ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+              ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
             }
           }
         }
@@ -160,10 +160,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
               Some(url) => {
                 let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
                 if link.hovered() {
-                  ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+                  ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
                 if link.clicked() {
-                  let modifiers = ui.ctx().input().modifiers;
+                  let modifiers = ui.ctx().input(|i| i.modifiers);
 
                   let url = if chat_msg.message.provider == ProviderName::DGG && let Some((prefix, suffix)) = url.split('/').collect_tuple() {
                     match prefix {
@@ -175,10 +175,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
                     url.to_string()
                   };
 
-                  ui.ctx().output().open_url = Some(egui::output::OpenUrl {
+                  ui.ctx().output_mut(|o| o.open_url = Some(egui::output::OpenUrl {
                     url,
                     new_tab: modifiers.any(),
-                  });
+                  }));
                 }
               },
               None => {
@@ -197,7 +197,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
                     user_selected = Some(mention.to_owned());
                   }
                   if lbl.hovered() {
-                    ui.ctx().output().cursor_icon = egui::CursorIcon::PointingHand;
+                    ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                   }
                 } else {
                   ui.add(egui::Label::new(text).sense(egui::Sense::hover()));
@@ -214,7 +214,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
   let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
   let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
   if actual != expected {
-    info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
+    //info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   }
   (ui_row.response.rect, user_selected, msg_right_clicked)
 }

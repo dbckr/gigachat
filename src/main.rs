@@ -40,7 +40,7 @@ fn main() {
     ..Default::default() 
   };
 
-  eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
+  match eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());
     let runtime = tokio::runtime::Runtime::new().expect_or_log("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
@@ -50,7 +50,10 @@ fn main() {
       Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
     };
     Box::new(app)
-  }));
+  })) {
+    Ok(_) => (),
+    Err(e) => { error!("Error: {:?}", e); }
+  };
 }
 
 fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<std::fs::File>>>) {
@@ -75,7 +78,7 @@ fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<
     .with_filter(log_level)
     .boxed();  
 
-  let flame_guard = if cfg!(instrumentation) {
+  let flame_guard = if cfg!(feature = "dhat-heap") {
     let (flame_layer, flame_guard) = FlameLayer::with_file("./flamelayer.output").unwrap();
     let subscriber = Registry::default().with(file).with(flame_layer);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");

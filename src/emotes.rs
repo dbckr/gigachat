@@ -11,7 +11,7 @@ use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
 
 use tokio::{runtime::Runtime, task::JoinHandle};
-use std::{collections::{HashMap}, time::Duration, path::{PathBuf, Path}};
+use std::{collections::{HashMap}, path::{PathBuf, Path}};
 use std::str;
 use tracing_unwrap::{OptionExt};
 
@@ -158,80 +158,80 @@ impl EmoteLoader {
     let (out_tx, out_rx) = async_channel::bounded::<EmoteResponse>(10000);
 
     let mut tasks : Vec<JoinHandle<()>> = Vec::new();
-    for n in 1..9 {
+    for n in 1..num_cpus::get_physical() {
       let cache_path = cache_path_from_app_name(app_name).expect_or_log("Failed to locate an appropiate location to store cache files");
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
       let n = n;
       let task : JoinHandle<()> = runtime.spawn(async move { 
         debug!("starting emote thread {n}");
-        let mut easy = reqwest::Client::new();
+        let client = reqwest::Client::new();
         loop {
           let recv_msg = in_rx.recv().await;
           if let Ok(msg) = recv_msg {
             let sent_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
                 //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, css_anim).await;
-                out_tx.try_send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data })
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, css_anim).await;
+                out_tx.send(EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data }).await
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
                 //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None).await;
-                out_tx.try_send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data })
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                out_tx.send(EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data }).await
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
                 //info!("{n} loading global emote {} '{}'", name, url);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None).await;
-                out_tx.try_send(EmoteResponse::GlobalEmoteImageLoaded { name, data })
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                out_tx.send(EmoteResponse::GlobalEmoteImageLoaded { name, data }).await
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
                 //info!("{n} loading global badge {}", name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &mut easy, None).await;
-                out_tx.try_send(EmoteResponse::GlobalBadgeImageLoaded { name, data })
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                out_tx.send(EmoteResponse::GlobalBadgeImageLoaded { name, data }).await
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //info!("{n} loading twitch emote {} '{}'", name, id);
-                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), cache_path.join("twitch/"), &id, &None, &mut easy, None).await;
+                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), cache_path.join("twitch/"), &id, &None, &client, None).await;
                 if data.is_none() {
-                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &mut easy, None).await
+                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &client, None).await
                 }
-                out_tx.try_send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data })
+                out_tx.send(EmoteResponse::TwitchMsgEmoteLoaded { name, id, data }).await
               },
               EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
                 //info!("{n} loading youtube emote '{}'", name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &mut easy, None).await;
-                out_tx.try_send(EmoteResponse::YouTubeMsgEmoteLoaded { name, data })
+                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &client, None).await;
+                out_tx.send(EmoteResponse::YouTubeMsgEmoteLoaded { name, data }).await
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {
-                let data = twitch_get_emote_set(&token, &emote_set_id, &cache_path, force_redownload).await;
-                out_tx.try_send(EmoteResponse::TwitchEmoteSetResponse { emote_set_id, response: data })
+                let data = twitch_get_emote_set(&token, &emote_set_id, &cache_path, &client, force_redownload).await;
+                out_tx.send(EmoteResponse::TwitchEmoteSetResponse { emote_set_id, response: data }).await
               },
               EmoteRequest::TwitchBadgeEmoteListRequest { channel_id, channel_name, token, force_redownload } => {
-                let data = load_channel_emotes(&channel_id, &token, &cache_path, force_redownload).await;
-                match out_tx.try_send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: data }) {
+                let data = load_channel_emotes(&channel_id, &token, &cache_path, &client, force_redownload).await;
+                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: data }).await {
                   Ok(()) => (),
                   Err(e) => warn!("Error sending event: {}", e)
                 };
-                let badge_list = twitch_get_channel_badges(&token, &channel_id, &cache_path, force_redownload).await;
-                out_tx.try_send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list })
+                let badge_list = twitch_get_channel_badges(&token, &channel_id, &cache_path, &client, force_redownload).await;
+                out_tx.send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list }).await
               },
               EmoteRequest::DggFlairEmotesRequest { channel_name, cdn_base_url, force_redownload } => {
-                let emote_list = dgg::load_dgg_emotes(&cdn_base_url, &cache_path, force_redownload).await;
-                match out_tx.try_send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: emote_list }) {
+                let emote_list = dgg::load_dgg_emotes(&cdn_base_url, &cache_path, &client, force_redownload).await;
+                match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: emote_list }).await {
                   Ok(()) => (),
                   Err(e) => warn!("Error sending event: {}", e)
                 };
-                let badge_list = dgg::load_dgg_flairs(&cdn_base_url, &cache_path, force_redownload).await;
-                out_tx.try_send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list })
+                let badge_list = dgg::load_dgg_flairs(&cdn_base_url, &cache_path, &client, force_redownload).await;
+                out_tx.send(EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list }).await
               },
               EmoteRequest::GlobalEmoteListRequest { force_redownload } => {
-                let data = load_global_emotes(&cache_path, force_redownload).await;
-                out_tx.try_send(EmoteResponse::GlobalEmoteListResponse { response: data })
+                let data = load_global_emotes(&cache_path, &client, force_redownload).await;
+                out_tx.send(EmoteResponse::GlobalEmoteListResponse { response: data }).await
               },
               EmoteRequest::TwitchGlobalBadgeListRequest { token, force_redownload } => {
-                let data = twitch_get_global_badges(&token, &cache_path, force_redownload).await;
-                out_tx.try_send(EmoteResponse::TwitchGlobalBadgeListResponse { response: data })
+                let data = twitch_get_global_badges(&token, &cache_path, &client, force_redownload).await;
+                out_tx.send(EmoteResponse::TwitchGlobalBadgeListResponse { response: data }).await
               }
             };
             match sent_msg {
@@ -240,7 +240,7 @@ impl EmoteLoader {
             };
           }
           // everything ends up handled by one thread without this delay
-          tokio::time::sleep(Duration::from_millis(10)).await;
+          //tokio::time::sleep(Duration::from_millis(10)).await;
         }
       });
       tasks.insert(tasks.len(), task);
@@ -268,6 +268,7 @@ pub async fn load_channel_emotes(
   channel_id: &String,
   token: &String,
   cache_path: &Path,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
   let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
@@ -276,6 +277,7 @@ pub async fn load_channel_emotes(
     cache_path,
     &format!("ffz-channel-json-{}", channel_id),
     None,
+    client,
     force_redownload
   ).await?;
   let bttv_url = format!(
@@ -287,6 +289,7 @@ pub async fn load_channel_emotes(
     cache_path,
     &format!("bttv-channel-json-{}", channel_id),
     None,
+    client,
     force_redownload
   ).await?;
   let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
@@ -295,6 +298,7 @@ pub async fn load_channel_emotes(
     cache_path,
     &format!("7tv-channel-json-{}", channel_id),
     None,
+    client,
     force_redownload
   ).await?;
   let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={}", channel_id);
@@ -306,6 +310,7 @@ pub async fn load_channel_emotes(
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()
     ),
+    client,
     force_redownload
   ).await?;
 
@@ -327,6 +332,7 @@ pub async fn load_channel_emotes(
 
 pub async fn load_global_emotes(
   cache_path: &Path,
+  client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
   let bttv_emotes = process_emote_json(
@@ -334,6 +340,7 @@ pub async fn load_global_emotes(
     cache_path,
     "bttv-global-json",
     None,
+    client,
     force_redownload
   ).await?;
   let seventv_emotes = process_emote_json(
@@ -341,6 +348,7 @@ pub async fn load_global_emotes(
     cache_path,
     "7tv-global-json",
     None,
+    client,
     force_redownload
   ).await?;
 
@@ -357,19 +365,19 @@ pub async fn load_global_emotes(
 
 //self.base_path.join(path).to_str().unwrap_or_log()
 //self.base_path.join(filename).to_str().unwrap_or_log()
-async fn process_emote_json(url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_emote_json(url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload).await
+async fn process_emote_json(url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, client: &reqwest::Client, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
+  fetch::process_emote_json(url, cache_path.join(path).to_str().unwrap_or_log(), headers, client, force_redownload).await
 }
 
-async fn process_twitch_follower_emote_json(twitch_url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_twitch_follower_emote_json(twitch_url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload).await
+async fn process_twitch_follower_emote_json(twitch_url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, client: &reqwest::Client, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
+  fetch::process_twitch_follower_emote_json(twitch_url, cache_path.join(path).to_str().unwrap_or_log(), headers, client, force_redownload).await
 }
 
-async fn process_badge_json(room_id: &str, url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
-  fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().unwrap_or_log(), headers, force_redownload).await
+async fn process_badge_json(room_id: &str, url: &str, cache_path: &Path, path: &str, headers: Option<Vec<(&str, &String)>>, client: &reqwest::Client, force_redownload: bool) -> std::result::Result<Vec<Emote>, anyhow::Error> {
+  fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().unwrap_or_log(), headers, client, force_redownload).await
 }
 
-pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
+pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   if emote_set_id.contains(':') || emote_set_id.contains('-') || emote_set_id.contains("emotesv2") {
     return Ok(Default::default());
   }
@@ -382,6 +390,7 @@ pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
+    client,
     force_redownload
   ).await;
 
@@ -400,7 +409,7 @@ pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache
   }
 }
 
-pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
+pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     "global",
     "https://api.twitch.tv/helix/chat/badges/global",
@@ -410,6 +419,7 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, force_
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
+    client,
     force_redownload
   ).await;
 
@@ -425,7 +435,7 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, force_
   }
 }
 
-pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
+pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     room_id,
     &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
@@ -435,6 +445,7 @@ pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache
       ("Authorization", &format!("Bearer {}", token)),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
+    client,
     force_redownload
   ).await;
 

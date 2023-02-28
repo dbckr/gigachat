@@ -131,6 +131,8 @@ impl ChatManagerRx for TwitchChatManager {
 }
 
 async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
+  let web_client = reqwest::Client::new();
+
   let mut profiles : HashMap<String, UserProfile> = Default::default();
   let mut client = Client::from_config(Config { 
       username: Some(user_name.to_owned()),
@@ -163,7 +165,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
       let room_ids = active_room_ids.values().collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
-        let status_data = get_channel_statuses(room_ids, token).await;
+        let status_data = get_channel_statuses(room_ids, token, &web_client).await;
 
         for (channel, room_id) in active_room_ids.iter() {
           let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
@@ -374,23 +376,21 @@ fn get_tag_value(tags: &Vec<irc::proto::message::Tag>, key: &str) -> Option<Stri
   None
 }
 
-pub fn authenticate(ctx: &egui::Context, _runtime : &Runtime) {
+pub fn authenticate() -> String {
   let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
   let scope = "chat:read chat:edit";
   let state = format!("{}", rand::random::<u128>());
-  let authorize_url = format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state);
-
-  ctx.output().open_url(&authorize_url);
+  format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state)
 }
 
-async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String) -> Vec<TwitchChannelStatus> {
+async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String, client: &reqwest::Client) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();
   }
   let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
   let json = match get_json_from_url(&url, None, Some([
     ("Authorization", &format!("Bearer {}", token)),
-    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), true).await {
+    ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), client, true).await {
       Ok(json) => json,
       Err(e) => { error!("failed getting twitch statuses: {}", e); return Default::default(); }
     };

@@ -11,7 +11,7 @@ use egui::{TextureHandle, ColorImage};
 use image::{DynamicImage};
 use itertools::Itertools;
 use glob::glob;
-use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT};
 use tracing::{info, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 
@@ -23,7 +23,7 @@ pub async fn get_image_data(
   path: PathBuf,
   id: &str,
   extension: &Option<String>,
-  easy: &mut reqwest::Client,
+  easy: &reqwest::Client,
   css_anim: Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
   let inner =
@@ -48,22 +48,32 @@ pub async fn get_image_data(
           let resp = req.send().await?;
           
           resp.headers().iter().for_each(|(name, value)| {
-            if extension.is_none() && let Ok(header) = value.to_str() && (name == CONTENT_DISPOSITION || name == CONTENT_TYPE) {
-              //TODO: extract extension using regex
-              if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
-                extension = Some("png".to_owned());
+            if extension.is_none() && let Ok(header) = value.to_str() {
+              if name == CONTENT_DISPOSITION || name == CONTENT_TYPE {
+                //TODO: extract extension using regex
+                if header.to_lowercase().contains(".png") || header.to_lowercase().trim_end().ends_with("/png") {
+                  extension = Some("png".to_owned());
+                }
+                else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
+                  extension = Some("gif".to_owned());
+                }
+                else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
+                  extension = Some("webp".to_owned());
+                }
+                else if url.ends_with(".svg") { // YT svg emote urls
+                  extension = Some("svg".to_owned());
+                }
               }
-              else if header.to_lowercase().contains(".gif") || header.to_lowercase().trim_end().ends_with("/gif") {
-                extension = Some("gif".to_owned());
-              }
-              else if header.to_lowercase().contains(".webp") || header.to_lowercase().trim_end().ends_with("/webp") {
-                extension = Some("webp".to_owned());
-              }
-              else if url.ends_with(".svg") { // YT svg emote urls
-                extension = Some("svg".to_owned());
-              }
-              else {
-                extension = Some("png".to_owned());
+              else if name == ACCEPT {
+                if header.to_lowercase().contains("image/png") {
+                  extension = Some("png".to_owned());
+                }
+                else if header.to_lowercase().contains("image/gif") {
+                  extension = Some("gif".to_owned());
+                }
+                else if header.to_lowercase().contains("image/webp") {
+                  extension = Some("webp".to_owned());
+                }
               }
             }
           });
