@@ -4,10 +4,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use ahash::HashSet;
 use async_channel::Receiver;
-use chrono::{DateTime, Utc};
+use chrono::{Timelike};
+use egui_extras::RetainedImage;
 use tracing::{info, debug, warn, error};
-use egui::{epaint::{TextureHandle}};
 use egui::ColorImage;
 
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -36,54 +37,6 @@ pub enum EmoteRequest {
   DggFlairEmotesRequest { channel_name: String, cdn_base_url: String, force_redownload: bool },
   YouTubeMsgEmoteImage { name: String, url: String, path: String },
   //JsonDownloadRequest { url: String, filename: String, headers: Option<Vec<(String, String)>> }
-}
-
-impl EmoteRequest {
-  pub fn new_channel_request(emote: &Emote, channel_name: &str) -> Self {
-    EmoteRequest::ChannelEmoteImage { 
-      name: emote.name.to_owned(),
-      id: emote.id.to_owned(), 
-      url: emote.url.to_owned(), 
-      path: emote.path.to_owned(), 
-      extension: emote.extension.to_owned(), 
-      channel_name: channel_name.to_owned(),
-      css_anim: emote.css_anim.clone()
-    }
-  } 
-  pub fn new_channel_badge_request(emote: &Emote, channel_name: &str) -> Self {
-    EmoteRequest::ChannelBadgeImage { 
-      name: emote.name.to_owned(),
-      id: emote.id.to_owned(), 
-      url: emote.url.to_owned(), 
-      path: emote.path.to_owned(), 
-      extension: emote.extension.to_owned(), 
-      channel_name: channel_name.to_owned()
-    }
-  } 
-  pub fn new_global_request(emote: &Emote) -> Self {
-    EmoteRequest::GlobalEmoteImage {
-      name: emote.name.to_owned(),
-      id: emote.id.to_owned(), 
-      url: emote.url.to_owned(), 
-      path: emote.path.to_owned(), 
-      extension: emote.extension.to_owned()
-    }
-  }
-  pub fn new_global_badge_request(emote: &Emote) -> Self {
-    EmoteRequest::GlobalBadgeImage {
-      name: emote.name.to_owned(),
-      id: emote.id.to_owned(), 
-      url: emote.url.to_owned(), 
-      path: emote.path.to_owned(), 
-      extension: emote.extension.to_owned()
-    }
-  }
-  pub fn new_twitch_emote_request(emote: &Emote) -> Self {
-    EmoteRequest::TwitchMsgEmoteImage { name: emote.name.to_owned(), id: emote.id.to_owned() }
-  }
-  pub fn new_youtube_emote_request(emote: &Emote) -> Self {
-    EmoteRequest::YouTubeMsgEmoteImage { name: emote.name.to_owned(), url: emote.url.to_owned(), path: emote.path.to_owned() }
-  }
 }
 
 pub enum EmoteResponse {
@@ -115,13 +68,39 @@ pub struct CssAnimationData {
   pub steps: isize
 }
 
+pub struct OverlayItem<'a> {
+  pub name: &'a String,
+  pub texture: Option<&'a RetainedImage>
+}
+
+pub struct EmoteFrame<'a> {
+  pub id: &'a String,
+  pub name: &'a String,
+  pub path: &'a String,
+  pub label: &'a Option<String>,
+  pub texture: Option<&'a RetainedImage>,
+  pub zero_width: bool
+}
+
+#[derive(Default)]
+pub enum EmoteSource
+{
+  #[default]
+  Channel,
+  Global,
+  ChannelBadge,
+  GlobalBadge,
+  Twitch,
+  Youtube
+}
+
 #[derive(Default)]
 pub struct Emote {
   pub name: String,
   pub id: String,
   pub display_name: Option<String>,
   pub color: Option<(u8,u8,u8)>,
-  pub data: Option<Vec<(TextureHandle, u16)>>,
+  pub data: Option<Vec<(RetainedImage, u16)>>,
   pub loaded: EmoteStatus,
   pub duration_msec: u16,
   pub url: String,
@@ -130,16 +109,135 @@ pub struct Emote {
   pub zero_width: bool,
   pub css_anim: Option<CssAnimationData>,
   pub priority: isize,
-  pub hidden: bool
+  pub hidden: bool,
+  pub source: EmoteSource,
+  pub channel_name: String
+}
+
+impl Emote {
+  pub fn get_overlay_item(&self, emote_loader: &mut EmoteLoader) -> OverlayItem {
+    OverlayItem { name: &self.name, texture: self.get_texture3(emote_loader) }
+  }
+
+  fn get_emote_request(&self) -> EmoteRequest {
+    let emote = self;
+    match self.source {
+      EmoteSource::Channel => EmoteRequest::ChannelEmoteImage { 
+        name: emote.name.to_owned(),
+        id: emote.id.to_owned(), 
+        url: emote.url.to_owned(), 
+        path: emote.path.to_owned(), 
+        extension: emote.extension.to_owned(), 
+        channel_name: emote.channel_name.to_owned(),
+        css_anim: emote.css_anim.clone()
+      },
+      EmoteSource::Global => EmoteRequest::GlobalEmoteImage {
+        name: emote.name.to_owned(),
+        id: emote.id.to_owned(), 
+        url: emote.url.to_owned(), 
+        path: emote.path.to_owned(), 
+        extension: emote.extension.to_owned()
+      },
+      EmoteSource::ChannelBadge => EmoteRequest::ChannelBadgeImage { 
+        name: emote.name.to_owned(),
+        id: emote.id.to_owned(), 
+        url: emote.url.to_owned(), 
+        path: emote.path.to_owned(), 
+        extension: emote.extension.to_owned(), 
+        channel_name: emote.channel_name.to_owned()
+      },
+      EmoteSource::GlobalBadge => EmoteRequest::GlobalBadgeImage {
+        name: emote.name.to_owned(),
+        id: emote.id.to_owned(), 
+        url: emote.url.to_owned(), 
+        path: emote.path.to_owned(), 
+        extension: emote.extension.to_owned()
+      },
+      EmoteSource::Twitch => EmoteRequest::TwitchMsgEmoteImage { 
+        name: emote.name.to_owned(), 
+        id: emote.id.to_owned() 
+      },
+      EmoteSource::Youtube => EmoteRequest::YouTubeMsgEmoteImage { 
+        name: emote.name.to_owned(), 
+        url: emote.url.to_owned(), 
+        path: emote.path.to_owned() 
+      }
+    }
+  }
+
+  pub fn get_texture3<'a>(&'a self, emote_loader: &mut EmoteLoader) -> Option<&'a RetainedImage> {
+    let emote = self;
+    match emote.loaded {
+      EmoteStatus::NotLoaded => {
+        emote_loader.request_emote(&emote.name, emote.get_emote_request());
+        None
+      },
+      EmoteStatus::Loaded => {
+        get_texture(emote)
+      }
+    }
+  }
+
+  pub fn get_texture2(&self) -> Option<&RetainedImage> {
+    let emote = self;
+    match emote.loaded {
+      EmoteStatus::NotLoaded => {
+        None
+      },
+      EmoteStatus::Loaded => {
+        get_texture(emote)
+      }
+    }
+  }
+
+  pub fn get_texture<'a>(&'a self, emote_loader: &'a mut EmoteLoader) -> Option<&'a RetainedImage> {
+    let emote = self;
+    match emote.loaded {
+      EmoteStatus::NotLoaded => {
+        emote_loader.request_emote(&emote.name, emote.get_emote_request());
+        emote_loader.transparent_img.as_ref()
+      },
+      EmoteStatus::Loaded => {
+        get_texture(emote)
+      }
+    }
+  }
+}
+
+fn get_texture(emote: &Emote) -> Option<&RetainedImage> {
+    let frames_opt = emote.data.as_ref();
+    match frames_opt {
+      Some(frames) => {
+        if emote.duration_msec > 0 {
+          let time = chrono::Utc::now();
+          let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
+          let mut progress_msec : u16 = 0;
+          for (frame, msec) in frames {
+            progress_msec += msec; 
+            if progress_msec >= target_progress {
+              return Some(frame)
+            }
+          }
+          None
+        }
+        else if let Some((frame, _delay)) = frames.get(0) {
+          Some(frame)
+        }
+        else {
+          None
+        }
+      },
+      None => None
+    }
 }
 
 pub struct EmoteLoader {
   pub tx: async_channel::Sender<EmoteRequest>,
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
-  pub transparent_img: Option<TextureHandle>,
+  pub transparent_img: Option<RetainedImage>,
   pub base_path: PathBuf,
-  pub loading_emotes: HashMap<String, DateTime<Utc>>
+  pub loading_emotes: HashSet<String>
 }
 
 impl Default for EmoteLoader {
@@ -197,10 +295,8 @@ impl EmoteLoader {
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
                 //info!("{n} loading twitch emote {} '{}'", name, id);
-                let mut data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/animated/light/3.0", id), cache_path.join("twitch/"), &id, &None, &client, None).await;
-                if data.is_none() {
-                  data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{}/static/light/3.0", id), cache_path.join("twitch/"), &id, &None, &client, None).await
-                }
+                let data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/animated/light/3.0"), cache_path.join("twitch/"), &id, &None, &client, None).await
+                  .or(imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/static/light/3.0"), cache_path.join("twitch/"), &id, &None, &client, None).await);
                 EmoteResponse::TwitchMsgEmoteLoaded { name, id, data }
               },
               EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
@@ -222,13 +318,13 @@ impl EmoteLoader {
                 EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list.await }
               },
               EmoteRequest::DggFlairEmotesRequest { channel_name, cdn_base_url, force_redownload } => {
-                let emote_list = dgg::load_dgg_emotes(&cdn_base_url, &cache_path, &client, force_redownload);
-                let badge_list = dgg::load_dgg_flairs(&cdn_base_url, &cache_path, &client, force_redownload);
+                let emote_list = dgg::load_dgg_emotes(&channel_name, &cdn_base_url, &cache_path, &client, force_redownload);
+                let badge_list = dgg::load_dgg_flairs(&channel_name, &cdn_base_url, &cache_path, &client, force_redownload);
                 match out_tx.send(EmoteResponse::ChannelEmoteListResponse { channel_name: channel_name.to_owned(), response: emote_list.await }).await {
                   Ok(()) => (),
                   Err(e) => warn!("Error sending event: {}", e)
                 };
-                EmoteResponse::ChannelBadgeListResponse { channel_name, response: badge_list.await }
+                EmoteResponse::ChannelBadgeListResponse { channel_name: channel_name.to_owned(), response: badge_list.await }
               },
               EmoteRequest::GlobalEmoteListRequest { force_redownload } => {
                 let data = load_global_emotes(&cache_path, &client, force_redownload).await;
@@ -264,6 +360,14 @@ impl EmoteLoader {
      }
   }
 
+  pub fn request_emote(&mut self, name: &String, request: EmoteRequest) {
+    if self.loading_emotes.insert(name.to_owned()) {
+      if let Err(e) = self.tx.try_send(request) {
+        info!("Error sending emote load request: {}", e);
+      }
+    }
+  }
+
   pub fn close(&self) {
     self.handle.iter().for_each(|x| x.abort());
   }  
@@ -277,43 +381,40 @@ pub async fn load_channel_emotes(
   client: &reqwest::Client,
   force_redownload: bool
 ) -> std::result::Result<HashMap<String, Emote>, anyhow::Error> {
-  let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{}", channel_id);
+  let ffz_url = format!("https://api.frankerfacez.com/v1/room/id/{channel_id}");
   let ffz_emotes = process_emote_json(
     &ffz_url,
     cache_path,
-    &format!("ffz-channel-json-{}", channel_id),
+    &format!("ffz-channel-json-{channel_id}"),
     None,
     client,
     force_redownload
   ).await?;
-  let bttv_url = format!(
-    "https://api.betterttv.net/3/cached/users/twitch/{}",
-    channel_id
-  );
+  let bttv_url = format!("https://api.betterttv.net/3/cached/users/twitch/{channel_id}");
   let bttv_emotes = process_emote_json(
     &bttv_url,
     cache_path,
-    &format!("bttv-channel-json-{}", channel_id),
+    &format!("bttv-channel-json-{channel_id}"),
     None,
     client,
     force_redownload
   ).await?;
-  let seventv_url = format!("https://api.7tv.app/v2/users/{}/emotes", channel_id);
+  let seventv_url = format!("https://api.7tv.app/v2/users/{channel_id}/emotes");
   let seventv_emotes = process_emote_json(
     &seventv_url,
     cache_path,
-    &format!("7tv-channel-json-{}", channel_id),
+    &format!("7tv-channel-json-{channel_id}"),
     None,
     client,
     force_redownload
   ).await?;
-  let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={}", channel_id);
+  let twitch_url = format!("https://api.twitch.tv/helix/chat/emotes?broadcaster_id={channel_id}");
   let twitch_follower_emotes = process_twitch_follower_emote_json(
     &twitch_url,
     cache_path,
-    &format!("twitch-{}", channel_id),
+    &format!("twitch-{channel_id}"),
     Some([
-      ("Authorization", &format!("Bearer {}", token)),
+      ("Authorization", &format!("Bearer {token}")),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()
     ),
     client,
@@ -391,11 +492,11 @@ pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache
   }
 
   let emotes = process_emote_json(
-    &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={}", emote_set_id),
+    &format!("https://api.twitch.tv/helix/chat/emotes/set?emote_set_id={emote_set_id}"),
     cache_path,
-    &format!("twitch-emote-set-{}", emote_set_id),
+    &format!("twitch-emote-set-{emote_set_id}"),
     Some([
-      ("Authorization", &format!("Bearer {}", token)),
+      ("Authorization", &format!("Bearer {token}")),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
     client,
@@ -425,7 +526,7 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client
     cache_path,
     "twitch-badges-global",
     Some([
-      ("Authorization", &format!("Bearer {}", token)),
+      ("Authorization", &format!("Bearer {token}")),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
     client,
@@ -448,11 +549,11 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client
 pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     room_id,
-    &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={}", room_id),
+    &format!("https://api.twitch.tv/helix/chat/badges?broadcaster_id={room_id}"),
     cache_path,
-    &format!("twitch-badges-channel-{}", room_id),
+    &format!("twitch-badges-channel-{room_id}"),
     Some([
-      ("Authorization", &format!("Bearer {}", token)),
+      ("Authorization", &format!("Bearer {token}")),
       ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())
     ].to_vec()),
     client,
@@ -493,9 +594,9 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+fn load_emote_data(emote: &mut Emote, _ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
   if emote.data.is_none() {
-    emote.data = imaging::load_to_texture_handles(ctx, data);
+    emote.data = imaging::load_to_texture_handles(data);
     emote.duration_msec = match emote.data.as_ref() {
       Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
       _ => 0,
@@ -506,17 +607,17 @@ fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(Col
 }
 
 pub trait LoadEmote {
-  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>);
-  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>);
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>);
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>);
 }
 
 impl LoadEmote for ChannelShared {
-  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
     if let Some(transient) = self.transient.as_mut() && let Some(emotes) = transient.channel_emotes.as_mut() && let Some(emote) = emotes.get_mut(emote_name) {
       load_emote_data(emote, ctx, data, loading_emotes);
     }
   }
-  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
     if let Some(transient) = self.transient.as_mut() && let Some(badges) = transient.badge_emotes.as_mut() && let Some(emote) = badges.get_mut(badge_name) {
       load_emote_data(emote, ctx, data, loading_emotes);
     }
@@ -532,12 +633,12 @@ impl TemplateApp {
 }
 
 impl LoadEmote for Provider {
-  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+  fn update_emote(&mut self, emote_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
     if let Some(emote) = self.emotes.get_mut(emote_name) {
       load_emote_data(emote, ctx, data, loading_emotes)
     }
   }
-  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashMap<String, DateTime<Utc>>) {
+  fn update_badge(&mut self, badge_name: &str, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
     if let Some(global_badges) = &mut self.global_badges && let Some(emote) = global_badges.get_mut(badge_name) {
       load_emote_data(emote, ctx, data, loading_emotes)
     }
@@ -552,7 +653,11 @@ pub trait AddEmote {
 impl AddEmote for Channel {
   fn set_emotes(&mut self, emotes : Result<HashMap<String, Emote>, anyhow::Error>) {
     match emotes {
-      Ok(emotes) => {
+      Ok(mut emotes) => {
+        for (_, mut emote) in emotes.iter_mut() {
+          emote.source = EmoteSource::Channel;
+          emote.channel_name = self.channel_name().to_owned();
+        }
         let shared = match self {
           Channel::DGG { dgg: _, ref mut shared } => shared,
           Channel::Twitch { twitch: _, ref mut shared } => shared,
@@ -567,7 +672,11 @@ impl AddEmote for Channel {
   }
   fn set_badges(&mut self, badges : Result<HashMap<String, Emote>, anyhow::Error>) {
     match badges {
-      Ok(badges) => {
+      Ok(mut badges) => {
+        for (_, mut badge) in badges.iter_mut() {
+          badge.source = EmoteSource::ChannelBadge;
+          badge.channel_name = self.channel_name().to_owned();
+        }
         let shared = match self {
           Channel::DGG { dgg: _, ref mut shared } => shared,
           Channel::Twitch { twitch: _, ref mut shared } => shared,

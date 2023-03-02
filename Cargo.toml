@@ -47,7 +47,7 @@ tracing = "0.1.35"
 tracing-subscriber = "0.3.14"
 tracing-appender = "0.2.2"
 tracing-test = "0.2.3"
-tracing-unwrap = "0.10.0"
+tracing-unwrap = { version = "0.10.0", features = ["log-location" ] }
 warp = "0.3.3"
 resvg = "0.29.0"
 usvg = "0.29.0"
@@ -59,6 +59,7 @@ ahash = "0.8.3"
 num_cpus = "1.15.0"
 libwebp-sys2 = "0.1.2"
 #dhat = "0.3.2"
+egui_extras = "0.21.0"
 
 [profile.release]
 #opt-level = 2 # fast and small wasm

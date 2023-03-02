@@ -165,10 +165,12 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
 
 pub async fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut reqwest::Client) -> Result<String, anyhow::Error> {
     let mut hmap = HeaderMap::new();
-    headers.map(|x| x.iter().for_each(|(h,v)| {
-      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
-      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
-    }));
+    if let Some(x) = headers { 
+      x.iter().for_each(|(h,v)| {
+        let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+        hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+      }) 
+    }
     let req = easy
       .get(url)
       .headers(hmap);

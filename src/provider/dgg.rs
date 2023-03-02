@@ -11,7 +11,7 @@ use chrono::{Utc, NaiveDateTime, DateTime};
 use futures::{StreamExt, SinkExt, TryFutureExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error};
-use crate::{provider::MessageType, emotes::EmoteRequest};
+use crate::{provider::MessageType, emotes::{EmoteRequest, EmoteSource}};
 use regex::Regex;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
 use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
@@ -141,7 +141,7 @@ impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
     for handle in self.handles.iter_mut() {
-      let _ = handle.inspect_err(|f| error!("{:?}", f));
+      let _ = handle.inspect_err(|f| error!("{f:?}"));
       handle.abort();
     }
   }
@@ -176,7 +176,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
             }
           },
           Err(e) => {
-            error!("Websocket error: {:?}", e);
+            error!("Websocket error: {e:?}");
             return Ok(false);
           }
         }
@@ -189,7 +189,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
 async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
-  let cookie = format!("authtoken={}", token);
+  let cookie = format!("authtoken={token}");
   let mut request = dgg_chat_url.into_client_request()?;
   let cookie = cookie.parse()?;
   request.headers_mut().append(COOKIE, cookie);
@@ -322,8 +322,8 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
       Ok(out_msg) = rx.recv() => {
         match out_msg {
           OutgoingMessage::Chat { channel : _, message } => { 
-            socket.send(Message::Text(format!("MSG {{\"data\":\"{}\"}}\r", message))).await
-              .inspect_err(|f| info!("socket send error: {}", f))
+            socket.send(Message::Text(format!("MSG {{\"data\":\"{message}\"}}\r"))).await
+              .inspect_err(|f| info!("socket send error: {f}"))
               .expect_or_log("Error sending websocket message");
           },
           OutgoingMessage::Leave { channel_name : _ } => {
@@ -344,14 +344,10 @@ pub fn begin_authenticate() -> String {
   let secret = sha256::digest("S0eHxQsXfbo!l=Pk~pf7[ZWSC.C7BlWK1YFNgKkqxQ!ojZ1C~tYyVh3+SsxCn-kY");
   let code_verifier = format!("{:x}{:x}", rand::random::<u128>(), rand::random::<u128>());
   //let code_challenge = base64::encode(sha256::digest(format!("{}{}", code_verifier, secret)));
-  let code_challenge = general_purpose::STANDARD.encode(sha256::digest(format!("{}{}", code_verifier, secret)));
+  let code_challenge = general_purpose::STANDARD.encode(sha256::digest(format!("{code_verifier}{secret}")));
 
   let state = format!("{}", rand::random::<u128>());
-  let authorize_url = format!("https://www.destiny.gg/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&code_challenge={}", 
-    CLIENT_ID, 
-    REDIRECT_URI, 
-    state,
-    code_challenge);
+  let authorize_url = format!("https://www.destiny.gg/oauth/authorize?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&state={state}&code_challenge={code_challenge}");
 
   info!("{}", &authorize_url);
   //ctx.output(|o| o.open_url(&authorize_url));
@@ -360,11 +356,7 @@ pub fn begin_authenticate() -> String {
 
 pub async fn complete_authenticate(code: &str, code_verifier: &String) -> Option<String> {
   let mut easy = reqwest::Client::new();
-  let url = format!("https://www.destiny.gg/oauth/token?grant_type=authorization_code&code={}&client_id={}&redirect_uri={}&code_verifier={}",
-    code,
-    CLIENT_ID,
-    REDIRECT_URI,
-    code_verifier);
+  let url = format!("https://www.destiny.gg/oauth/token?grant_type=authorization_code&code={code}&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&code_verifier={code_verifier}");
 
   match make_request(&url, None, &mut easy).await {
     Ok(resp) => {
@@ -380,9 +372,7 @@ pub async fn complete_authenticate(code: &str, code_verifier: &String) -> Option
 
 pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
   let mut easy = reqwest::Client::new();
-  let url = format!("https://www.destiny.gg/oauth/token?grant_type=refresh_token&client_id={}&refresh_token={}",
-    CLIENT_ID,
-    refresh_token);
+  let url = format!("https://www.destiny.gg/oauth/token?grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token={refresh_token}");
 
   match make_request(&url, None, &mut easy).await {
     Ok(resp) => {
@@ -397,7 +387,7 @@ pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_flairs(channel_name: &String, cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &cache_path.join("dgg-flairs.json");
   let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, client, force_redownload).await?;
   let emotes = serde_json::from_str::<Vec<DggFlair>>(&json)?;
@@ -420,13 +410,15 @@ pub async fn load_dgg_flairs(cdn_base_url: &str, cache_path: &Path, client: &req
       zero_width: false,
       css_anim: None,
       priority: emote.priority,
-      hidden: emote.hidden });
+      hidden: emote.hidden,
+      source: EmoteSource::ChannelBadge,
+      channel_name: channel_name.to_owned() });
   }
   Ok(result)
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
+pub async fn load_dgg_emotes(channel_name: &String, cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
   let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, client, force_redownload).await?;
   let css_anim_data = CSSLoader::default().get_css_anim_data(&css);
@@ -457,7 +449,9 @@ pub async fn load_dgg_emotes(cdn_base_url: &str, cache_path: &Path, client: &req
       css_anim: css_anim.map(|x| x.to_owned()),
       display_name: None,
       priority: 0,
-      hidden: false });
+      hidden: false,
+      source: EmoteSource::Channel,
+      channel_name: channel_name.to_owned() });
   }
   Ok(result)
 }
@@ -483,10 +477,8 @@ impl CSSLoader {
     let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
     let css_notabs = css.replace('\t', "  ");
     let caps = regex.captures_iter(css_notabs.as_str());
-    let mut x = 0;
-    for captures in caps {
-      x += 1;
-      println!("{:?}", captures);
+    for (_x, captures) in caps.enumerate() {
+      //println!("{captures:?}");
       let prefix = captures.get(1).map(|x| x.as_str());
       //println!("{:?}", prefix);
       let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
@@ -513,7 +505,7 @@ impl CSSLoader {
         });
       }
     }
-    println!("{}", x);
+    //println!("{x}");
     result
   }
 }

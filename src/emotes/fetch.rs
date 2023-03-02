@@ -41,7 +41,7 @@ pub async fn process_badge_json(
       let set_id = set["set_id"].as_str().unwrap_or_log().to_owned();
       for v in set["versions"].as_array_mut().unwrap_or_log() {
         let id = v["id"].as_str().unwrap_or_log();
-        let name = format!("{}/{}", set_id, id);
+        let name = format!("{set_id}/{id}");
         let id = format!("{}__{}__{}", room_id, &set_id, &id);
         let imgurl = v["image_url_4x"].as_str().unwrap_or_log();
         emotes.push(Emote {
@@ -239,16 +239,18 @@ pub async fn get_json_from_url(
   let mut buffer: Vec<u8> = Default::default();
   let mut json: String = Default::default();  
 
-  let filename = filename.map(|f| if f.contains('.') { f.to_owned() } else { format!("{}.json", f) } );
+  let filename = filename.map(|f| if f.contains('.') { f.to_owned() } else { format!("{f}.json") } );
   let file_exists = filename.as_ref().is_some_and(|f| Path::new(f).exists());
 
   if force_redownload || !file_exists {
     debug!("Downloading {}", url);
     let mut hmap = HeaderMap::new();
-    headers.map(|x| x.iter().for_each(|(h,v)| {
-      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
-      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
-    }));
+    if let Some(x) = headers { 
+      x.iter().for_each(|(h,v)| {
+        let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+        hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+      }) 
+    }
     //let client = reqwest::Client::new();
     let req = client
       .get(url)
@@ -299,10 +301,12 @@ pub async fn get_binary_from_url(
   if filename.is_none() || filename.as_ref().is_some_and(|f| !Path::new(f).exists()) {
     debug!("Downloading {}", url);
     let mut hmap = HeaderMap::new();
-    headers.map(|x| x.iter().for_each(|(h,v)| {
-      let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
-      hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
-    }));
+    if let Some(x) = headers { 
+      x.iter().for_each(|(h,v)| {
+        let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
+        hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+      }) 
+    }
     let client = reqwest::Client::new();
     let req = client
       .get(url)

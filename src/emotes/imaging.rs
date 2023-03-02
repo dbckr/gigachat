@@ -7,10 +7,11 @@
 use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf, hash::{Hash, Hasher}};
 
 use ahash::AHasher;
-use egui::{TextureHandle, ColorImage};
+use egui::{ColorImage};
+use egui_extras::RetainedImage;
 use image::{DynamicImage};
 use itertools::Itertools;
-use glob::glob;
+//use glob::glob;
 use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT};
 use tracing::{info, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
@@ -32,17 +33,31 @@ pub async fn get_image_data(
   let inner =
     async || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
       DirBuilder::new().recursive(true).create(&path)?;
-
-      let paths = match glob(&format!("{}{}.*", &path.to_str().expect_or_log("path to string failed"), id)) {
+      let expect_path = &path.to_str().expect_or_log("path to string failed");
+      /*let path = match glob(&format!("{expect_path}{id}.*")) {
         Ok(paths) => paths,
         Err(e) => panic!("{}", e)
-      };
+      }.find_map(|p| p.ok().map(|f| f.as_path()));*/
+      let possible_paths = [
+        format!("{expect_path}{id}.png"),
+        format!("{expect_path}{id}.gif"),
+        format!("{expect_path}{id}.webp"),
+        format!("{expect_path}{id}.svg"),
+      ];
+      let path = possible_paths.iter().find_map(|p| {
+        let path = std::path::Path::new(p);
+        if path.exists() {
+          Some(path)
+        } else {
+          None
+        }
+      });
 
-      match paths.last() {
+      match path {
         Some(x) => {
-          let filepath : std::path::PathBuf = x?.as_path().to_owned();
-          let buffer = load_file_into_buffer(filepath.to_str().unwrap_or_log());
-          load_image(filepath.extension().unwrap_or_log().to_str().unwrap_or_log(), &buffer.unwrap_or_log(), css_anim)
+          //let filepath : std::path::PathBuf = x.to_owned();
+          let buffer = load_file_into_buffer(x.to_str().unwrap_or_log());
+          load_image(x.extension().unwrap_or_log().to_str().unwrap_or_log(), &buffer.unwrap_or_log(), css_anim)
         }
         None => {
           let mut extension = extension.as_ref().map(|f| f.to_owned());
@@ -51,7 +66,7 @@ pub async fn get_image_data(
 
           // If 7TV or unknown extension, try loading it as gif and webp to determine format
           // (7TV is completely unreliable for determining format)
-          if path.as_os_str().to_str().map(|f| f.contains("7tv")) == Some(true) || extension.is_none() {
+          if expect_path.contains("7tv") || extension.is_none() {
             if load_animated_gif(&buffer).is_ok_and(|f| !f.is_empty()) {
               extension = Some("gif".to_owned())
             }
@@ -68,7 +83,7 @@ pub async fn get_image_data(
               let mut f = OpenOptions::new()
               .create(true)
               .write(true)
-              .open(path.join(format!("{}.{}", id, ext)))?;
+              .open(std::path::Path::new(&format!("{expect_path}{id}.{ext}")))?;
 
               f.write_all(&buffer)?;
               load_image(&ext, &buffer, css_anim)
@@ -87,6 +102,7 @@ pub async fn get_image_data(
 
 #[cfg_attr(feature = "instrumentation", instrument)]
 async fn download_image(extension: &mut Option<String>, url: &str, client: &reqwest::Client) -> Result<Vec<u8>, anyhow::Error> {
+  info!("downloading {url}");
   let req = client.get(url);
   let resp = req.send().await?;
   
@@ -213,7 +229,7 @@ pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyho
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let decoder = match webp_animation::Decoder::new(buffer) {
     Ok(x) => x,
-    Err(e) => { return Err(anyhow::Error::msg(format!("{:?}", e))) }
+    Err(e) => { return Err(anyhow::Error::msg(format!("{e:?}"))) }
   };
   let mut last_timestamp: u16 = 0;
   for frame in decoder.into_iter() {
@@ -247,19 +263,20 @@ pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
-  frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect())
+pub fn load_to_texture_handles(/*ctx : &egui::Context,*/ frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(RetainedImage, u16)>> {
+  frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(frame), msec) }).collect())
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn load_image_into_texture_handle(
-  ctx: &egui::Context,
+  //ctx: &egui::Context,
   image: ColorImage,
-) -> TextureHandle {
+) -> RetainedImage {
   let mut s = AHasher::default();
   image.pixels.hash(&mut s);
   let uid = s.finish();
-  ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
+  //ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
+  RetainedImage::from_color_image(format!("{uid}"), image)
 }
 
 #[cfg_attr(feature = "instrumentation", instrument)]

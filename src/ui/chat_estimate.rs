@@ -7,12 +7,12 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, TextStyle};
 use itertools::Itertools;
-use crate::{ui::BADGE_HEIGHT};
+use crate::{ui::BADGE_HEIGHT, emotes::{Emote}};
 use tracing_unwrap::{OptionExt};
 
 use crate::provider::*;
 
-use super::{MIN_LINE_HEIGHT, WORD_LENGTH_MAX, chat::{EmoteFrame, self}, EMOTE_SCALING};
+use super::{MIN_LINE_HEIGHT, WORD_LENGTH_MAX, chat::{self}, EMOTE_SCALING};
 
 #[derive(Debug)]
 pub enum TextRange {
@@ -30,7 +30,7 @@ impl TextRange {
 }
 
 #[tracing::instrument(skip_all)]
-pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, EmoteFrame>, badges: Option<&Vec<(String, EmoteFrame)>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
+pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, &Emote>, badges: Option<&Vec<(String, &Emote)>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
@@ -81,14 +81,14 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
 }
 
 #[tracing::instrument(skip_all)]
-pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, EmoteFrame>, word: &str, 
+pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, &Emote>, word: &str, 
   curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut row_start_char_ix = curr_row_range.start();
 
   if let Some(emote) = emotes.get(word) {
-    let row = match &emote.texture {
+    let row = match emote.get_texture2() {
       _ if emote.zero_width => egui::vec2(0., 0.),
       Some(texture) => egui::vec2(texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height),
       None => egui::vec2(emote_height, emote_height)
@@ -172,7 +172,7 @@ pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: Fon
 const ASCII_ART_MIN_LINES : usize = 5;
 const ASCII_ART_MIN_LINE_WIDTH: usize = 15;
 
-pub fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize, emotes: &HashMap<String, EmoteFrame>) -> Option<usize> {
+pub fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize, emotes: &HashMap<String, &Emote>) -> Option<usize> {
   if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && !emotes.contains_key(words[ix]) && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
     Some(words[ix].len())
   }

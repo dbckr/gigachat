@@ -1,11 +1,12 @@
+#[allow(clippy::all, dead_code, non_snake_case)]
+
 #[cfg(test)]
 mod test {
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
-  use std::{ops::Range, path::PathBuf};
+  use std::{ops::Range};
   use itertools::Itertools;
-  use regex::Regex;
-  use crate::{emotes::fetch, provider::dgg::{self, DggFlair}};
-  use tracing_test::traced_test;
+  use crate::{provider::dgg::{self}};
+  //use tracing_test::traced_test;
   use tracing_unwrap::{OptionExt};
 
   fn test() {
@@ -13,15 +14,15 @@ mod test {
     println!("{}", verifier);
   }
 
-  #[test]
-  /*fn test_json() {
+  /*#[test]
+  fn test_json() {
     let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", "https://cdn.destiny.gg/2.42.0").as_str(), Some("dgg-flairs.json"), None, true).unwrap();
     let emotes = serde_json::from_str::<Vec<DggFlair>>(&json);
     println!("{:?}", emotes);
   }*/
 
-  #[test]
-  /*fn test2() {
+  /*#[test]
+  fn test2() {
     let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
     let loader = dgg::CSSLoader::default();
@@ -39,8 +40,8 @@ mod test {
     closure("OOOO");
   }*/
 
-  #[test]
-  /*fn test3() {
+  /*#[test]
+  fn test3() {
     let css_path = "dgg-emotes.css";
     let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
 
@@ -108,9 +109,9 @@ mod test {
     assert_eq!(frames.unwrap().len(), 35);
   }
 
-  #[test]
+  /*#[test]
   #[traced_test]
-  /*fn load_emote() {
+  fn load_emote() {
     let mut easy = reqwest::Client::new();
     let img = crate::emotes::imaging::get_image_data("KEKW", "https://cdn.betterttv.net/emote/5edcd164924aa35e32a73456/3x", PathBuf::new().join("bttv/"), "5edcd164924aa35e32a73456", &Some("gif".to_owned()), &mut easy, None);
     assert!(img.is_some());
@@ -202,7 +203,7 @@ mod test {
     use std::collections::HashMap;
     use chrono::Utc;
     use egui::{LayerId, Order, Pos2, Rect, Id};
-    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat::EmoteFrame, chat_estimate::{TextRange, get_chat_msg_size}, load_font}};
+    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat_estimate::{TextRange, get_chat_msg_size}, load_font}, emotes::{Emote}};
 
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());
@@ -226,8 +227,8 @@ mod test {
       is_removed: None,
       msg_type: MessageType::Chat,
       ..Default::default() };
-    let emotes : HashMap<String, EmoteFrame> = Default::default();
-    let badges : Vec<(String, EmoteFrame)> = Default::default();
+    let emotes : HashMap<String, &Emote> = Default::default();
+    let badges : Vec<(String, &Emote)> = Default::default();
     let ui_width = ui.available_width();
     
     let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp);

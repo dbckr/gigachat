@@ -4,12 +4,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use tracing::info;
-use chrono::{Timelike, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use egui::{emath, Rounding, TextStyle};
-use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2, TextureHandle};
+use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
+use egui_extras::RetainedImage;
 use itertools::Itertools;
-use tracing_unwrap::OptionExt;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
@@ -19,18 +18,19 @@ use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, cha
 
 const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
-pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent_img: &TextureHandle, show_channel_name: bool, show_timestamp: bool) -> emath::Rect {
+pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
   let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
   let ui_row = ui.horizontal_wrapped(|ui| {
-    ui.image(transparent_img, emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
+    if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
+      ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
+    }
     ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
     if let Some(combo) = row.message.combo_data.as_ref() {
       let emote = row.emotes.get(&combo.word);
-      if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
-        let texture = texture.as_ref().unwrap_or(transparent_img);
-        add_ui_emote_image(&combo.word, path, texture, zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
+      if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader) {
+        add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
       }
       ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6)).sense(egui::Sense { click: true, drag: false, focusable: false }));
     }
@@ -38,7 +38,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, transparent
   ui_row.response.rect
 }
 
-pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transparent_img: &TextureHandle, highlight: Option<Color32>) -> (emath::Rect, Option<String>, bool) {
+pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlight: Option<Color32>, emote_loader: &mut EmoteLoader) -> (emath::Rect, Option<String>, bool) {
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
@@ -64,7 +64,9 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
     for (row_text, is_visible, row_height, is_ascii_art) in chat_msg_rows {
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
-        ui.image(transparent_img, emath::Vec2 { x: 1.0, y: row_height });
+        if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
+          ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height });
+        }
         ui.set_row_height(row_height);
 
         if let Some(highlight) = highlight {
@@ -78,40 +80,41 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
           if let Some(user_badges) = &chat_msg.badges {
             for (badge, emote) in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
-              let tex = emote.texture.as_ref().unwrap_or(transparent_img);
-              ui.image(tex, egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-                //ui.set_width(BADGE_HEIGHT + 20.);
-                //ui.vertical_centered(|ui| {
-                  match chat_msg.message.provider {
-                    ProviderName::Twitch => {
-                      let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
-                      match parts.0 {
-                        "subscriber" => {
-                          let num = parts.1.parse::<usize>().unwrap_or(0);
-                          let tier = match num / 1000 {
-                            3 => "T3",
-                            2 => "T2",
-                            _ => "T1",
-                          };
-                          ui.label(format!("{} Month Sub ({})", num % 1000, tier))
-                        }, 
-                        "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
-                        "bits" => ui.label(format!("{} Bits", parts.1)),
-                        _ => ui.label(parts.0)
-                      };
-                    },
-                    ProviderName::DGG => { ui.label(emote.label.as_ref().unwrap_or(badge)); },
-                    ProviderName::YouTube => {}
-                  };
+              if let Some(tex) = emote.get_texture(emote_loader) {
+                ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+                  //ui.set_width(BADGE_HEIGHT + 20.);
+                  //ui.vertical_centered(|ui| {
+                    match chat_msg.message.provider {
+                      ProviderName::Twitch => {
+                        let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                        match parts.0 {
+                          "subscriber" => {
+                            let num = parts.1.parse::<usize>().unwrap_or(0);
+                            let tier = match num / 1000 {
+                              3 => "T3",
+                              2 => "T2",
+                              _ => "T1",
+                            };
+                            ui.label(format!("{} Month Sub ({})", num % 1000, tier))
+                          }, 
+                          "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
+                          "bits" => ui.label(format!("{} Bits", parts.1)),
+                          _ => ui.label(parts.0)
+                        };
+                      },
+                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(badge)); },
+                      ProviderName::YouTube => {}
+                    };
 
-                  ui.image(tex, tex.size_vec2());
-                //});
-              });
+                    ui.image(tex.texture_id(ui.ctx()), tex.size_vec2());
+                  //});
+                });
+              }
             }
           }
     
           if let Some(uname_text) = username {
-            let uname_rich_text = RichText::new(&format!("{}:", uname_text))
+            let uname_rich_text = RichText::new(&format!("{uname_text}:"))
               .font(crate::ui::get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
@@ -136,11 +139,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
 
           let link_url = chat_msg.message.message.split_ascii_whitespace().find_or_first(|f| f.starts_with(word) || f.ends_with(word) || f.contains(word) && word.len() > 16).and_then(|f| if is_url(f) { Some(f) } else { None });
           let emote = chat_msg.emotes.get(word);
-          if let Some(EmoteFrame { id: _, name: _, label: _, texture, path, zero_width }) = emote {
-            let tex = texture.as_ref().unwrap_or(transparent_img);
-            add_ui_emote_image(word, path, tex, zero_width, &mut last_emote_width, ui, emote_height);
-          }
-          /*else if word == "👍" {
+          /*if word == "👍" {
             // Can use a font rendering crate directly
             //   to output emoji chars as images scaled to emote size.
             // But waiting for one with rbg support (embedded svg/png)
@@ -153,7 +152,11 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, transpa
             let tx = imaging::load_image_into_texture_handle(ui.ctx(), imaging::to_egui_image(image));
             let (x, y) = (tx.size_vec2().x * (EMOTE_HEIGHT / tx.size_vec2().y), EMOTE_HEIGHT);
             ui.image(&tx, egui::vec2(x, y));
-          }*/
+          } else */ if let Some(emote) = emote {
+            if let Some(tex) = emote.get_texture(emote_loader) {
+              add_ui_emote_image(word, &emote.path, tex, &emote.zero_width, &mut last_emote_width, ui, emote_height);
+            }
+          }
           else {
             last_emote_width = None;
             match link_url {
@@ -227,19 +230,19 @@ pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
   }
 }
 
-fn add_ui_emote_image(word: &str, path: &str, texture: &egui::TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &RetainedImage, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
-    let img = egui::Image::new(texture, egui::vec2(x, y));
+    let img = egui::Image::new(texture.texture_id(ui.ctx()), egui::vec2(x, y));
     let cursor = ui.cursor().to_owned();
     let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
     img.paint_at(ui, rect);
   }
   else {
-    ui.image(texture, egui::vec2(x, y)).on_hover_ui(|ui| {
+    ui.image(texture.texture_id(ui.ctx()), egui::vec2(x, y)).on_hover_ui(|ui| {
       ui.label(format!("{}\n{}", word, path.replace('/',"")));
-      ui.image(texture, texture.size_vec2());
+      ui.image(texture.texture_id(ui.ctx()), texture.size_vec2());
     });
     *last_emote_width = Some((x, y));
   }
@@ -357,55 +360,6 @@ pub fn convert_color(input : &(u8, u8, u8)) -> Color32 {
 
   //info!("{} {} {}", rx, gx, bx);
   Color32::from_rgb(rx, gx, bx)
-}
-
-
-pub struct EmoteFrame {
-  pub id: String,
-  pub name: String,
-  pub path: String,
-  pub label: Option<String>,
-  //extension: Option<String>,
-  pub texture: Option<egui::TextureHandle>,
-  pub zero_width: bool
-}
-
-pub fn get_texture(emote_loader: &mut EmoteLoader, emote : &Emote, request : EmoteRequest) -> EmoteFrame {
-  match emote.loaded {
-    EmoteStatus::NotLoaded => {
-      if !emote_loader.loading_emotes.contains_key(&emote.name) {
-        if let Err(e) = emote_loader.tx.try_send(request) {
-          info!("Error sending emote load request: {}", e);
-        }
-        emote_loader.loading_emotes.insert(emote.name.to_owned(), chrono::Utc::now());
-      }
-      EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-    },
-    EmoteStatus::Loaded => {
-      let frames_opt = emote.data.as_ref();
-      match frames_opt {
-        Some(frames) => {
-          if emote.duration_msec > 0 {
-            let time = chrono::Utc::now();
-            let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
-            let mut progress_msec : u16 = 0;
-            for (frame, msec) in frames {
-              progress_msec += msec; 
-              if progress_msec >= target_progress {
-                return EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width };
-              }
-            }
-            EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-          }
-          else {
-            let (frame, _delay) = frames.get(0).unwrap_or_log();
-            EmoteFrame { texture: Some(frame.to_owned()), id: emote.id.to_owned(), label: emote.display_name.to_owned(), name: emote.name.to_owned(), path: emote.path.to_owned(), zero_width: emote.zero_width }
-          }
-        },
-        None => EmoteFrame { id: emote.id.to_owned(), name: emote.name.to_owned(), label: emote.display_name.to_owned(), path: emote.path.to_owned(), texture: None, zero_width: emote.zero_width }
-      }
-    }
-  }
 }
 
 pub fn get_provider_color(provider : &ProviderName) -> Color32 {

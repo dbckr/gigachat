@@ -143,7 +143,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
       nickname: Some(user_name.to_owned()),  
       server: Some("irc.chat.twitch.tv".to_owned()), 
       port: Some(6697), 
-      password: Some(format!("oauth:{}", token)), 
+      password: Some(format!("oauth:{token}")), 
       use_tls: Some(true),
       ..Default::default()
     }).await?;
@@ -156,7 +156,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
 
   // If reconnecting, rejoin any previously joined channels
   for channel in channels.iter() {
-    client.send_join(format!("#{}", channel)).expect_or_log("failed to join channel");
+    client.send_join(format!("#{channel}")).expect_or_log("failed to join channel");
   }
 
   //sender.send_join(format!("#{}", name.to_owned())).expect_or_log("failed to join channel");
@@ -175,7 +175,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
           let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
             IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(ChannelStatus {
               game_name: Some(status.game_name.to_owned()),
-              is_live: match status.stream_type.as_str() { "live" => true, _ => false },
+              is_live: matches!(status.stream_type.as_str(), "live"),
               title: Some(status.title.to_owned()),
               viewer_count: Some(status.viewer_count),
               started_at: Some(status.started_at.to_owned()),
@@ -191,9 +191,8 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
             }) }
           };
 
-          match tx.try_send(status_update_msg) {
-            Err(e) => info!("error sending status: {}", e),
-            _ => ()
+          if let Err(e) = tx.try_send(status_update_msg) {
+            info!("error sending status: {}", e)
           }
         }
       }
@@ -354,7 +353,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
             }
           },
           OutgoingMessage::Join { channel_name } => {
-            client.send_join(format!("#{}", channel_name)).expect_or_log("failed to join channel");
+            client.send_join(format!("#{channel_name}")).expect_or_log("failed to join channel");
             channels.push(channel_name);
           }
         };
@@ -384,7 +383,7 @@ pub fn authenticate() -> String {
   let client_id = "fpj6py15j5qccjs8cm7iz5ljjzp1uf";
   let scope = "chat:read chat:edit";
   let state = format!("{}", rand::random::<u128>());
-  format!("https://id.twitch.tv/oauth2/authorize?client_id={}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={}&state={}", client_id, scope, state)
+  format!("https://id.twitch.tv/oauth2/authorize?client_id={client_id}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={scope}&state={state}")
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
@@ -392,9 +391,9 @@ async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String, client
   if channel_ids.is_empty() {
     return Default::default();
   }
-  let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={}", f)).collect_vec().join("&"));
+  let url = format!("https://api.twitch.tv/helix/streams?{}", channel_ids.iter().map(|f| format!("user_id={f}")).collect_vec().join("&"));
   let json = match get_json_from_url(&url, None, Some([
-    ("Authorization", &format!("Bearer {}", token)),
+    ("Authorization", &format!("Bearer {token}")),
     ("Client-Id", &"fpj6py15j5qccjs8cm7iz5ljjzp1uf".to_owned())].to_vec()), client, true).await {
       Ok(json) => json,
       Err(e) => { error!("failed getting twitch statuses: {}", e); return Default::default(); }
