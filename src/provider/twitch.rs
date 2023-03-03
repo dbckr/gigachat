@@ -306,7 +306,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<Incomin
                         Ok(())
                       }
                     },
-                    _ => { info!("unknown IRC command: {} {}", command, str_vec.join(", ")); Ok(())}
+                    _ => { debug!("unknown IRC command: {} {}", command, str_vec.join(", ")); Ok(())}
                   };
                   if let Err(e) = result {
                     info!("IRC Raw error: {}", e);

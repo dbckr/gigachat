@@ -10,7 +10,7 @@ use backoff::{backoff::Backoff};
 use chrono::{Utc, NaiveDateTime, DateTime};
 use futures::{StreamExt, SinkExt, TryFutureExt};
 use itertools::Itertools;
-use tracing::{trace, info,warn,error};
+use tracing::{trace, info,warn,error, debug};
 use crate::{provider::MessageType, emotes::{EmoteRequest, EmoteSource}};
 use regex::Regex;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
@@ -309,7 +309,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                       };
                     }
                   },
-                  _ => warn!("unknown dgg command: {:?}", message)
+                  _ => debug!("unknown dgg command: {:?}", message)
                 }
             }
           },

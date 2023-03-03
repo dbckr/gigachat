@@ -6,7 +6,7 @@
 
 #![allow(clippy::blocks_in_if_conditions)]
 
-use tracing::{info, error, warn};
+use tracing::{info, error, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
 use chrono::{DateTime, Utc};
@@ -418,6 +418,29 @@ impl TemplateApp {
               };
               ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
               ui.add(egui::Slider::new(&mut self.chat_history_limit, 100..=10000).step_by(100.).text(RichText::new("Chat history limit").text_style(TextStyle::Small)));
+              if ui.button("Reload Global and Twitch Sub Emotes").clicked() {
+                if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::GlobalEmoteListRequest { force_redownload: true }) {
+                  warn!("Failed to send request: {e}");
+                }
+                if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { 
+                  token: self.auth_tokens.twitch_auth_token.to_owned(), 
+                  force_redownload: true 
+                }) {
+                  warn!("Failed to send request: {e}");
+                }
+                let twitch_auth = &self.auth_tokens.twitch_auth_token;
+                if let Some(provider) = self.providers.get(&ProviderName::Twitch) {
+                  for emote_set_id in &provider.my_emote_sets {
+                    if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::TwitchEmoteSetRequest { 
+                      token: twitch_auth.to_owned(), 
+                      emote_set_id: emote_set_id.to_owned(), 
+                      force_redownload: true }) 
+                    {
+                      warn!("Failed to send request: {e}");
+                    }
+                  }
+                }
+              }
             });
           });
           ui.separator();
@@ -430,7 +453,9 @@ impl TemplateApp {
           
           let tx_len = self.emote_loader.tx.len();
           let rx_len = self.emote_loader.rx.len();
-          ui.label(RichText::new(format!("tx: {tx_len}, rx: {rx_len}")).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
+          if cfg!(feature = "debug-ui") {
+            ui.label(RichText::new(format!("tx: {tx_len}, rx: {rx_len}")).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
+          }
         });
       });
       ui.separator();
@@ -721,7 +746,7 @@ impl TemplateApp {
         return Some(clbl);
       }
       else {
-        warn!("Channel not opened yet, attempting to open: {}", channel);
+        debug!("Channel not opened yet, attempting to open: {}", channel);
         match sco {
           Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
           Channel::DGG { dgg, shared } => {
@@ -1081,25 +1106,23 @@ impl TemplateApp {
             if let Some(ch) = self.channels.get_mut(&channel) {
               match ch {
                 Channel::Twitch { twitch, shared } => {
-                  match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
+                  if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
                     channel_id: twitch.room_id.to_owned(), 
                     channel_name: shared.channel_name.to_owned(),
                     token: self.auth_tokens.twitch_auth_token.to_owned(), 
                     force_redownload: true
                   }) {  
-                    Ok(_) => {},
-                    Err(e) => { error!("Failed to load emote json for channel {} due to error {:?}", &channel, e); }
-                  };
+                    warn!("Failed to send load emote json request for channel {channel} due to error {e:?}");
+                  }
                 },
                 Channel::DGG { dgg, shared } => {
-                  match self.emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
+                  if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::DggFlairEmotesRequest { 
                     channel_name: shared.channel_name.to_owned(),
                     cdn_base_url: dgg.dgg_cdn_url.to_owned(),
                     force_redownload: true
                   }) {
-                    Ok(_) => {},
-                    Err(e) => { error!("Failed to load badge/emote json for channel {} due to error {:?}", &channel, e); }
-                  };
+                    error!("Failed to load badge/emote json for channel {channel} due to error {e:?}");
+                  }
                 },
                 Channel::Youtube { youtube: _, shared: _ } => {}
               };
@@ -1276,7 +1299,8 @@ impl TemplateApp {
               my_sub_emotes: Default::default(),
               emotes: Default::default(),
               global_badges: Default::default(),
-              username: Default::default()
+              username: Default::default(),
+              my_emote_sets: Default::default()
           });
           match self.emote_loader.tx.try_send(EmoteRequest::TwitchGlobalBadgeListRequest { token: auth_tokens.twitch_auth_token.to_owned(), force_redownload: false }) {  
             Ok(_) => {},
@@ -1294,7 +1318,8 @@ impl TemplateApp {
             my_sub_emotes: Default::default(),
             emotes: Default::default(),
             global_badges: Default::default(),
-            username: Default::default()
+            username: Default::default(),
+            my_emote_sets: Default::default()
           });
 
           Channel::Youtube { 
@@ -1729,17 +1754,19 @@ impl TemplateApp {
         }
       },
       IncomingMessage::EmoteSets { provider,  emote_sets } => {
-        //if let Some(provider) = self.providers.get_mut(&provider) {
         if provider == ProviderName::Twitch {
-          for set in emote_sets {
-            match self.emote_loader.tx.try_send(EmoteRequest::TwitchEmoteSetRequest { 
-              token: self.auth_tokens.twitch_auth_token.to_owned(), 
-              emote_set_id: set.to_owned(), 
-              force_redownload: false 
-            }) {
-              Ok(_) => {},
-              Err(e) => warn!("Failed to load twitch emote set {} due to error: {:?}", &set, e)
-            };
+          if let Some(provider) = self.providers.get_mut(&provider) {
+            provider.my_emote_sets = emote_sets;
+            for set in &provider.my_emote_sets {
+              match self.emote_loader.tx.try_send(EmoteRequest::TwitchEmoteSetRequest { 
+                token: self.auth_tokens.twitch_auth_token.to_owned(), 
+                emote_set_id: set.to_owned(), 
+                force_redownload: false 
+              }) {
+                Ok(_) => {},
+                Err(e) => warn!("Failed to load twitch emote set {} due to error: {:?}", &set, e)
+              };
+            }
           }
         }
       },

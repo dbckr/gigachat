@@ -274,34 +274,32 @@ impl EmoteLoader {
           if let Ok(msg) = recv_msg {
             let out_msg = match msg {
               EmoteRequest::ChannelEmoteImage { name, id, url, path, extension, channel_name, css_anim } => {
-                //info!("{n} loading channel emote {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, css_anim).await;
+                let data = imaging::get_image_data(&name, &[&url], &cache_path.join(path), &id, &extension, &client, &css_anim).await;
                 EmoteResponse::ChannelEmoteImageLoaded { name, channel_name, data }
               },
               EmoteRequest::ChannelBadgeImage { name, id, url, path, extension, channel_name } => {
-                //info!("{n} loading channel badge {} '{}' for {}", name, url, channel_name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                let data = imaging::get_image_data(&name, &[&url], &cache_path.join(path), &id, &extension, &client, &None).await;
                 EmoteResponse::ChannelBadgeImageLoaded { name, channel_name, data }
               },
               EmoteRequest::GlobalEmoteImage { name, id, url, path, extension } => {
-                //info!("{n} loading global emote {} '{}'", name, url);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                let data = imaging::get_image_data(&name, &[&url], &cache_path.join(path), &id, &extension, &client, &None).await;
                 EmoteResponse::GlobalEmoteImageLoaded { name, data }
               },
               EmoteRequest::GlobalBadgeImage { name, id, url, path, extension } => {
-                //info!("{n} loading global badge {}", name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &id, &extension, &client, None).await;
+                let data = imaging::get_image_data(&name, &[&url], &cache_path.join(path), &id, &extension, &client, &None).await;
                 EmoteResponse::GlobalBadgeImageLoaded { name, data }
               },
               EmoteRequest::TwitchMsgEmoteImage { name, id } => {
-                //info!("{n} loading twitch emote {} '{}'", name, id);
-                let data = imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/animated/light/3.0"), cache_path.join("twitch/"), &id, &None, &client, None).await
-                  .or(imaging::get_image_data(&name, &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/static/light/3.0"), cache_path.join("twitch/"), &id, &None, &client, None).await);
+                let data = imaging::get_image_data(
+                  &name, &[
+                    &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/animated/light/3.0"), 
+                    &format!("https://static-cdn.jtvnw.net/emoticons/v2/{id}/static/light/3.0")
+                  ], &cache_path.join("twitch/"), &id, &None, &client, &None).await;
                 EmoteResponse::TwitchMsgEmoteLoaded { name, id, data }
               },
               EmoteRequest::YouTubeMsgEmoteImage { name, url, path } => {
                 //info!("{n} loading youtube emote '{}'", name);
-                let data = imaging::get_image_data(&name, &url, cache_path.join(path), &name, &None, &client, None).await;
+                let data = imaging::get_image_data(&name, &[&url], &cache_path.join(path), &name, &None, &client, &None).await;
                 EmoteResponse::YouTubeMsgEmoteLoaded { name, data }
               },
               EmoteRequest::TwitchEmoteSetRequest { token, emote_set_id, force_redownload } => {

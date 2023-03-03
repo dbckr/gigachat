@@ -56,7 +56,9 @@ pub struct Provider {
   pub my_sub_emotes: HashSet<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub global_badges: Option<HashMap<String, Emote>>,
-  pub username: String
+  pub username: String,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub my_emote_sets: Vec<String>
 }
 
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
@@ -64,7 +66,8 @@ pub struct Provider {
 #[derive(Eq, Hash, PartialEq)]
 #[derive(Clone)]
 pub enum ProviderName {
-  #[default] Twitch,
+  #[default] 
+  Twitch,
   DGG,
   YouTube,
 }

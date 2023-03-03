@@ -12,99 +12,108 @@ use egui_extras::RetainedImage;
 use image::{DynamicImage};
 use itertools::Itertools;
 //use glob::glob;
-use reqwest::header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT};
-use tracing::{info, warn};
+use reqwest::{header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT}, StatusCode};
+use tracing::{info, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
 use super::CssAnimationData;
 
 #[cfg(feature = "instrumentation")]
 use tracing::{instrument};
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 pub async fn get_image_data(
   name: &str,
-  url: &str,
-  path: PathBuf,
+  urls: &[&str],
+  path: &PathBuf,
   id: &str,
   extension: &Option<String>,
   client: &reqwest::Client,
-  css_anim: Option<CssAnimationData>
+  css_anim: &Option<CssAnimationData>
 ) -> Option<Vec<(ColorImage, u16)>> {
-  let inner =
-    async || -> std::result::Result<Vec<(ColorImage, u16)>, anyhow::Error> {
-      DirBuilder::new().recursive(true).create(&path)?;
-      let expect_path = &path.to_str().expect_or_log("path to string failed");
-      /*let path = match glob(&format!("{expect_path}{id}.*")) {
-        Ok(paths) => paths,
-        Err(e) => panic!("{}", e)
-      }.find_map(|p| p.ok().map(|f| f.as_path()));*/
-      let possible_paths = [
-        format!("{expect_path}{id}.png"),
-        format!("{expect_path}{id}.gif"),
-        format!("{expect_path}{id}.webp"),
-        format!("{expect_path}{id}.svg"),
-      ];
-      let path = possible_paths.iter().find_map(|p| {
-        let path = std::path::Path::new(p);
-        if path.exists() {
-          Some(path)
-        } else {
-          None
-        }
-      });
+  let expect_path = path.to_str().expect_or_log("path to string failed");
+  match DirBuilder::new().recursive(true).create(path) {
+    Ok(_) => {},
+    Err(x) => {
+      warn!("Failed to load emote {name}: could not create directory {expect_path}: {x}");  
+      return None;
+    }
+  };
+  for url in urls {
+    let image_data = get_image_data_inner(url, expect_path, id, extension, client, css_anim).await;
+    match image_data {
+      Ok(x) => { return Some(x) },
+      Err(x) => debug!("Failed to load emote {} from url {} due to error: {}", name, url, x)
+    }
+  }
 
-      match path {
-        Some(x) => {
-          //let filepath : std::path::PathBuf = x.to_owned();
-          let buffer = load_file_into_buffer(x.to_str().unwrap_or_log());
-          load_image(x.extension().unwrap_or_log().to_str().unwrap_or_log(), &buffer.unwrap_or_log(), css_anim)
-        }
-        None => {
-          let mut extension = extension.as_ref().map(|f| f.to_owned());
+  let buffer : [u8;0] = [];
+  //TODO: Add some internal state to manage failed downloads instead of panicking, to prevent infinite download attempt loop
+  write_file_to_disk(expect_path, id, &"unknown".to_owned(), &buffer).expect("Failed to store downloaded image");
+  let urls_str = urls.join(", ");
+  warn!("Failed to load emote {} from any of the provided urls: {urls_str}", name);  
+  None
+}
 
-          let buffer = download_image(&mut extension, url, client).await?;
+#[cfg_attr(feature = "instrumentation", instrument)]
+async fn get_image_data_inner(
+  url: &str,
+  expect_path: &str,
+  id: &str,
+  extension: &Option<String>,
+  client: &reqwest::Client,
+  css_anim: &Option<CssAnimationData>
+) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
+  /*let path = match glob(&format!("{expect_path}{id}.*")) {
+    Ok(paths) => paths,
+    Err(e) => panic!("{}", e)
+  }.find_map(|p| p.ok().map(|f| f.as_path()));*/
+  let possible_paths = [
+    format!("{expect_path}{id}.png"),
+    format!("{expect_path}{id}.gif"),
+    format!("{expect_path}{id}.webp"),
+    format!("{expect_path}{id}.svg"),
+  ];
+  let path = possible_paths.iter().find_map(|p| {
+    let path = std::path::Path::new(p);
+    if path.exists() {
+      Some(path)
+    } else {
+      None
+    }
+  });
 
-          // If 7TV or unknown extension, try loading it as gif and webp to determine format
-          // (7TV is completely unreliable for determining format)
-          if expect_path.contains("7tv") || extension.is_none() {
-            if load_animated_gif(&buffer).is_ok_and(|f| !f.is_empty()) {
-              extension = Some("gif".to_owned())
-            }
-            else if load_animated_webp(&buffer).is_ok_and(|f| !f.is_empty()) {
-              extension = Some("webp".to_owned())
-            }
-            else {
-              extension = Some("png".to_owned())
-            }
-          }
+  let mut ext : Option<&str> = None;
+  let mut image_load_failure = true;
+  let result = if let Some(x) = path && let Some(e) = x.extension() && let Some(extension) = e.to_str() {
+    ext = Some(extension);
+    if let Some(buffer) = load_file_into_buffer(x.to_str().unwrap_or_log()) {
+      load_image(extension, &buffer, css_anim)
+    } else {
+      image_load_failure = true;
+      Err(anyhow::Error::msg("failed to load file"))
+    }
+  } else {
+    image_load_failure = false;
+    Err(anyhow::Error::msg("no existing file found"))
+  };
 
-          match extension { 
-            Some(ext) => {
-              let mut f = OpenOptions::new()
-              .create(true)
-              .write(true)
-              .open(std::path::Path::new(&format!("{expect_path}{id}.{ext}")))?;
-
-              f.write_all(&buffer)?;
-              load_image(&ext, &buffer, css_anim)
-            },
-            None => Err(anyhow::Error::msg("Unable to determine image extension"))
-          }
-        } 
-      }
-    };
-
-  match inner().await {
-    Ok(x) => Some(x),
-    Err(x) => { warn!("Failed to load emote {} from url {} due to error: {}", name, url, x); None },
+  if result.is_err() && !ext.is_some_and(|x| x == "unknown") {
+    let mut extension = extension.as_ref().map(|f| f.to_owned());
+    let buffer = download_image(expect_path, id, &mut extension, url, client, image_load_failure).await?;
+    load_image(&extension.unwrap(), &buffer, css_anim)
+  }
+  else {
+    result
   }
 }
 
 #[cfg_attr(feature = "instrumentation", instrument)]
-async fn download_image(extension: &mut Option<String>, url: &str, client: &reqwest::Client) -> Result<Vec<u8>, anyhow::Error> {
-  info!("downloading {url}");
+async fn download_image(expect_path: &str, id: &str, extension: &mut Option<String>, url: &str, client: &reqwest::Client, bad_extension: bool) -> Result<Vec<u8>, anyhow::Error> {
   let req = client.get(url);
   let resp = req.send().await?;
+
+  if resp.status() == StatusCode::NOT_FOUND {
+    return Err(anyhow::Error::msg("404 Not Found"))
+  }
   
   resp.headers().iter().for_each(|(name, value)| {
     if extension.is_none() && let Ok(header) = value.to_str() {
@@ -124,7 +133,7 @@ async fn download_image(extension: &mut Option<String>, url: &str, client: &reqw
         }
       }
       else if name == ACCEPT {
-        if header.to_lowercase().contains("image/png") {
+        if header.to_lowercase().contains("image/png") || header.to_lowercase().contains("image/apng") {
           *extension = Some("png".to_owned());
         }
         else if header.to_lowercase().contains("image/gif") {
@@ -137,14 +146,50 @@ async fn download_image(extension: &mut Option<String>, url: &str, client: &reqw
     }
   });
 
-  Ok(resp.bytes().await?.to_vec())
+  let buffer = resp.bytes().await?.to_vec();
+
+  // If 7TV or unknown extension, try loading it as gif and webp to determine format
+  // (7TV is completely unreliable for determining format)
+  if expect_path.contains("7tv") || extension.is_none() || bad_extension {
+    if load_animated_gif(&buffer).is_ok_and(|f| !f.is_empty()) {
+      *extension = Some("gif".to_owned())
+    }
+    else if load_animated_webp(&buffer).is_ok_and(|f| !f.is_empty()) {
+      *extension = Some("webp".to_owned())
+    }
+    else if !bad_extension || image::load_from_memory(&buffer).is_ok() {
+      *extension = Some("png".to_owned())
+    }
+    else {
+      *extension = Some("unknown".to_owned())
+    }
+  }
+
+  if let Some(ext) = extension {
+    debug!("saving image downloaded from {url} to disk: {expect_path}{id}.{ext}");
+    write_file_to_disk(expect_path, id, ext, &buffer)?;
+  }
+  else {
+    return Err(anyhow::Error::msg("Unable to determine image extension"));
+  }
+
+  Ok(buffer)
+}
+
+fn write_file_to_disk(expect_path: &str, id: &str, ext: &String, buffer: &[u8]) -> Result<(), anyhow::Error> {
+    let mut f = OpenOptions::new()
+    .create(true)
+    .write(true)
+    .open(std::path::Path::new(&format!("{expect_path}{id}.{ext}")))?;
+    f.write_all(buffer)?;
+    Ok(())
 }
 
 #[cfg_attr(feature = "instrumentation", instrument)]
 fn load_image(
   extension: &str,
   buffer: &[u8],
-  css_anim: Option<CssAnimationData>
+  css_anim: &Option<CssAnimationData>
 ) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   match extension {
     "png" => {
@@ -174,7 +219,7 @@ fn load_image(
 }
 
 #[cfg_attr(feature = "instrumentation", instrument)]
-fn process_dgg_sprite_png(img: DynamicImage, data: CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
+fn process_dgg_sprite_png(img: DynamicImage, data: &CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
 
