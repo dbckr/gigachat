@@ -214,6 +214,9 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
               .inspect_err(|f| info!("socket send Pong error: {}", f))
               .expect_or_log("Error sending websocket Pong message");
             }
+            else if message.is_close() {
+              return Ok(false);
+            }
             else if !message.is_text() {
               warn!("{:?}", message);
             }
