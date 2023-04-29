@@ -170,10 +170,7 @@ pub async fn process_emote_json(
         true => url_fallback.to_string(),
         false => url_selected.to_string()
       };
-      let imgurl = format!(
-        "https:{}",
-        url.trim_matches('"')
-      );
+      let imgurl = url.trim_matches('"').to_owned();
       emotes.push(Emote {name, id, url: imgurl, path: "ffz/".to_owned(), ..Default::default()});
     }
   } else if !v[0].is_null() {
