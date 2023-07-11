@@ -42,7 +42,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
-  if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
+  if chat_msg.message.is_removed.is_some() {
+    message_color =  (180, 180, 180);
+  }
+  else if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
     message_color =  (99, 151, 37);
   }
 
@@ -203,7 +206,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                     ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                   }
                 } else {
-                  ui.add(egui::Label::new(text).sense(egui::Sense::hover()));
+                  ui.add(egui::Label::new(text)/*.sense(egui::Sense::hover())*/);
                 }
               }
             };

@@ -60,13 +60,14 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
     loop {
       let retry_wait = backoff.next_backoff();
       match spawn_websocket_live_client(&status_url, &out_tx_2).await {
-        Ok(x) => if x { break; } else { backoff.reset(); },
+        Ok(x) => if x { break; } else { backoff.reset(); backoff.next_backoff(); warn!("Lost connection to DGG status websocket, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())); },
         Err(x) => error!("error connecting to DGG channel status websocket: {:?}", x)
       }
       if let Some(duration) = retry_wait {
         sleep(duration).await;
       }
     }
+    warn!("exiting websocket_live thread");
   });
 
   let name1 = user_name.to_owned();
@@ -107,6 +108,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
         sleep(duration).await;
       }
     }
+    warn!("exiting websocket_chat thread");
   });
 
   channel.transient = Some(ChannelTransient {
@@ -154,22 +156,26 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) 
-              && message.contains("dggApi:streamInfo")
-              && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
-              && msg.r#type == Some("dggApi:streamInfo".to_string())
-              && let Some(data) = msg.data
-              && let Some(streams) = data.streams
-              && let Some(yt_data) = streams.youtube {
-                let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
-                  game_name: yt_data.game, 
-                  is_live: yt_data.live.unwrap_or(false), 
-                  title: yt_data.status_text,  
-                  viewer_count: yt_data.viewers, 
-                  started_at: yt_data.started_at 
-                }) };
+            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) {
+              if message.contains("dggApi:streamInfo")
+                && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
+                && msg.r#type == Some("dggApi:streamInfo".to_string())
+                && let Some(data) = msg.data
+                && let Some(streams) = data.streams
+                && let Some(yt_data) = streams.youtube {
+                  let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
+                    game_name: yt_data.game, 
+                    is_live: yt_data.live.unwrap_or(false), 
+                    title: yt_data.status_text,  
+                    viewer_count: yt_data.viewers, 
+                    started_at: yt_data.started_at 
+                  }) };
 
-                if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+                  if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+              }
+              else {
+                warn!("unable to process dgg status message: {}", message);
+              }
             }
           },
           Err(e) => {
@@ -248,8 +254,10 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                       let cmsg = ChatMessage { 
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
-                        timestamp: NaiveDateTime::from_timestamp_opt(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
-                          .map(|x| DateTime::from_utc(x, Utc))
+                        timestamp: msg.timestamp
+                          .and_then(|ts| NaiveDateTime::from_timestamp_opt(ts as i64 / 1000, (ts % 1000 * 1000_usize.pow(2)) as u32)
+                            .map(|x| DateTime::from_utc(x, Utc))
+                          )
                           .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
                         msg_type: MessageType::Announcement,
@@ -292,7 +300,6 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                   },
                   "ERR" => {
                     if let Ok(msg) = serde_json::from_str::<DggErr>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      
                       match tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage {
                         channel: DGG_CHANNEL_NAME.to_owned(), 
                         provider: ProviderName::DGG, 
@@ -307,6 +314,23 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                         Err(x) => info!("Send failure for ERR: {}", x)
                       };
                     }
+                  },
+                  "MUTE" => {
+                    if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) && let Some(muted_user) = msg.data {
+                      match tx.try_send(IncomingMessage::UserMuted { channel: DGG_CHANNEL_NAME.to_owned(), username: muted_user.to_lowercase() }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for MUTE: {}", x)
+                      };
+                    }
+                  },
+                  "POLLSTART" => {
+                    
+                  },
+                  "POLLSTOP" => {
+
+                  },
+                  "VOTECAST" => {
+
                   },
                   _ => debug!("unknown dgg command: {:?}", message)
                 }
@@ -575,7 +599,7 @@ struct MsgMessage {
 
 #[derive(serde::Deserialize)]
 struct BroadcastMessage {
-  timestamp: usize,
+  timestamp: Option<usize>,
   data: Option<String>
 }
 
@@ -606,4 +630,20 @@ pub struct DggFlair {
   priority: isize,
   color: String,
   image: Vec<DggEmoteImage>
+}
+
+// POLLSTART {\"canvote\":true,\"myvote\":0,\"nick\":\"Lemmiwinks\",\"weighted\":false,
+// \"start\":\"2023-03-17T19:46:40+0000\",\"now\":\"2023-03-17T19:46:40+0000\",\"time\":30000,
+// \"question\":\"Are you wearing Green?\",\"options\":[\"PEPE\",\"YEE\"],\"totals\":[0,0],\"totalvotes\":0}"
+
+pub struct DggPollStart {
+  // canvote: bool,
+  // nick: String,
+  // start: usize,
+  // now: usize,
+  // time: usize,
+  // question: String,
+  // options: Vec<String>,
+  // totals: Vec<usize>,
+  // totalvotes: usize
 }

@@ -302,6 +302,11 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                         Ok(())
                       }
                     },
+                    "CLEARCHAT" => {
+                      tx.try_send(IncomingMessage::UserMuted { 
+                        channel: channel_name.to_owned(), 
+                        username: str_vec[1].to_owned() })
+                    },
                     _ => { debug!("unknown IRC command: {} {}", command, str_vec.join(", ")); Ok(())}
                   };
                   if let Err(e) = result {

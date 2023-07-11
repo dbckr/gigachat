@@ -122,6 +122,7 @@ pub struct TemplateApp {
   pub auth_tokens: AuthTokens,
   enable_combos: bool,
   pub show_timestamps: bool,
+  pub show_muted: bool,
   enable_yt_integration: bool,
   channel_tab_list: Vec<String>,
   selected_channel: Option<String>,
@@ -406,9 +407,12 @@ impl TemplateApp {
               if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
                 self.show_timestamps_changed = true;
               };
+              if ui.checkbox(&mut self.show_muted, "Show Muted/Banned Messages").changed() {
+                self.show_timestamps_changed = true;
+              };
               ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
               ui.add(egui::Slider::new(&mut self.chat_history_limit, 100..=10000).step_by(100.).text(RichText::new("Chat history limit").text_style(TextStyle::Small)));
-              if ui.button("Reload Global and Twitch Sub Emotes").clicked() {
+              if ui.button("Reload Global and TTV Sub Emotes").clicked() {
                 if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::GlobalEmoteListRequest { force_redownload: true }) {
                   warn!("Failed to send request: {e}");
                 }
@@ -745,7 +749,12 @@ impl TemplateApp {
             }
             dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
           },
-          Channel::Youtube { youtube: _, shared: _ } => {}
+          Channel::Youtube { youtube: _, shared } => {
+            shared.transient = Some(ChannelTransient { 
+              channel_emotes: None,
+              badge_emotes: None,
+              status: None });
+          }
         }
       }
     }
@@ -1420,7 +1429,7 @@ impl TemplateApp {
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               //let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().unwrap_or_log().to_owned();
-              let est = create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, &self.providers, &self.channels, &self.global_emotes);
+              let est = create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, self.show_muted, &self.providers, &self.channels, &self.global_emotes);
               let (_, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &est, None, &mut self.emote_loader);
   
               if let Some(user) = user_selected.as_ref() {
@@ -1456,6 +1465,7 @@ impl TemplateApp {
       auth_tokens : _,
       enable_combos,
       show_timestamps,
+      show_muted,
       channel_tab_list : _,
       selected_channel : _,
       rhs_selected_channel : _,
@@ -1550,7 +1560,7 @@ impl TemplateApp {
             continue;
         }
 
-        let mut uimsg = create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, providers, channels, global_emotes);
+        let mut uimsg = create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
@@ -1793,7 +1803,18 @@ impl TemplateApp {
             is_active: false
           });
         }
+      },
+      IncomingMessage::UserMuted { channel, username } => {
+        if let Some(history) = self.chat_histories.get_mut(&channel) {
+          for (msg, _) in history.iter_mut() {
+            if msg.username == username {
+              msg.is_removed = Some("<message deleted>".to_string());
+            }
+          }
+        }
       }
+        IncomingMessage::VoteStart {  } => {},
+        IncomingMessage::VoteStop {  } => {},
     };
   }
 
@@ -1908,6 +1929,7 @@ fn create_uichatmessage<'a,'b>(
   ui_width: f32,
   show_channel_name: bool,
   show_timestamp: bool,
+  show_muted: bool,
   providers: &'b HashMap<ProviderName, Provider>,
   channels: &'b HashMap<String, Channel>,
   global_emotes: &'b HashMap<String, Emote>,
@@ -1921,7 +1943,7 @@ fn create_uichatmessage<'a,'b>(
 
   let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes);
   let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges);
-  let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp);
+  let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp, show_muted);
   let mentions = if let Some(channel) = channels.get(&row.channel) {
     get_mentions_in_message(row, &channel.shared().users)
   } else { None };
