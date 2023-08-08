@@ -3,11 +3,11 @@
 #[cfg(test)]
 mod test {
   use tracing_subscriber::{Registry, Layer, prelude::__tracing_subscriber_SubscriberExt};
-  use std::{ops::Range};
+  use std::ops::Range;
   use itertools::Itertools;
-  use crate::{provider::dgg::{self}};
   //use tracing_test::traced_test;
-  use tracing_unwrap::{OptionExt};
+  use tracing_unwrap::OptionExt;
+  use crate::provider::dgg;
 
   fn test() {
     let verifier = dgg::begin_authenticate();
@@ -21,10 +21,11 @@ mod test {
     println!("{:?}", emotes);
   }*/
 
-  /*#[test]
-  fn test2() {
+  #[tokio::test]
+  async fn test2() {
     let css_path = "dgg-emotes.css";
-    let css = fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, true).expect("failed to download emote css");
+    let client = reqwest::Client::new();
+    let css = crate::emotes::fetch::get_json_from_url("https://cdn.destiny.gg/2.42.0/emotes/emotes.css", Some(css_path), None, &client, true).await.expect("failed to download emote css");
     let loader = dgg::CSSLoader::default();
     let data = loader.get_css_anim_data(&css);
 
@@ -38,7 +39,13 @@ mod test {
     closure("WOOF");
     closure("pepeSteer");
     closure("OOOO");
-  }*/
+    closure("Chatting");
+
+    let result = data.get("Chatting");
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().width, 32);
+    assert_eq!(result.unwrap().steps, 4);
+  }
 
   /*#[test]
   fn test3() {
@@ -203,7 +210,7 @@ mod test {
     use std::collections::HashMap;
     use chrono::Utc;
     use egui::{LayerId, Order, Pos2, Rect, Id};
-    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat_estimate::{TextRange, get_chat_msg_size}, load_font}, emotes::{Emote}};
+    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat_estimate::{TextRange, get_chat_msg_size}, load_font}, emotes::Emote};
 
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());

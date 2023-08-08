@@ -7,8 +7,8 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, TextStyle};
 use itertools::Itertools;
-use crate::{ui::BADGE_HEIGHT, emotes::{Emote}};
-use tracing_unwrap::{OptionExt};
+use crate::{ui::BADGE_HEIGHT, emotes::Emote};
+use tracing_unwrap::OptionExt;
 
 use crate::provider::*;
 
@@ -29,7 +29,6 @@ impl TextRange {
   }
 }
 
-#[tracing::instrument(skip_all)]
 pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, &Emote>, badges: Option<&Vec<(String, &Emote)>>, show_channel_name: bool, show_timestamp: bool) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
@@ -80,7 +79,6 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   row_data
 }
 
-#[tracing::instrument(skip_all)]
 pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &HashMap<String, &Emote>, word: &str, 
   curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, curr_row_range: &TextRange, is_ascii_art: Option<usize>) -> TextRange
 {
@@ -123,7 +121,6 @@ pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &Hash
 }
 
 /// Returns true if starting a new row
-#[tracing::instrument(skip_all)]
 fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, row_char_range: TextRange) -> bool {
   let curr_width = *curr_row_width + rect.x + item_spacing.x;
   if curr_width <= available_width {

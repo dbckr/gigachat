@@ -14,7 +14,7 @@ use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
 
 use super::EMOTE_SCALING;
-use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::{TextRange}};
+use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
 
 const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
@@ -265,7 +265,7 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &RetainedImage, zero_widt
   }
 }*/
 
-fn highlight_ui_row(ui: &mut egui::Ui, color: Color32) {
+fn highlight_ui_row(ui: &egui::Ui, color: Color32) {
   let cursor = ui.cursor().to_owned();
   let rect = egui::epaint::Rect { 
     min: Pos2 {
@@ -286,8 +286,7 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http") || word.starts_with("#twitch") || word.starts_with("#youtube")
 }
 
-#[tracing::instrument(skip_all)]
-pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &mut egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
+pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
   let mut job = LayoutJob {
     break_on_newline: false,
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),

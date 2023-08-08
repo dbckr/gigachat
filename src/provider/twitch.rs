@@ -4,21 +4,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::{HashSet, HashMap}};
+use std::collections::{HashSet, HashMap};
 use async_channel::{Receiver, Sender};
 use backoff::backoff::Backoff;
 use tracing::{info, trace, error, debug};
 use chrono::{DateTime, Utc, NaiveDateTime};
 use futures::prelude::*;
-use irc::client::{prelude::*};
+use irc::client::prelude::*;
 use itertools::Itertools;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
-use crate::{provider::{convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::{fetch::get_json_from_url}};
+use crate::{provider::{convert_color_hex, ProviderName, ChannelStatus, MessageType}, emotes::fetch::get_json_from_url};
 use tracing_unwrap::{OptionExt, ResultExt};
 use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelShared, TwitchChannel}};
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
@@ -31,8 +28,8 @@ pub struct TwitchChatManager {
 
 impl TwitchChatManager {
   pub fn new(username: &String, token: &String, runtime: &Runtime) -> Self {
-    let (mut out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
-    let (in_tx, mut in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
+    let (out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
+    let (in_tx, in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
     let token2 = token.to_owned();
     let name2 = username.to_owned();
 
@@ -47,7 +44,7 @@ impl TwitchChatManager {
       let mut channels_joined : Vec<String> = Default::default();
       loop {
         let retry_wait = backoff.next_backoff();
-        match spawn_irc(&name2, &token2, &mut out_tx, &mut in_rx, &mut channels_joined).await {
+        match spawn_irc(&name2, &token2, &out_tx, &in_rx, &mut channels_joined).await {
           Ok(x) => if x { break; } else { 
             backoff.reset(); 
             backoff.next_backoff();
@@ -133,8 +130,7 @@ impl ChatManagerRx for TwitchChatManager {
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-async fn spawn_irc(user_name : &String, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
+async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
   let web_client = reqwest::Client::new();
 
   let mut profiles : HashMap<String, UserProfile> = Default::default();
@@ -386,7 +382,6 @@ pub fn authenticate() -> String {
   format!("https://id.twitch.tv/oauth2/authorize?client_id={client_id}&redirect_uri=https://dbckr.github.io/GigachatAuth&response_type=token&scope={scope}&state={state}")
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn get_channel_statuses(channel_ids : Vec<&String>, token: &String, client: &reqwest::Client) -> Vec<TwitchChannelStatus> {
   if channel_ids.is_empty() {
     return Default::default();

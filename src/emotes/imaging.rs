@@ -7,18 +7,15 @@
 use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf, hash::{Hash, Hasher}};
 
 use ahash::AHasher;
-use egui::{ColorImage};
+use egui::ColorImage;
 use egui_extras::RetainedImage;
-use image::{DynamicImage};
+use image::DynamicImage;
 use itertools::Itertools;
-//use glob::glob;
 use reqwest::{header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT}, StatusCode};
 use tracing::{info, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
+use usvg::TreeParsing;
 use super::CssAnimationData;
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
 
 pub async fn get_image_data(
   name: &str,
@@ -53,7 +50,6 @@ pub async fn get_image_data(
   None
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 async fn get_image_data_inner(
   url: &str,
   expect_path: &str,
@@ -106,7 +102,6 @@ async fn get_image_data_inner(
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 async fn download_image(expect_path: &str, id: &str, extension: &mut Option<String>, url: &str, client: &reqwest::Client, bad_extension: bool) -> Result<Vec<u8>, anyhow::Error> {
   let req = client.get(url);
   let resp = req.send().await?;
@@ -185,7 +180,6 @@ fn write_file_to_disk(expect_path: &str, id: &str, ext: &String, buffer: &[u8]) 
     Ok(())
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 fn load_image(
   extension: &str,
   buffer: &[u8],
@@ -207,9 +201,10 @@ fn load_image(
       //opt.resources_dir = std::fs::canonicalize(&args[1]).ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
       //opt.fontdb.load_system_fonts();
       let rtree = usvg::Tree::from_data(buffer, &opt).unwrap();
-      let pixmap_size = rtree.size.to_screen_size();
+      let pixmap_size = rtree.size.to_int_size();//.to_screen_size();
       let mut pixmap = tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
-      resvg::render(&rtree, usvg::FitTo::Original, tiny_skia::Transform::default(), pixmap.as_mut()).unwrap();
+      let tree = resvg::Tree::from_usvg(&rtree);
+      tree.render(tiny_skia::Transform::default(), &mut pixmap.as_mut());
       let pixels = pixmap.encode_png()?;
       let img = image::load_from_memory(&pixels)?;
       Ok([(to_egui_image(img), 0)].to_vec())
@@ -218,7 +213,6 @@ fn load_image(
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 fn process_dgg_sprite_png(img: DynamicImage, data: &CssAnimationData) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut frames : Vec<(ColorImage, u16)> = Default::default();
   let mut x_start = 0;
@@ -245,7 +239,6 @@ fn process_dgg_sprite_png(img: DynamicImage, data: &CssAnimationData) -> Result<
   Ok(frames)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let mut gif_opts = gif::DecodeOptions::new();
@@ -269,7 +262,6 @@ pub fn load_animated_gif(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow
   Ok(loaded_frames)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyhow::Error> {
   let mut loaded_frames: Vec<(ColorImage, u16)> = Default::default();
   let decoder = match webp_animation::Decoder::new(buffer) {
@@ -296,7 +288,6 @@ pub fn load_animated_webp(buffer: &[u8]) -> Result<Vec<(ColorImage, u16)>, anyho
   Ok(loaded_frames)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   if let Ok(mut file) = File::open(filepath) {
     let mut buf: Vec<u8> = Default::default();
@@ -307,12 +298,10 @@ pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn load_to_texture_handles(/*ctx : &egui::Context,*/ frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(RetainedImage, u16)>> {
   frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(frame), msec) }).collect())
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn load_image_into_texture_handle(
   //ctx: &egui::Context,
   image: ColorImage,
@@ -324,7 +313,6 @@ pub fn load_image_into_texture_handle(
   RetainedImage::from_color_image(format!("{uid}"), image)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument)]
 pub fn to_egui_image(
   image: image::DynamicImage
 ) -> ColorImage {

@@ -4,9 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap, path::{Path}};
+use std::{collections::HashMap, path::Path};
 use async_channel::{Sender, Receiver};
-use backoff::{backoff::Backoff};
+use backoff::backoff::Backoff;
 use chrono::{Utc, NaiveDateTime, DateTime};
 use futures::{StreamExt, SinkExt, TryFutureExt};
 use itertools::Itertools;
@@ -14,14 +14,11 @@ use tracing::{trace, info,warn,error, debug};
 use crate::{provider::MessageType, emotes::{EmoteRequest, EmoteSource}};
 use regex::Regex;
 use tokio::{runtime::Runtime, time::sleep, time::Duration};
-use tokio_tungstenite::{tungstenite::{http::{header::COOKIE}, client::IntoClientRequest, Message}, connect_async_tls_with_config};
+use tokio_tungstenite::{tungstenite::{http::header::COOKIE, client::IntoClientRequest, Message}, connect_async_tls_with_config};
 use crate::{emotes::{fetch, Emote, EmoteLoader, CssAnimationData}, provider::ChannelStatus};
 use super::{IncomingMessage, OutgoingMessage, ProviderName, ChatMessage, UserProfile, make_request, ChatManager, convert_color_hex, channel::{Channel, ChannelTransient, DggChannel, ChannelShared}};
 use tracing_unwrap::{OptionExt, ResultExt};
 use base64::{Engine as _, engine::general_purpose};
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
 
 pub const DGG_CHANNEL_NAME : &str = "Destiny";
 
@@ -45,13 +42,13 @@ pub fn init_channel() -> Channel {
 }
 
 pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channel: &mut ChannelShared, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
-  let (mut out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
-  let (in_tx, mut in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
+  let (out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
+  let (in_tx, in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
 
   let status_url = dgg.dgg_status_url.to_owned();
   let chat_url = dgg.dgg_chat_url.to_owned();
 
-  let mut out_tx_2 = out_tx.clone();
+  let out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
     let mut backoff = backoff::ExponentialBackoffBuilder::new()
     .with_initial_interval(Duration::from_millis(3000))
@@ -62,7 +59,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
     
     loop {
       let retry_wait = backoff.next_backoff();
-      match spawn_websocket_live_client(&status_url, &mut out_tx_2).await {
+      match spawn_websocket_live_client(&status_url, &out_tx_2).await {
         Ok(x) => if x { break; } else { backoff.reset(); },
         Err(x) => error!("error connecting to DGG channel status websocket: {:?}", x)
       }
@@ -84,7 +81,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
 
     loop {
       let retry_wait = backoff.next_backoff();
-      match spawn_websocket_chat_client(&chat_url, &name1, &token1, &mut out_tx, &mut in_rx).await {
+      match spawn_websocket_chat_client(&chat_url, &name1, &token1, &out_tx, &in_rx).await {
         Ok(x) => if x { break; } else { 
           backoff.reset();
           backoff.next_backoff();
@@ -148,9 +145,9 @@ impl ChatManager {
 }
 
 #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
+async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
   let request = dgg_status_url.into_client_request()?;
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
+  let (mut socket, _) = connect_async_tls_with_config(request, None, false, None).await?;
 
   loop {
     tokio::select! {
@@ -185,8 +182,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &mut Sender<I
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &mut Sender<IncomingMessage>, rx: &mut Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
+async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
   let cookie = format!("authtoken={token}");
@@ -198,7 +194,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
   //  info!("{}: {:?}", item.0, item.1);
   //}
 
-  let (mut socket, _) = connect_async_tls_with_config(request, None, None).await?;
+  let (mut socket, _) = connect_async_tls_with_config(request, None, false, None).await?;
   //let (mut write, mut read) = socket.split();
 
   super::display_system_message_in_chat(tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information);
@@ -358,10 +354,10 @@ pub fn begin_authenticate() -> String {
 }
 
 pub async fn complete_authenticate(code: &str, code_verifier: &String) -> Option<String> {
-  let mut easy = reqwest::Client::new();
+  let client = reqwest::Client::new();
   let url = format!("https://www.destiny.gg/oauth/token?grant_type=authorization_code&code={code}&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&code_verifier={code_verifier}");
 
-  match make_request(&url, None, &mut easy).await {
+  match make_request(&url, None, &client).await {
     Ok(resp) => {
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
@@ -374,10 +370,10 @@ pub async fn complete_authenticate(code: &str, code_verifier: &String) -> Option
 }
 
 pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
-  let mut easy = reqwest::Client::new();
+  let client = reqwest::Client::new();
   let url = format!("https://www.destiny.gg/oauth/token?grant_type=refresh_token&client_id={CLIENT_ID}&refresh_token={refresh_token}");
 
-  match make_request(&url, None, &mut easy).await {
+  match make_request(&url, None, &client).await {
     Ok(resp) => {
       let result: Result<AuthResponse, _> = serde_json::from_str(&resp);
       match result {
@@ -389,7 +385,6 @@ pub async fn refresh_auth_token(refresh_token: String) -> Option<String> {
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_dgg_flairs(channel_name: &String, cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let json_path = &cache_path.join("dgg-flairs.json");
   let json = fetch::get_json_from_url(format!("{}/flairs/flairs.json", cdn_base_url.trim_end_matches('/')).as_str(), json_path.to_str(), None, client, force_redownload).await?;
@@ -420,7 +415,6 @@ pub async fn load_dgg_flairs(channel_name: &String, cdn_base_url: &str, cache_pa
   Ok(result)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_dgg_emotes(channel_name: &String, cdn_base_url: &str, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> {
   let css_path = &cache_path.join("dgg-emotes.css");
   let css = fetch::get_json_from_url(format!("{}/emotes/emotes.css", cdn_base_url.trim_end_matches('/')).as_str(), css_path.to_str(), None, client, force_redownload).await?;
@@ -474,38 +468,45 @@ impl Default for CSSLoader {
 }
 
 impl CSSLoader {
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   pub fn get_css_anim_data(&self, css: &str) -> HashMap<String, CssAnimationData> {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
-    let regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
+    let anim_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
+    let width_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]").unwrap_or_log();
     let css_notabs = css.replace('\t', "  ");
-    let caps = regex.captures_iter(css_notabs.as_str());
-    for (_x, captures) in caps.enumerate() {
+    let width_caps = width_regex.captures_iter(css_notabs.as_str());
+    let anim_caps = anim_regex.captures_iter(css_notabs.as_str()).collect_vec();
+    for (_ix, captures) in width_caps.enumerate() {
       //println!("{captures:?}");
       let prefix = captures.get(1).map(|x| x.as_str());
       //println!("{:?}", prefix);
+      let anim = anim_caps.iter()
+        .find(|f| f.get(1)/*.inspect(|f| println!("{f:?}"))*/.map(|x| x.as_str()) == prefix)
+        .and_then(|x| x.get(2))
+        .map(|x| x.as_str());
       let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
-      let anim = captures.get(3).map(|x| x.as_str());
+      //let anim = captures.get(2).map(|x| x.as_str());
+      //println!("{anim:?}");
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
 
-      let caps = anim.and_then(|x| self.time_regex.captures(x)).unwrap_or_log();
-      let time = caps.get(1).and_then(|x| x.as_str().parse::<f32>().ok());
-      let unit = caps.get(2).map(|x| x.as_str());
-      //info!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);
-      let time_msec = if let Some(unit) = unit && let Some(time) = time {
-        match unit { "ms" => time as isize, _ => (time * 1000.) as isize }
-      } else if let Some(steps) = steps {
-        steps * 30
-      } else {
-        1000
-      };
-
-      if let Some(prefix) = prefix && let Some(width) = width {
-        result.insert(prefix.to_owned(), CssAnimationData {
-          width,
-          cycle_time_msec: time_msec,
-          steps: steps.unwrap_or(1)
-        });
+      if let Some(caps) = anim.and_then(|x| self.time_regex.captures(x)) {
+        let time = caps.get(1).and_then(|x| x.as_str().parse::<f32>().ok());
+        let unit = caps.get(2).map(|x| x.as_str());
+        //info!("{:?} {:?} {:?} {:?} {:?}", width, anim, steps, time, unit);
+        let time_msec = if let Some(unit) = unit && let Some(time) = time {
+          match unit { "ms" => time as isize, _ => (time * 1000.) as isize }
+        } else if let Some(steps) = steps {
+          steps * 30
+        } else {
+          1000
+        };
+  
+        if let Some(prefix) = prefix /*&& let Some(width) = width*/ {
+          result.insert(prefix.to_owned(), CssAnimationData {
+            width: width.unwrap_or(0),
+            cycle_time_msec: time_msec,
+            steps: steps.unwrap_or(1)
+          });
+        }
       }
     }
     //println!("{x}");

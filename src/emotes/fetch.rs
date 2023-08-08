@@ -9,11 +9,8 @@ use itertools::Itertools;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tracing::{debug, warn};
 use std::io::BufReader;
-use super::{Emote};
+use super::Emote;
 use tracing_unwrap::{OptionExt, ResultExt};
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
 
 #[allow(dead_code)]
 enum EmoteSize {
@@ -24,7 +21,6 @@ enum EmoteSize {
 
 const EMOTE_DOWNLOADSIZE : EmoteSize = EmoteSize::Medium;
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn process_badge_json(
   room_id: &str,
   url: &str,
@@ -57,7 +53,6 @@ pub async fn process_badge_json(
   Ok(emotes)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn process_twitch_follower_emote_json(
   url: &str,
   filename: &str,
@@ -95,7 +90,6 @@ pub async fn process_twitch_follower_emote_json(
   Ok(emotes)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn process_emote_json(
   url: &str,
   filename: &str,
@@ -224,7 +218,6 @@ pub async fn process_emote_json(
   Ok(emotes)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn get_json_from_url(
   url: &str,
   filename: Option<&str>,

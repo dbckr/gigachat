@@ -11,9 +11,9 @@ use tracing::info;
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use tracing_unwrap::{ResultExt};
+use tracing_unwrap::ResultExt;
 
-use crate::emotes::{Emote};
+use crate::emotes::Emote;
 
 use self::channel::ChannelStatus;
 
@@ -166,7 +166,7 @@ pub fn convert_color_hex(hex_string: Option<&String>) -> Option<(u8, u8, u8)> {
   }
 }
 
-pub async fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &mut reqwest::Client) -> Result<String, anyhow::Error> {
+pub async fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy : &reqwest::Client) -> Result<String, anyhow::Error> {
     let mut hmap = HeaderMap::new();
     if let Some(x) = headers { 
       x.iter().for_each(|(h,v)| {

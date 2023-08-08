@@ -6,18 +6,15 @@
 
 use ahash::HashSet;
 use async_channel::Receiver;
-use chrono::{Timelike};
+use chrono::Timelike;
 use egui_extras::RetainedImage;
 use tracing::{info, debug, warn, error};
 use egui::ColorImage;
 
 use tokio::{runtime::Runtime, task::JoinHandle};
-use std::{collections::{HashMap}, path::{PathBuf, Path}};
+use std::{collections::HashMap, path::{PathBuf, Path}};
 use std::str;
 use tracing_unwrap::{OptionExt};
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
 
 use crate::{provider::{dgg, channel::{ChannelShared, Channel}, Provider}, TemplateApp};
 
@@ -254,7 +251,6 @@ impl Default for EmoteLoader {
 }
 
 impl EmoteLoader {
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   pub fn new(app_name: &str, runtime: &Runtime) -> Self {
     let (in_tx, in_rx) = async_channel::bounded::<EmoteRequest>(10000);
     let (out_tx, out_rx) = async_channel::bounded::<EmoteResponse>(10000);
@@ -265,7 +261,6 @@ impl EmoteLoader {
       let cache_path = cache_path.clone();
       let in_rx = in_rx.clone();
       let out_tx = out_tx.clone();
-      let n = n;
       let task : JoinHandle<()> = runtime.spawn(async move { 
         debug!("starting emote thread {n}");
         let client = reqwest::Client::new();
@@ -371,7 +366,6 @@ impl EmoteLoader {
   }  
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_channel_emotes(
   channel_id: &String,
   token: &String,
@@ -435,7 +429,6 @@ pub async fn load_channel_emotes(
   Ok(result)
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn load_global_emotes(
   cache_path: &Path,
   client: &reqwest::Client,
@@ -483,7 +476,6 @@ async fn process_badge_json(room_id: &str, url: &str, cache_path: &Path, path: &
   fetch::process_badge_json(room_id, url, cache_path.join(path).to_str().unwrap_or_log(), headers, client, force_redownload).await
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   if emote_set_id.contains(':') || emote_set_id.contains('-') || emote_set_id.contains("emotesv2") {
     return Ok(Default::default());
@@ -516,7 +508,6 @@ pub async fn twitch_get_emote_set(token : &String, emote_set_id : &String, cache
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     "global",
@@ -543,7 +534,6 @@ pub async fn twitch_get_global_badges(token : &String, cache_path: &Path, client
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache_path: &Path, client: &reqwest::Client, force_redownload: bool) -> Result<HashMap<String, Emote>, anyhow::Error> { 
   let emotes = process_badge_json(
     room_id,
@@ -570,7 +560,6 @@ pub async fn twitch_get_channel_badges(token : &String, room_id : &String, cache
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   // Lifted from egui
   if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", app_name) {
@@ -591,7 +580,6 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn load_emote_data(emote: &mut Emote, _ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
   if emote.data.is_none() {
     emote.data = imaging::load_to_texture_handles(data);
@@ -652,7 +640,7 @@ impl AddEmote for Channel {
   fn set_emotes(&mut self, emotes : Result<HashMap<String, Emote>, anyhow::Error>) {
     match emotes {
       Ok(mut emotes) => {
-        for (_, mut emote) in emotes.iter_mut() {
+        for (_, emote) in emotes.iter_mut() {
           emote.source = EmoteSource::Channel;
           emote.channel_name = self.channel_name().to_owned();
         }
@@ -671,7 +659,7 @@ impl AddEmote for Channel {
   fn set_badges(&mut self, badges : Result<HashMap<String, Emote>, anyhow::Error>) {
     match badges {
       Ok(mut badges) => {
-        for (_, mut badge) in badges.iter_mut() {
+        for (_, badge) in badges.iter_mut() {
           badge.source = EmoteSource::ChannelBadge;
           badge.channel_name = self.channel_name().to_owned();
         }

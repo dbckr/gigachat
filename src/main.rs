@@ -7,30 +7,20 @@
 #![windows_subsystem = "windows"]
 
 use std::env;
-use std::io::BufWriter;
 
 use gigachat::TemplateApp;
-use tracing::{error};
+use tracing::error;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, Registry};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_unwrap::{ResultExt};
-use tracing_flame::FlushGuard;
-use tracing_flame::FlameLayer;
-
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
 
 fn main() {
-  #[cfg(feature = "dhat-heap")]
-  let _profiler = dhat::Profiler::new_heap();
-
   use eframe::Renderer;
 
   let args: Vec<String> = env::args().collect();
 
-  let (_file_guard, _flame_guard) = init_logging(args);
+  let _file_guard = init_logging(args);
 
   let native_options = eframe::NativeOptions { 
     transparent: true, 
@@ -56,7 +46,7 @@ fn main() {
   };
 }
 
-fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<std::fs::File>>>) {
+fn init_logging(args: Vec<String>) -> WorkerGuard {
   let working_dir = std::env::current_dir().ok().unwrap_or_default();
 
   let file_appender = tracing_appender::rolling::hourly(working_dir, "gigachat.log");
@@ -78,17 +68,7 @@ fn init_logging(args: Vec<String>) -> (WorkerGuard, Option<FlushGuard<BufWriter<
     .with_filter(log_level)
     .boxed();  
 
-  let flame_guard = if cfg!(feature = "instrumentation") {
-    let (flame_layer, flame_guard) = FlameLayer::with_file("./flamelayer.output").unwrap();
-    let subscriber = Registry::default().with(file).with(flame_layer);
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
-    Some(flame_guard)
-  }
-  else {
-    let subscriber = Registry::default().with(file);
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
-    None
-  };
-
-  (guard, flame_guard)
+  let subscriber = Registry::default().with(file);
+  tracing::subscriber::set_global_default(subscriber).expect("Failed to set global default tracing subscriber");
+  guard
 }

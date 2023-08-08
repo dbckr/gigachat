@@ -8,39 +8,30 @@
 
 use tracing::{info, error, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::{Add}, iter::Peekable};
+use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::Add, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::{FontId}, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::FontId, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle};
 use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
 use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Provider, ProviderName, ComboCounter, ChatManager, MessageType, youtube_server, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared}, dgg}, mod_selected_label::SelectableLabel, emotes::{LoadEmote, AddEmote, OverlayItem, EmoteSource}};
-use crate::emotes::{imaging::load_file_into_buffer};
-use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::{load_image_into_texture_handle}}};
-use self::{chat_estimate::TextRange};
-
-#[cfg(feature = "instrumentation")]
-use tracing::{instrument};
+use crate::emotes::imaging::load_file_into_buffer;
+use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::load_image_into_texture_handle}};
+use self::chat_estimate::TextRange;
 
 pub mod chat;
 pub mod chat_estimate;
 
 /// Max length before manually splitting up a string without whitespace
 const WORD_LENGTH_MAX : usize = 30;
+
 /// Emotes in chat messages will be scaled to this height, relative to chat text font size
-pub const EMOTE_SCALING : f32 = 1.6;
+const EMOTE_SCALING : f32 = 1.6;
 const BADGE_HEIGHT : f32 = 18.0;
+
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 38.0;
-//const EMOTE_RX_PER_FRAME : usize = 10;
-
-pub enum ChannelTabDragEvent {
-  MoveRight { channel : String },
-  MoveLeft { channel : String },
-  //MoveToRightPane,
-  //MoveToLeftPane
-}
 
 pub struct UiChatMessageRow {
   pub row_height: f32,
@@ -257,7 +248,6 @@ impl eframe::App for TemplateApp {
 }
 
 impl TemplateApp {
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn update_inner(&mut self, ctx: &egui::Context) {
     if self.emote_loader.transparent_img.is_none() {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
@@ -290,7 +280,7 @@ impl TemplateApp {
         EmoteResponse::TwitchGlobalBadgeListResponse { response } => {
           match response {
             Ok(mut badges) => {
-              for (_, mut badge) in badges.iter_mut() {
+              for (_, badge) in badges.iter_mut() {
                 badge.source = EmoteSource::GlobalBadge;
               }
               if let Some(provider) = self.providers.get_mut(&ProviderName::Twitch) {
@@ -762,7 +752,6 @@ impl TemplateApp {
     None
   }
 
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
     let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
 
@@ -784,11 +773,13 @@ impl TemplateApp {
       
       //ui.painter().rect_stroke(ui.max_rect(), Rounding::none(), Stroke::new(2.0, Color32::DARK_RED));
       if let Some(sc) = chat_panel.selected_channel.as_ref().to_owned() {
+        let outgoing_msg_hint : egui::WidgetText = "Type a message to send".into();
+
         ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
         let mut outgoing_msg = egui::TextEdit::multiline(&mut chat_panel.draft_message)
           .desired_rows(2)
           .desired_width(ui.available_width())
-          .hint_text("Type a message to send")
+          .hint_text(outgoing_msg_hint)
           .font(egui::TextStyle::Body)
           .lock_focus(chat_panel.selected_emote_input.is_some())
           .show(ui);
@@ -1034,7 +1025,7 @@ impl TemplateApp {
         .id_source(format!("chatscrollarea {id}"))
         .auto_shrink([false; 2])
         .stick_to_bottom(true)
-        .always_show_scroll(true)
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
@@ -1391,7 +1382,7 @@ impl TemplateApp {
         self.show_add_channel_menu = false;
       }
     }
-}
+  } 
 
   fn selected_user_chat_history_window(&mut self, id: &str, chat_panel: &mut ChatPanelOptions, area: Rect, ctx: &egui::Context) -> Rect {
     let ChatPanelOptions {
@@ -1455,7 +1446,6 @@ impl TemplateApp {
     }
   }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
     let TemplateApp {
       chat_history_limit: _,
@@ -1682,7 +1672,7 @@ impl TemplateApp {
             }
           }).collect_vec();
           for channel in provider_channels {
-            let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
+            let chat_history = self.chat_histories.entry(channel.to_owned()).or_default();
             push_history(
               chat_history, 
               message.to_owned(),
@@ -1691,7 +1681,7 @@ impl TemplateApp {
               &self.global_emotes);
           }
         } else {
-          let chat_history = self.chat_histories.entry(channel.to_owned()).or_insert_with(Default::default);
+          let chat_history = self.chat_histories.entry(channel.to_owned()).or_default();
 
           if let Some(c) = self.channels.get_mut(&channel) {
             c.shared_mut().users.insert(message.username.to_lowercase(), ChannelUser {
@@ -1807,7 +1797,6 @@ impl TemplateApp {
     };
   }
 
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
     let emote_loader = &mut self.emote_loader;
     if let Some(input_str) = word {
@@ -1872,7 +1861,6 @@ impl TemplateApp {
     }
   }
 
-  #[cfg_attr(feature = "instrumentation", instrument(skip_all))]
   fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
     if let Some(input_str) = word {
       if input_str.len() < 3  {
@@ -1914,7 +1902,6 @@ fn get_text_style(text_style: TextStyle, ctx: &egui::Context) -> FontId {
   text_style.resolve(ctx.style().as_ref())
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn create_uichatmessage<'a,'b>(
   row: &'a ChatMessage,
   ui: &mut egui::Ui, 
@@ -1959,7 +1946,7 @@ fn create_uichatmessage<'a,'b>(
   }
 }
 
-fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &mut egui::Ui, selected_msg: &mut Option<(Vec2, ChatMessage)>) {
+fn set_selected_message(set_selected_msg: Option<ChatMessage>, ui: &egui::Ui, selected_msg: &mut Option<(Vec2, ChatMessage)>) {
     let mut area = Rect::NOTHING;
     let mut clicked = false;
     if let Some(x) = set_selected_msg.as_ref() {
@@ -2036,15 +2023,13 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, ChannelUser>) -> Option<Vec<String>> {
-  Some(row.message.split(' ').into_iter().filter_map(|f| {
+  Some(row.message.split(' ').filter_map(|f| {
     let word = f.trim_start_matches('@').trim_end_matches(',').to_lowercase();
     users.get(&word).map(|u| u.display_name.to_owned())
   }).collect_vec())
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_emotes_for_message<'a>(row: &ChatMessage, provider_emotes: Option<&'a HashMap<String, Emote>>, channel_emotes: Option<&'a HashMap<String, Emote>>, global_emotes: &'a HashMap<String, Emote>) -> HashMap<String, &'a Emote> {
   let mut result : HashMap<String, &Emote> = Default::default();
   let results = row.message.to_owned().split(' ').filter_map(|word| {
@@ -2073,7 +2058,6 @@ fn get_emotes_for_message<'a>(row: &ChatMessage, provider_emotes: Option<&'a Has
   result
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 fn get_badges_for_message<'a>(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&'a HashMap<String, Emote>>, channel_badges: Option<&'a HashMap<String, Emote>>) -> (Option<Vec<(String, &'a Emote)>>, Option<(u8,u8,u8)>) {
   let mut result : Vec<(String, &'a Emote)> = Default::default();
   if badges.is_none() { return (None, None); }
@@ -2148,30 +2132,18 @@ pub fn load_font() -> FontDefinitions {
       fonts.families.entry(FontFamily::Monospace).or_default().push("Nirmala".into());
     }
   }
-  // Non-windows, check for Roboto font
-  else if let Some(font_file) = load_file_into_buffer("Roboto-Regular.ttf") {
-    let mut font = FontData::from_owned(font_file);
-    // tweak scale to make sizing similiar to Segoe
-    font.tweak.scale = 0.88;
-    fonts.font_data.insert("Roboto".into(), font);
-    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Roboto".into());
-    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Roboto".into());
-
-    // Amogus font
-    if let Some(nirmala_font) = load_file_into_buffer("NotoSansSinhala-Regular.ttf") {
-      let nirmala = FontData::from_owned(nirmala_font);
-      fonts.font_data.insert("NotoSansSinhala".into(), nirmala);
-      fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansSinhala".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansSinhala".into());
-    }
-
-    // Emoji font
-    if let Some(emoji) = load_file_into_buffer("EmojiOneColor.otf") {
-      let emojis = FontData::from_owned(emoji);
-      fonts.font_data.insert("EmojiOneColor".into(), emojis);
-      fonts.families.entry(FontFamily::Proportional).or_default().insert(1, "EmojiOneColor".into());
-      fonts.families.entry(FontFamily::Monospace).or_default().insert(1, "EmojiOneColor".into());
-    }
+  // Non-windows, check for some linux fonts
+  else if let Some(font_file) = load_file_into_buffer("/usr/share/fonts/noto/NotoSans-Regular.ttf") {
+    let font = FontData::from_owned(font_file);
+    fonts.font_data.insert("NotoSans".into(), font);
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "NotoSans".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "NotoSans".into());
+  }
+  else if let Some(font_file) = load_file_into_buffer("/usr/share/fonts/TTF/OpenSans-Regular.ttf") {
+    let font = FontData::from_owned(font_file);
+    fonts.font_data.insert("OpenSans".into(), font);
+    fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "OpenSans".into());
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "OpenSans".into());
   }
 
   fonts
