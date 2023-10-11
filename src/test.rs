@@ -235,7 +235,7 @@ mod test {
       msg_type: MessageType::Chat,
       ..Default::default() };
     let emotes : HashMap<String, &Emote> = Default::default();
-    let badges : Vec<(String, &Emote)> = Default::default();
+    let badges : Vec<&Emote> = Default::default();
     let ui_width = ui.available_width();
     
     let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp, false);

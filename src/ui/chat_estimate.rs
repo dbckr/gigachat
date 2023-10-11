@@ -29,7 +29,16 @@ impl TextRange {
   }
 }
 
-pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, emotes: &HashMap<String, &Emote>, badges: Option<&Vec<(String, &Emote)>>, show_channel_name: bool, show_timestamp: bool, show_muted: bool) -> Vec<(f32, TextRange, bool)> {
+pub fn get_chat_msg_size(
+  ui: &egui::Ui, 
+  ui_width: f32, 
+  row: &ChatMessage, 
+  emotes: &HashMap<String, &Emote>, 
+  badges: Option<&Vec<&Emote>>, 
+  show_channel_name: bool, 
+  show_timestamp: bool, 
+  show_muted: bool
+) -> Vec<(f32, TextRange, bool)> {
   // Use text jobs and emote size data to determine rows and overall height of the chat message when layed out
   let mut msg_char_range : TextRange = TextRange::Range { range: (0..0) };
   let mut curr_row_width : f32 = 0.0;
@@ -37,7 +46,12 @@ pub fn get_chat_msg_size(ui: &mut egui::Ui, ui_width: f32, row: &ChatMessage, em
   let margin_width = 1. + ui.spacing().item_spacing.x; // single pixel image that starts each row
   //info!("ascii {}", is_ascii_art.is_some());
 
-  let job = chat::get_chat_msg_header_layoutjob(false, ui, &row.channel, Color32::WHITE, chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_channel_name, show_timestamp);
+  let job = if show_channel_name {
+    chat::get_chat_msg_header_layoutjob(false, ui, Some((&row.channel, Color32::WHITE)), chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_timestamp)
+  } else {
+    chat::get_chat_msg_header_layoutjob(false, ui, None, chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_timestamp)
+  };
+
   let header_rows = &ui.fonts(|f| f.layout_job(job)).rows;
   for header_row in header_rows.iter().take(header_rows.len() - 1) {
     row_data.push((header_row.rect.size().y.max(ui.spacing().interact_size.y).max(MIN_LINE_HEIGHT), TextRange::Range { range: (0..0) }, false));
@@ -125,7 +139,16 @@ pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &Hash
 }
 
 /// Returns true if starting a new row
-fn process_word_result(available_width: f32, item_spacing: &egui::Vec2, interact_size: &egui::Vec2, rect: &egui::Vec2, curr_row_width: &mut f32, curr_row_height: &mut f32, row_data: &mut Vec<(f32, TextRange, bool)>, row_char_range: TextRange) -> bool {
+fn process_word_result(
+  available_width: f32, 
+  item_spacing: &egui::Vec2, 
+  interact_size: &egui::Vec2, 
+  rect: &egui::Vec2, 
+  curr_row_width: &mut f32, 
+  curr_row_height: &mut f32, 
+  row_data: &mut Vec<(f32, TextRange, bool)>, 
+  row_char_range: TextRange
+) -> bool {
   let curr_width = *curr_row_width + rect.x + item_spacing.x;
   if curr_width <= available_width {
     *curr_row_width += rect.x + item_spacing.x;

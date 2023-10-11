@@ -20,7 +20,12 @@ const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
 pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
-  let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
+  let job = if show_channel_name {
+    get_chat_msg_header_layoutjob(true, ui, Some((&row.message.channel, channel_color)), None, &row.message.timestamp, &row.message.profile, show_timestamp)
+  } else {
+    get_chat_msg_header_layoutjob(true, ui, None, None, &row.message.timestamp, &row.message.profile, show_timestamp)
+  };
+
   let ui_row = ui.horizontal_wrapped(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
       ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
@@ -50,7 +55,6 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   }
 
   let mut msg_right_clicked = false;
-  let channel_color = get_provider_color(&chat_msg.message.provider);
   let ui_row = ui.horizontal_wrapped(|ui| {
     let mut row_ix = 0;
     /*if chat_msg.is_ascii_art {
@@ -78,10 +82,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
         if row_ix == 0 {
           let username = determine_name_to_display(chat_msg.message);
-          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
+          let job = get_chat_msg_header_layoutjob(true, ui, chat_msg.channel_display_info(), username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_timestamp);
           ui.add(egui::Label::new(job).sense(egui::Sense::hover()));
           if let Some(user_badges) = &chat_msg.badges {
-            for (badge, emote) in user_badges {
+            for emote in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
               if let Some(tex) = emote.get_texture(emote_loader) {
                 ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
@@ -89,7 +93,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                   //ui.vertical_centered(|ui| {
                     match chat_msg.message.provider {
                       ProviderName::Twitch => {
-                        let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                        let parts = emote.name.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
                         match parts.0 {
                           "subscriber" => {
                             let num = parts.1.parse::<usize>().unwrap_or(0);
@@ -105,7 +109,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                           _ => ui.label(parts.0)
                         };
                       },
-                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(badge)); },
+                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(&emote.name.to_owned())); },
                       ProviderName::YouTube => {}
                     };
 
@@ -289,13 +293,21 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http") || word.starts_with("#twitch") || word.starts_with("#youtube")
 }
 
-pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
+pub fn get_chat_msg_header_layoutjob(
+  for_display: bool, 
+  ui: &egui::Ui, 
+  channel_name: Option<(&str, Color32)>,
+  username: Option<&String>, 
+  timestamp: &DateTime<Utc>, 
+  profile: &UserProfile, 
+  show_timestamp: bool
+) -> LayoutJob {
   let mut job = LayoutJob {
     break_on_newline: false,
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
     ..Default::default()
   };
-  if show_channel_name {
+  if let Some((channel_name, channel_color)) = channel_name {
     job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
         font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()), 
         color: channel_color.linear_multiply(0.6), 

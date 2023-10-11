@@ -47,6 +47,7 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 - Option to download smaller/larger emote sizes
 - "Sub only" toggle option  
 - Ability to open stream in browser for a selected tab
+- "space" doesn't show (own chat msgs only?)
 
 Might do:
 

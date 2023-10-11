@@ -43,13 +43,23 @@ pub struct UiChatMessageRow {
 pub struct UiChatMessage<'a, 'b> {
   pub message : &'a ChatMessage,
   pub emotes : HashMap<String, &'b Emote>,
-  pub badges : Option<Vec<(String, &'b Emote)>>,
+  pub badges : Option<Vec<&'b Emote>>,
   pub mentions : Option<Vec<String>>,
   pub row_data : Vec<UiChatMessageRow>,
   pub msg_height : f32,
   pub user_color: Option<(u8,u8,u8)>,
   pub show_channel_name: bool,
   pub show_timestamp: bool
+}
+
+impl<'a, 'b> UiChatMessage<'a, 'b> {
+  pub fn channel_display_info(&'a self) -> Option<(&'a str, Color32)> {
+    if self.show_channel_name {
+      Some((&self.message.channel, chat::get_provider_color(&self.message.provider)))
+    } else {
+      None
+    }
+  }
 }
 
 pub struct AddChannelMenu {
@@ -1034,7 +1044,8 @@ impl TemplateApp {
         .id_source(format!("chatscrollarea {id}"))
         .auto_shrink([false; 2])
         .stick_to_bottom(true)
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        //.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
+        .always_show_scroll(true) // egui <= 0.21
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
@@ -1429,7 +1440,7 @@ impl TemplateApp {
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               //let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().unwrap_or_log().to_owned();
-              let est = create_uichatmessage(msg, ui, rect.width() - ui.spacing().item_spacing.x, false, self.show_timestamps, self.show_muted, &self.providers, &self.channels, &self.global_emotes);
+              let est = create_uichatmessage(msg, ui, false, self.show_timestamps, self.show_muted, &self.providers, &self.channels, &self.global_emotes);
               let (_, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &est, None, &mut self.emote_loader);
   
               if let Some(user) = user_selected.as_ref() {
@@ -1560,7 +1571,7 @@ impl TemplateApp {
             continue;
         }
 
-        let mut uimsg = create_uichatmessage(row, ui, ui.available_width(), show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
+        let mut uimsg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
@@ -1603,7 +1614,7 @@ impl TemplateApp {
       //if *is_swap {
       //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
       //}
-
+      
       ui.allocate_ui_at_rect(rect, |viewport_ui| {
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
@@ -1925,16 +1936,14 @@ fn get_text_style(text_style: TextStyle, ctx: &egui::Context) -> FontId {
 
 fn create_uichatmessage<'a,'b>(
   row: &'a ChatMessage,
-  ui: &mut egui::Ui, 
-  ui_width: f32,
+  ui: &egui::Ui, 
   show_channel_name: bool,
   show_timestamp: bool,
   show_muted: bool,
   providers: &'b HashMap<ProviderName, Provider>,
   channels: &'b HashMap<String, Channel>,
-  global_emotes: &'b HashMap<String, Emote>,
-/*emote_loader: &mut EmoteLoader*/) -> UiChatMessage<'a,'b> {
-
+  global_emotes: &'b HashMap<String, Emote>
+) -> UiChatMessage<'a,'b> {
   let (provider_emotes, provider_badges) = providers.get(&row.provider)
     .map(|p| (Some(&p.emotes), p.global_badges.as_ref())).unwrap_or((None, None));
   let (channel_emotes, channel_badges) = channels.get(&row.channel)
@@ -1943,6 +1952,7 @@ fn create_uichatmessage<'a,'b>(
 
   let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes);
   let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges);
+  let ui_width = ui.available_width() - ui.spacing().item_spacing.x;
   let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp, show_muted);
   let mentions = if let Some(channel) = channels.get(&row.channel) {
     get_mentions_in_message(row, &channel.shared().users)
@@ -2080,8 +2090,8 @@ fn get_emotes_for_message<'a>(row: &ChatMessage, provider_emotes: Option<&'a Has
   result
 }
 
-fn get_badges_for_message<'a>(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&'a HashMap<String, Emote>>, channel_badges: Option<&'a HashMap<String, Emote>>) -> (Option<Vec<(String, &'a Emote)>>, Option<(u8,u8,u8)>) {
-  let mut result : Vec<(String, &'a Emote)> = Default::default();
+fn get_badges_for_message<'a>(badges: Option<&Vec<String>>, channel_name: &str, global_badges: Option<&'a HashMap<String, Emote>>, channel_badges: Option<&'a HashMap<String, Emote>>) -> (Option<Vec<&'a Emote>>, Option<(u8,u8,u8)>) {
+  let mut result : Vec<&'a Emote> = Default::default();
   if badges.is_none() { return (None, None); }
   let mut greatest_badge : Option<(isize, (u8,u8,u8))> = None;
   for badge in badges.unwrap_or_log() {
@@ -2108,7 +2118,7 @@ fn get_badges_for_message<'a>(badges: Option<&Vec<String>>, channel_name: &str, 
       };
     
     if let Some(emote) = emote {
-      result.push((emote.name.to_owned(), emote));
+      result.push(emote);
     } 
   }
 

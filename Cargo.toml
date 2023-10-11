@@ -14,8 +14,8 @@ debug-ui = []
 web-sys = "0.3.61"
 futures = "0.3.26"
 tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "macros"] }
-egui = { version = "0.22.0" }
-eframe = { version = "0.22.0", features = ["wgpu"] }
+egui = { version = "0.21.0" }
+eframe = { version = "0.21.0", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
 anyhow = { version = "1.0.71" }
 args = "2.2.0"
@@ -54,7 +54,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 ahash = "0.8.3"
 num_cpus = "1.15.0"
 libwebp-sys2 = "0.1.2"
-egui_extras = "0.22.0"
+egui_extras = "0.21.0"
 
 [profile.release]
 #opt-level = 2 # fast and small wasm
