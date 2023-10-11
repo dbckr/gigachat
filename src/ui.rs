@@ -1523,7 +1523,9 @@ impl TemplateApp {
       let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut excess_top_space : Option<f32> = Some(0.);
       let mut skipped_rows = 0;
+
       let mut visible_rows: usize = 0;
+      let mut visible_height: f32 = 0.;
 
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
@@ -1574,6 +1576,9 @@ impl TemplateApp {
             continue;
         }
 
+        let mut msg_visible_rows : usize = 0;
+        let mut msg_visible_y : f32 = 0.;
+
         let mut uimsg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
         let mut row_y = 0.;
         let mut has_visible = false;
@@ -1586,7 +1591,9 @@ impl TemplateApp {
             }
             line.is_visible = true;
             has_visible = true;
-            visible_rows += 1;
+
+            msg_visible_rows += 1;
+            msg_visible_y += line.row_height + ui.spacing().item_spacing.y;
           }
           else {
             line.is_visible = false;
@@ -1597,8 +1604,16 @@ impl TemplateApp {
           // add nothing to y_pos
         } else if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
           y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+
+          if has_visible {
+            visible_rows += 1;
+            visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+          }
         } else {
           y_pos += row_y;
+
+          visible_rows += msg_visible_rows;
+          visible_height += msg_visible_y;
         }
         *cached_y = Some(row_y);
 
@@ -1608,10 +1623,7 @@ impl TemplateApp {
       }
 
       // vertical justify the in_view rows
-      let gap : f32 = rect.height() - in_view.iter()
-            .map(|x| x.row_data.iter()
-            .filter_map(|rd| if rd.is_visible { Some(rd.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>())
-            .sum::<f32>();
+      let gap : f32 = rect.height() - visible_height;
 
       if *show_timestamps_changed {
         *show_timestamps_changed = false;
@@ -1626,9 +1638,9 @@ impl TemplateApp {
       //}
       
       ui.allocate_ui_at_rect(rect, |ui| {
-        if gap / rect.height() < 0.2 {
-          ui.spacing_mut().item_spacing.y = gap / visible_rows as f32;
-        }
+        
+        ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
+
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
             let highlight_msg = match chat_msg.message.msg_type {
