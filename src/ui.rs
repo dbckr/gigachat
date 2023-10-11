@@ -1513,9 +1513,9 @@ impl TemplateApp {
     let mut y_pos = 0.0;
     let mut set_selected_msg : Option<ChatMessage> = None;
 
-    ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
+    ui.with_layout(egui::Layout::top_down_justified(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
-      //ui.spacing_mut().item_spacing.y = 1.;
+      ui.spacing_mut().item_spacing.y = 1.;
 
       let y_min = ui.max_rect().top() + viewport.min.y;
       let y_max = ui.max_rect().top() + viewport.max.y;
@@ -1523,6 +1523,7 @@ impl TemplateApp {
       let mut in_view : Vec<UiChatMessage> = Default::default();
       let mut excess_top_space : Option<f32> = Some(0.);
       let mut skipped_rows = 0;
+      let mut visible_rows: usize = 0;
 
       let mut history_iters = Vec::new();
       for (cname, hist) in chat_histories.iter_mut() {
@@ -1585,6 +1586,7 @@ impl TemplateApp {
             }
             line.is_visible = true;
             has_visible = true;
+            visible_rows += 1;
           }
           else {
             line.is_visible = false;
@@ -1605,6 +1607,12 @@ impl TemplateApp {
         }
       }
 
+      // vertical justify the in_view rows
+      let gap : f32 = rect.height() - in_view.iter()
+            .map(|x| x.row_data.iter()
+            .filter_map(|rd| if rd.is_visible { Some(rd.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>())
+            .sum::<f32>();
+
       if *show_timestamps_changed {
         *show_timestamps_changed = false;
       }
@@ -1617,7 +1625,10 @@ impl TemplateApp {
       //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
       //}
       
-      ui.allocate_ui_at_rect(rect, |viewport_ui| {
+      ui.allocate_ui_at_rect(rect, |ui| {
+        if gap / rect.height() < 0.2 {
+          ui.spacing_mut().item_spacing.y = gap / visible_rows as f32;
+        }
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
             let highlight_msg = match chat_msg.message.msg_type {
@@ -1630,7 +1641,7 @@ impl TemplateApp {
                 None
               }
             };
-            let (_rect, user_selected, msg_right_clicked) = chat::display_chat_message(viewport_ui, chat_msg, highlight_msg, emote_loader);
+            let (_rect, user_selected, msg_right_clicked) = chat::display_chat_message(ui, chat_msg, highlight_msg, emote_loader);
 
             if user_selected.is_some() {
               if *selected_user == user_selected {
@@ -1644,7 +1655,7 @@ impl TemplateApp {
             }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-            chat::display_combo_message(viewport_ui, chat_msg, show_channel_names, *show_timestamps, emote_loader);
+            chat::display_combo_message(ui, chat_msg, show_channel_names, *show_timestamps, emote_loader);
           }
         }
       });

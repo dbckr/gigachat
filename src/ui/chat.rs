@@ -5,9 +5,8 @@
  */
 
 use chrono::{DateTime, Utc};
-use egui::accesskit::TextAlign;
 use egui::load::SizedTexture;
-use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle, WidgetText};
+use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 
@@ -57,7 +56,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   }
 
   let mut msg_right_clicked = false;
-  let ui_row = ui.vertical(|ui| {
+  //let ui_row = ui.vertical(|ui| {
     let mut row_ix = 0;
     /*if chat_msg.is_ascii_art {
       ui.spacing_mut().item_spacing.y = 0.;
@@ -74,7 +73,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
-        let ui_subrow = ui.horizontal(|ui| {
+        ui.horizontal(|ui| {
 
         if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
           ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
@@ -228,13 +227,14 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     }
     row_ix += 1;
     }
-  });
-  let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
-  let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
-  if actual != expected {
+  //});
+  //let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
+  //let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
+  //if actual != expected {
     //info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
-  }
-  (ui_row.response.rect, user_selected, msg_right_clicked)
+  //}
+  //(ui_row.response.rect, user_selected, msg_right_clicked)
+  (egui::Rect::ZERO, user_selected, msg_right_clicked)
 }
 
 pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
