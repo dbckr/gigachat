@@ -236,18 +236,18 @@ impl eframe::App for TemplateApp {
       std::time::Duration::from_secs(30)
   }
 
-  fn max_size_points(&self) -> eframe::egui::Vec2 {
-    eframe::egui::Vec2::new(1024.0, 2048.0)
-  }
+//   fn max_size_points(&self) -> eframe::egui::Vec2 {
+//     eframe::egui::Vec2::new(1024.0, 2048.0)
+//   }
 
   fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> [f32;4] {
     //eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200).into()
     [0., 0., 0., 200.]
   }
 
-  fn persist_native_window(&self) -> bool {
-    true
-  }
+//   fn persist_native_window(&self) -> bool {
+//     true
+//   }
 
   fn persist_egui_memory(&self) -> bool {
     true
@@ -1044,8 +1044,8 @@ impl TemplateApp {
         .id_source(format!("chatscrollarea {id}"))
         .auto_shrink([false; 2])
         .stick_to_bottom(true)
-        //.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
-        .always_show_scroll(true) // egui <= 0.21
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
+        //.always_show_scroll(true) // egui <= 0.21
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
