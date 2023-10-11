@@ -182,7 +182,7 @@ impl TemplateApp {
         r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
     }
     r.emote_loader = EmoteLoader::new("Gigachat", &runtime);
-    r.emote_loader.transparent_img = Some(load_image_into_texture_handle(emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
+    r.emote_loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
     r.runtime = Some(runtime);
     info!("{} channels", r.channels.len());
 
@@ -261,7 +261,7 @@ impl eframe::App for TemplateApp {
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
     if self.emote_loader.transparent_img.is_none() {
-      self.emote_loader.transparent_img = Some(load_image_into_texture_handle(emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+      self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
     }
 
     if self.yt_chat_manager.is_none() && self.enable_yt_integration {
@@ -923,7 +923,7 @@ impl TemplateApp {
                     max: egui::pos2(x + width, y) 
                   };
 
-                  let mut mesh = egui::Mesh::with_texture(texture.texture_id(ctx));
+                  let mut mesh = egui::Mesh::with_texture(texture.id());
                   mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
                   painter.add(egui::Shape::mesh(mesh));
                   width

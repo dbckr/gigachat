@@ -7,14 +7,13 @@
 use ahash::HashSet;
 use async_channel::Receiver;
 use chrono::Timelike;
-use egui_extras::RetainedImage;
 use tracing::{info, debug, warn, error};
-use egui::ColorImage;
+use egui::{ColorImage, TextureHandle};
 
 use tokio::{runtime::Runtime, task::JoinHandle};
 use std::{collections::HashMap, path::{PathBuf, Path}};
 use std::str;
-use tracing_unwrap::{OptionExt};
+use tracing_unwrap::OptionExt;
 
 use crate::{provider::{dgg, channel::{ChannelShared, Channel}, Provider}, TemplateApp};
 
@@ -67,7 +66,7 @@ pub struct CssAnimationData {
 
 pub struct OverlayItem<'a> {
   pub name: &'a String,
-  pub texture: Option<&'a RetainedImage>
+  pub texture: Option<&'a TextureHandle>
 }
 
 pub struct EmoteFrame<'a> {
@@ -75,7 +74,7 @@ pub struct EmoteFrame<'a> {
   pub name: &'a String,
   pub path: &'a String,
   pub label: &'a Option<String>,
-  pub texture: Option<&'a RetainedImage>,
+  pub texture: Option<&'a TextureHandle>,
   pub zero_width: bool
 }
 
@@ -97,7 +96,7 @@ pub struct Emote {
   pub id: String,
   pub display_name: Option<String>,
   pub color: Option<(u8,u8,u8)>,
-  pub data: Option<Vec<(RetainedImage, u16)>>,
+  pub data: Option<Vec<(TextureHandle, u16)>>,
   pub loaded: EmoteStatus,
   pub duration_msec: u16,
   pub url: String,
@@ -162,7 +161,7 @@ impl Emote {
     }
   }
 
-  pub fn get_texture3<'a>(&'a self, emote_loader: &mut EmoteLoader) -> Option<&'a RetainedImage> {
+  pub fn get_texture3<'a>(&'a self, emote_loader: &mut EmoteLoader) -> Option<&'a TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
@@ -175,7 +174,7 @@ impl Emote {
     }
   }
 
-  pub fn get_texture2(&self) -> Option<&RetainedImage> {
+  pub fn get_texture2(&self) -> Option<&TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
@@ -187,7 +186,7 @@ impl Emote {
     }
   }
 
-  pub fn get_texture<'a>(&'a self, emote_loader: &'a mut EmoteLoader) -> Option<&'a RetainedImage> {
+  pub fn get_texture<'a>(&'a self, emote_loader: &'a mut EmoteLoader) -> Option<&'a TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
@@ -201,7 +200,7 @@ impl Emote {
   }
 }
 
-fn get_texture(emote: &Emote) -> Option<&RetainedImage> {
+fn get_texture(emote: &Emote) -> Option<&TextureHandle> {
     let frames_opt = emote.data.as_ref();
     match frames_opt {
       Some(frames) => {
@@ -232,7 +231,7 @@ pub struct EmoteLoader {
   pub tx: async_channel::Sender<EmoteRequest>,
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
-  pub transparent_img: Option<RetainedImage>,
+  pub transparent_img: Option<TextureHandle>,
   pub base_path: PathBuf,
   pub loading_emotes: HashSet<String>
 }
@@ -580,9 +579,9 @@ pub fn cache_path_from_app_name(app_name: &str) -> Option<PathBuf> {
   }
 }
 
-fn load_emote_data(emote: &mut Emote, _ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
+fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(ColorImage, u16)>>, loading_emotes: &mut HashSet<String>) {
   if emote.data.is_none() {
-    emote.data = imaging::load_to_texture_handles(data);
+    emote.data = imaging::load_to_texture_handles(ctx, data);
     emote.duration_msec = match emote.data.as_ref() {
       Some(framedata) => framedata.iter().map(|(_, delay)| delay).sum(),
       _ => 0,

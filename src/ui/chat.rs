@@ -5,11 +5,9 @@
  */
 
 use chrono::{DateTime, Utc};
-use egui::accesskit::Size;
 use egui::load::SizedTexture;
-use egui::{emath, Rounding, TextStyle, ImageSource};
+use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
-use egui_extras::RetainedImage;
 use itertools::Itertools;
 
 use crate::provider::ChatMessage;
@@ -30,7 +28,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channe
 
   let ui_row = ui.horizontal_wrapped(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-      ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }))); // egui >= 0.23
+      ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }))); // egui >= 0.23
       //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
     }
     ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
@@ -75,7 +73,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
         if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-          ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
+          ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
           //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }); // egui <= 0.21
         }
         ui.set_row_height(row_height);
@@ -92,7 +90,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             for emote in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
               if let Some(tex) = emote.get_texture(emote_loader) {
-                ui.image(ImageSource::Texture(SizedTexture::new(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)))).on_hover_ui(|ui| {
+                ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)))).on_hover_ui(|ui| {
                 //ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
                   //ui.set_width(BADGE_HEIGHT + 20.);
                   //ui.vertical_centered(|ui| {
@@ -118,7 +116,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                       ProviderName::YouTube => {}
                     };
 
-                    ui.image(ImageSource::Texture(SizedTexture::new(tex.texture_id(ui.ctx()), tex.size_vec2())));
+                    ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), tex.size_vec2())));
                   //});
                 });
               }
@@ -242,19 +240,19 @@ pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
   }
 }
 
-fn add_ui_emote_image(word: &str, path: &str, texture: &RetainedImage, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
-    let img = egui::Image::new(ImageSource::Texture(SizedTexture::new(texture.texture_id(ui.ctx()), egui::vec2(x, y))));
+    let img = egui::Image::new(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y))));
     let cursor = ui.cursor().to_owned();
     let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
     img.paint_at(ui, rect);
   }
   else {
-    ui.image(ImageSource::Texture(SizedTexture::new(texture.texture_id(ui.ctx()), egui::vec2(x, y)))).on_hover_ui(|ui| {
+    ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y)))).on_hover_ui(|ui| {
       ui.label(format!("{}\n{}", word, path.replace('/',"")));
-      ui.image(ImageSource::Texture(SizedTexture::new(texture.texture_id(ui.ctx()), texture.size_vec2())));
+      ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), texture.size_vec2())));
     });
     *last_emote_width = Some((x, y));
   }
