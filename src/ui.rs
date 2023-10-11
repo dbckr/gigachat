@@ -10,7 +10,7 @@ use tracing::{info, error, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::Add, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::FontId, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle};
+use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::FontId, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle, OpenUrl};
 use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
@@ -449,7 +449,7 @@ impl TemplateApp {
           });
           ui.separator();
           if ui.menu_button(RichText::new("View on Github").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
-            ctx.output_mut(|o| o.open_url("https://github.com/dbckr/gigachat"));
+            ctx.open_url(OpenUrl::new_tab("https://github.com/dbckr/gigachat"))
           }
           ui.separator();
           ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).text_style(TextStyle::Small).color(Color32::DARK_GRAY));
@@ -587,7 +587,7 @@ impl TemplateApp {
           if self.dragged_channel_tab.is_some() && pos.x > ui.available_width() * 0.5 {
             //paint rectangle to indicate drop will shift to other chat panel
             let paintrect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
-            ui.painter().rect_filled(paintrect, Rounding::none(), Color32::from_rgba_unmultiplied(40,40,40,150));
+            ui.painter().rect_filled(paintrect, Rounding::ZERO, Color32::from_rgba_unmultiplied(40,40,40,150));
           }
           if let Some(channel) = drag_channel_release.as_ref() && pos.x > ui.available_width() * 0.5 && ui.min_rect().contains(pos) {
             self.rhs_selected_channel = Some(channel.to_owned());
@@ -915,7 +915,7 @@ impl TemplateApp {
                   painter.rect_filled(egui::Rect {
                     min: egui::pos2(x, y - emote_height - 1.),
                     max: egui::pos2(x + width + text_width, y),
-                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                  }, Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
 
                   let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
                   let rect = egui::Rect { 
@@ -938,7 +938,7 @@ impl TemplateApp {
                   painter.rect_filled(egui::Rect {
                     min: egui::pos2(x, y - emote_height - 1.),
                     max: egui::pos2(x + text_width + 1., y),
-                  }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                  }, Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
                   0.
                 };
 
@@ -985,7 +985,7 @@ impl TemplateApp {
                 painter.rect_filled(egui::Rect {
                   min: egui::pos2(x, y - emote_height - 1.),
                   max: egui::pos2(x + text_width + 1., y),
-                }, Rounding::none(), Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+                }, Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
                 painter.text(
                   egui::pos2(x, y), 
                   egui::Align2::LEFT_BOTTOM, 
@@ -1068,7 +1068,7 @@ impl TemplateApp {
         .frame(egui::Frame { 
           inner_margin: egui::style::Margin::same(0.), 
           outer_margin: egui::style::Margin::same(0.),
-          rounding: Rounding::none(), 
+          rounding: Rounding::ZERO, 
           shadow: eframe::epaint::Shadow::default(),
           fill: Color32::TRANSPARENT,
           stroke: Stroke::NONE
@@ -1194,7 +1194,7 @@ impl TemplateApp {
             if ui.button("Log In").clicked() {
               self.auth_tokens.twitch_auth_token = "".to_owned();
               self.auth_tokens.show_twitch_auth_token = true;
-              ctx.output_mut(|o| o.open_url(twitch::authenticate()));
+              ctx.open_url(OpenUrl::new_tab(twitch::authenticate()));
             }
           });
           ui.separator();
@@ -1216,7 +1216,7 @@ impl TemplateApp {
             if ui.button("Log In").clicked() {
               self.auth_tokens.dgg_auth_token = "".to_owned();
               self.auth_tokens.show_dgg_auth_token = true;
-              ctx.output_mut(|o| o.open_url("https://www.destiny.gg/profile/developer"));
+              ctx.open_url(OpenUrl::new_tab("https://www.destiny.gg/profile/developer"));
               //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
             }
           });

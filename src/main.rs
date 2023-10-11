@@ -13,7 +13,7 @@ use tracing::error;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, Registry};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
-use tracing_unwrap::{ResultExt};
+use tracing_unwrap::ResultExt;
 
 fn main() {
   use eframe::Renderer;
