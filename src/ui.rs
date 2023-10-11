@@ -31,7 +31,7 @@ const BADGE_HEIGHT : f32 = 18.0;
 
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
-const COMBO_LINE_HEIGHT : f32 = 38.0;
+const COMBO_LINE_HEIGHT : f32 = 32.0;
 
 pub struct UiChatMessageRow {
   pub row_height: f32,
@@ -261,7 +261,7 @@ impl eframe::App for TemplateApp {
 impl TemplateApp {
   fn update_inner(&mut self, ctx: &egui::Context) {
     if self.emote_loader.transparent_img.is_none() {
-      self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 255]) )))));
+      self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
     }
 
     if self.yt_chat_manager.is_none() && self.enable_yt_integration {
@@ -1047,6 +1047,8 @@ impl TemplateApp {
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
         //.always_show_scroll(true) // egui <= 0.21
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
+
+      
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
       let mut y_size = 0.;
@@ -1519,7 +1521,7 @@ impl TemplateApp {
       let y_max = ui.max_rect().top() + viewport.max.y;
       let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
       let mut in_view : Vec<UiChatMessage> = Default::default();
-      let mut excess_top_space : Option<f32> = None;
+      let mut excess_top_space : Option<f32> = Some(0.);
       let mut skipped_rows = 0;
 
       let mut history_iters = Vec::new();

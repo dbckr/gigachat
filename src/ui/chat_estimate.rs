@@ -177,7 +177,7 @@ fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId,
     wrap: egui::epaint::text::TextWrapping { 
       break_anywhere: big_word,
       max_width: match big_word {
-        true => max_width - 3.,
+        true => max_width /*- 3.*/,
         false => max_width
       },
       ..Default::default()

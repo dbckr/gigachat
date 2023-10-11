@@ -5,8 +5,9 @@
  */
 
 use chrono::{DateTime, Utc};
+use egui::accesskit::TextAlign;
 use egui::load::SizedTexture;
-use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
+use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle, WidgetText};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 
@@ -26,7 +27,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channe
     get_chat_msg_header_layoutjob(true, ui, None, None, &row.message.timestamp, &row.message.profile, show_timestamp)
   };
 
-  let ui_row = ui.horizontal_wrapped(|ui| {
+  let ui_row = ui.horizontal(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
       ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }))); // egui >= 0.23
       //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
@@ -56,7 +57,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   }
 
   let mut msg_right_clicked = false;
-  let ui_row = ui.horizontal_wrapped(|ui| {
+  let ui_row = ui.vertical(|ui| {
     let mut row_ix = 0;
     /*if chat_msg.is_ascii_art {
       ui.spacing_mut().item_spacing.y = 0.;
@@ -70,8 +71,11 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     });
 
     for (row_text, is_visible, row_height, is_ascii_art) in chat_msg_rows {
+
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
+        let ui_subrow = ui.horizontal(|ui| {
+
         if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
           ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
           //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }); // egui <= 0.21
@@ -171,7 +175,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
+                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()).truncate(true));
                 if link.hovered() {
                   ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
@@ -219,9 +223,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             };
           }
         }
-        ui.end_row();
-      }
-      row_ix += 1;
+        ui.end_row(); 
+      });
+    }
+    row_ix += 1;
     }
   });
   let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
@@ -286,7 +291,7 @@ fn highlight_ui_row(ui: &egui::Ui, color: Color32) {
       y: cursor.bottom() + ui.spacing().item_spacing.y} };
   ui.painter().rect_filled(
     rect, 
-    Rounding::none(), 
+    Rounding::ZERO, 
     color
   );
 }
