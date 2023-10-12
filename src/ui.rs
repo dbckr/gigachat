@@ -1524,7 +1524,7 @@ impl TemplateApp {
       let mut excess_top_space : Option<f32> = Some(0.);
       let mut skipped_rows = 0;
 
-      let mut visible_rows: usize = 0;
+      let mut _visible_rows: usize = 0;
       let mut visible_height: f32 = 0.;
 
       let mut history_iters = Vec::new();
@@ -1606,13 +1606,13 @@ impl TemplateApp {
           y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
 
           if has_visible {
-            visible_rows += 1;
+            _visible_rows += 1;
             visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
           }
         } else {
           y_pos += row_y;
 
-          visible_rows += msg_visible_rows;
+          _visible_rows += msg_visible_rows;
           visible_height += msg_visible_y;
         }
         *cached_y = Some(row_y);
@@ -1637,9 +1637,9 @@ impl TemplateApp {
       //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
       //}
       
-      ui.allocate_ui_at_rect(rect, |ui| {
+      ui.allocate_ui_at_rect(rect.translate(Vec2 { x: 0., y: gap / 2. }), |ui| {
         
-        ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
+        //ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
 
         for chat_msg in in_view.iter() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
