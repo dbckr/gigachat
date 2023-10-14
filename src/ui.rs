@@ -124,6 +124,7 @@ pub struct ChatPanelOptions {
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
   body_text_size : f32,
+  bg_transparency: u8,
   chat_history_limit : usize,
   #[cfg_attr(feature = "persistence", serde(skip))]
   runtime: Option<tokio::runtime::Runtime>,
@@ -241,8 +242,8 @@ impl eframe::App for TemplateApp {
 //   }
 
   fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> [f32;4] {
-    //eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200).into()
-    [0., 0., 0., 200.]
+    egui::Rgba::TRANSPARENT.to_array()
+    //eframe::egui::Color32::to_normalized_gamma_f32(eframe::egui::Color32::from_rgba_unmultiplied(20, 20, 20, 80))
   }
 
 //   fn persist_native_window(&self) -> bool {
@@ -412,6 +413,7 @@ impl TemplateApp {
               let fontid = TextStyle::Button.resolve(ui.style().as_ref());
               ui.style_mut().text_styles.insert(TextStyle::Body, fontid);
 
+              ui.add(egui::Slider::new(&mut self.bg_transparency, 0..=255).step_by(1.).text(RichText::new("Background Transparency").text_style(TextStyle::Small)));
               ui.add(egui::Slider::new(&mut self.body_text_size, 10.0..=40.0).step_by(0.5).text(RichText::new("Font Size").text_style(TextStyle::Small)));
               ui.checkbox(&mut self.enable_combos, "Enable Combos");
               if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
@@ -570,9 +572,9 @@ impl TemplateApp {
     }
 
     let cframe = egui::Frame { 
-      inner_margin: egui::style::Margin::same(0.), 
-      outer_margin: egui::style::Margin::same(3.),
-      fill: egui::Color32::from_rgba_unmultiplied(40, 40, 40, 50),
+      inner_margin: egui::style::Margin::same(3.), 
+      outer_margin: egui::style::Margin::same(0.),
+      fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, self.bg_transparency),
       ..Default::default() 
     };
     let mut lhs_response : ChatFrameResponse = Default::default();
@@ -1472,6 +1474,7 @@ impl TemplateApp {
     let TemplateApp {
       chat_history_limit: _,
       body_text_size: _,
+      bg_transparency: _,
       runtime : _,
       providers,
       channels,
