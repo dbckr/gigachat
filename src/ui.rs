@@ -397,7 +397,16 @@ impl TemplateApp {
 
     let body_font_size = self.body_text_size;
 
-    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    let tframe = egui::Frame { 
+        inner_margin: egui::style::Margin::same(3.), 
+        outer_margin: egui::style::Margin::same(0.),
+        fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, self.bg_transparency),
+        ..Default::default() 
+      };
+
+    egui::TopBottomPanel::top("top_panel")
+    .frame(tframe)
+    .show(ctx, |ui| {
       ui.horizontal(|ui| {
         egui::menu::bar(ui, |ui| {
           if ui.menu_button(RichText::new("Add a channel").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {

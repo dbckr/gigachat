@@ -34,11 +34,12 @@ mod test {
       println!("{:?}", result);
     };
     
-    closure("RaveDoge");
-    closure("WooYeah");
-    closure("WOOF");
-    closure("pepeSteer");
-    closure("OOOO");
+    // closure("RaveDoge");
+    // closure("WooYeah");
+    // closure("WOOF");
+    // closure("pepeSteer");
+    // closure("OOOO");
+    closure("WEOW");
     closure("Chatting");
 
     let result = data.get("Chatting");

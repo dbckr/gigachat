@@ -496,8 +496,12 @@ impl CSSLoader {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
     let anim_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
     let width_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]").unwrap_or_log();
+    let bgpos_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? background-position: (\d+?)(?:px;)?[^\}]").unwrap_or_log();
     let css_notabs = css.replace('\t', "  ");
     let width_caps = width_regex.captures_iter(css_notabs.as_str());
+    let bgpos_caps = bgpos_regex.captures_iter(css_notabs.as_str())
+        .map(|f| (f.get(1).map(|x| x.as_str()), f.get(2).and_then(|x| x.as_str().parse::<u32>().ok())))
+        .collect_vec();
     let anim_caps = anim_regex.captures_iter(css_notabs.as_str()).collect_vec();
     for (_ix, captures) in width_caps.enumerate() {
       //println!("{captures:?}");
@@ -508,7 +512,11 @@ impl CSSLoader {
         .and_then(|x| x.get(2))
         .map(|x| x.as_str());
       let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
-      //let anim = captures.get(2).map(|x| x.as_str());
+      
+      let bgpos = bgpos_caps.iter()
+        .find(|(k, _v)| k == &prefix)
+        .and_then(|f| f.1);
+      
       //println!("{anim:?}");
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
 
@@ -531,6 +539,12 @@ impl CSSLoader {
             steps: steps.unwrap_or(1)
           });
         }
+      } else if bgpos.is_some() && let Some(prefix) = prefix && let Some(width) = width {
+        result.insert(prefix.to_owned(), CssAnimationData {
+            width,
+            cycle_time_msec: 0,
+            steps: 1
+        });
       }
     }
     //println!("{x}");

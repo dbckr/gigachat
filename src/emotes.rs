@@ -390,7 +390,8 @@ pub async fn load_channel_emotes(
     client,
     force_redownload
   ).await?;
-  let seventv_url = format!("https://api.7tv.app/v2/users/{channel_id}/emotes");
+  //let seventv_url = format!("https://api.7tv.app/v2/users/{channel_id}/emotes");
+  let seventv_url = format!("https://7tv.io/v3/users/twitch/{channel_id}");
   let seventv_emotes = process_emote_json(
     &seventv_url,
     cache_path,
