@@ -443,7 +443,7 @@ pub async fn load_global_emotes(
     force_redownload
   ).await?;
   let seventv_emotes = process_emote_json(
-    "https://api.7tv.app/v2/emotes/global",
+    "https://7tv.io/v3/emote-sets/62cdd34e72a832540de95857",
     cache_path,
     "7tv-global-json",
     None,

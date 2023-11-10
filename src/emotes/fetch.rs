@@ -101,9 +101,16 @@ pub async fn process_emote_json(
   let data = get_json_from_url(url, Some(filename), headers, client, force_redownload).await?;
   let mut v: serde_json::Value = serde_json::from_str(&data)?;
   let mut emotes: Vec<Emote> = Vec::default();
-  if !v["emote_set"].is_null() && v["emote_set"]["emotes"].is_array() {
+  if !v["emote_set"].is_null() && v["emote_set"]["emotes"].is_array() || v["emotes"].is_array() {
+
+    let emote_node = if v["emote_set"].is_null() {
+        &v["emotes"]
+    } else {
+        &v["emote_set"]["emotes"]
+    };
+
     // 7TV v3
-    for i in v["emote_set"]["emotes"].as_array_mut().unwrap_or_log() {
+    for i in emote_node.as_array().unwrap_or_log() {
         let emote_size = match EMOTE_DOWNLOADSIZE {
             EmoteSize::Small => "1x",
             EmoteSize::Medium => "2x",
@@ -112,7 +119,7 @@ pub async fn process_emote_json(
         let name = i["name"].to_string().trim_matches('"').to_owned();
         let id = i["id"].to_string().trim_matches('"').to_owned();
 
-        let selected = i["data"]["host"]["files"].as_array_mut().unwrap_or_log().iter()
+        let selected = i["data"]["host"]["files"].as_array().unwrap_or_log().iter()
             .map(|file| (file["name"].to_string().trim_matches('"').to_owned(), file["format"].to_string().trim_matches('"').to_owned()))
             .collect_vec();
 
