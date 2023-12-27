@@ -1,7 +1,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(debug_assertions), deny(warnings))]
 #![feature(map_try_insert)]
-#![feature(result_option_inspect)]
 #![feature(let_chains)]
 #![feature(async_closure)]
 
