@@ -30,29 +30,28 @@ Hacky but functional support for YT chatting within the app by using a Tampermon
 
 # Todo
 
-- Twitch IRC sometimes fails to init/connect on startup
-- Memory leaking
-  - Seems to sometimes happen along with twitch chats not showing any new messages
-  - Still happens with no emote or badge image loading
+Bugs:
+
+- Clicking a username to see recent mentions or right clicking to open context menu can take multiple clicks to work when chat is moving fast
+  - This might be tied to click sense requiring focus as well and focus resetting when chat window contents change
+  - Labels do not support specifying an id for state persistence, maybe change clickable elements to button and style to match labels?
+- Still have some positioning calc issues i.e. flickering from scroll bar jumping around, but only when message timestamps are turned off
+- Memory leak behavior (rare, into low GBs after many days)
+  - Tested to occur eventually even with all image loading disabled
   - After enough time (was around 5Gb mem), focusing from minimized shows corrupted looking text and hard crash on attempting to change tab
     - Moving window to another monitor (dpi change?) fixes the corrupted text
   - High single thread CPU use when window is visible, even with only one chat tab (only after high memory use and/or corruption issue)
-- Clicking a username to see recent mentions make take multiple clicks to work when chat is moving fast
-  - This might be tied to click sense requiring focus as well and focus resetting when chat window contents change
-  - Labels do not support specifying an id for state persistence, maybe change clickable elements to button and style to match labels?
-- Twitch emotes not refreshing properly (not picking up new emotes)
+- Twitch IRC sometimes fails to init/connect on startup
 - Websocket connections do not recover after being killed by VPN connecting
-- Rarely closing app leaves config in invalid state, will crash on start until config file is deleted
-- Handle Twitch CLEARCHAT, CLEARMSG commands (and DGG MUTE/BAN)
+
+Planned Features:
+
+Low priority / Might do:
+
+- Support BTTV Emote Modifiers via an option toggle (e.g. w! v! h! z!)
+- Button to open stream in browser for a selected tab/channel
 - Option to download smaller/larger emote sizes
-- "Sub only" toggle option  
-- Ability to open stream in browser for a selected tab
-- "space" doesn't show (own chat msgs only?)
-
-Might do:
-
-- DGG Polls (Twitch sadly lacks API support that would allow chat apps to even see polls or predictions)
+- DGG Polls (Twitch sadly lacks API support for polls or predictions)
 - Twitch tier-exclusive emote logic
-- Twitch Cheer emotes
 - DGG OAuth - tokens not working but login keys created directly on DGG site work
-  - For now removed oauth flow and added text directing how to create a login key
+  - For now removed oauth flow and open brower to DGG site instead
