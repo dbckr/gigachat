@@ -7,8 +7,7 @@
 use std::{fs::{DirBuilder, OpenOptions, File}, io::{Write, Read}, path::PathBuf, hash::{Hash, Hasher}};
 
 use ahash::AHasher;
-use egui::ColorImage;
-use egui_extras::RetainedImage;
+use egui::{ColorImage, TextureHandle};
 use image::DynamicImage;
 use itertools::Itertools;
 use reqwest::{header::{CONTENT_DISPOSITION, CONTENT_TYPE, ACCEPT}, StatusCode};
@@ -298,19 +297,18 @@ pub fn load_file_into_buffer (filepath : &str) -> Option<Vec<u8>> {
   }
 }
 
-pub fn load_to_texture_handles(/*ctx : &egui::Context,*/ frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(RetainedImage, u16)>> {
-  frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(frame), msec) }).collect())
+pub fn load_to_texture_handles(ctx : &egui::Context, frames : Option<Vec<(ColorImage, u16)>>) -> Option<Vec<(TextureHandle, u16)>> {
+  frames.map(|frames| frames.into_iter().map(|(frame, msec)| { (load_image_into_texture_handle(ctx, frame), msec) }).collect())
 }
 
 pub fn load_image_into_texture_handle(
-  //ctx: &egui::Context,
+  ctx: &egui::Context,
   image: ColorImage,
-) -> RetainedImage {
+) -> TextureHandle {
   let mut s = AHasher::default();
   image.pixels.hash(&mut s);
   let uid = s.finish();
-  //ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
-  RetainedImage::from_color_image(format!("{uid}"), image)
+  ctx.load_texture(uid.to_string(), image, egui::TextureOptions::LINEAR)
 }
 
 pub fn to_egui_image(

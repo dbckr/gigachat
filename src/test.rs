@@ -34,11 +34,12 @@ mod test {
       println!("{:?}", result);
     };
     
-    closure("RaveDoge");
-    closure("WooYeah");
-    closure("WOOF");
-    closure("pepeSteer");
-    closure("OOOO");
+    // closure("RaveDoge");
+    // closure("WooYeah");
+    // closure("WOOF");
+    // closure("pepeSteer");
+    // closure("OOOO");
+    closure("WEOW");
     closure("Chatting");
 
     let result = data.get("Chatting");
@@ -235,10 +236,10 @@ mod test {
       msg_type: MessageType::Chat,
       ..Default::default() };
     let emotes : HashMap<String, &Emote> = Default::default();
-    let badges : Vec<(String, &Emote)> = Default::default();
+    let badges : Vec<&Emote> = Default::default();
     let ui_width = ui.available_width();
     
-    let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp);
+    let x = get_chat_msg_size(&mut ui, ui_width, &msg, &emotes, Some(&badges), false, show_timestamp, false);
 
     x.iter().map(|item| {
       let rng = match &item.1 {

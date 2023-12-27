@@ -5,9 +5,9 @@
  */
 
 use chrono::{DateTime, Utc};
-use egui::{emath, Rounding, TextStyle};
+use egui::load::SizedTexture;
+use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
-use egui_extras::RetainedImage;
 use itertools::Itertools;
 
 use crate::provider::ChatMessage;
@@ -20,10 +20,16 @@ const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
 pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
-  let job = get_chat_msg_header_layoutjob(true, ui, &row.message.channel, channel_color, None, &row.message.timestamp, &row.message.profile, show_channel_name, show_timestamp);
-  let ui_row = ui.horizontal_wrapped(|ui| {
+  let job = if show_channel_name {
+    get_chat_msg_header_layoutjob(true, ui, Some((&row.message.channel, channel_color)), None, &row.message.timestamp, &row.message.profile, show_timestamp)
+  } else {
+    get_chat_msg_header_layoutjob(true, ui, None, None, &row.message.timestamp, &row.message.profile, show_timestamp)
+  };
+
+  let ui_row = ui.horizontal(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-      ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT });
+      ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }))); // egui >= 0.23
+      //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
     }
     ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
@@ -42,13 +48,15 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
-  if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
+  if chat_msg.message.is_removed.is_some() {
+    message_color =  (180, 180, 180);
+  }
+  else if chat_msg.message.provider == ProviderName::DGG && chat_msg.message.message.starts_with('>') {
     message_color =  (99, 151, 37);
   }
 
   let mut msg_right_clicked = false;
-  let channel_color = get_provider_color(&chat_msg.message.provider);
-  let ui_row = ui.horizontal_wrapped(|ui| {
+  //let ui_row = ui.vertical(|ui| {
     let mut row_ix = 0;
     /*if chat_msg.is_ascii_art {
       ui.spacing_mut().item_spacing.y = 0.;
@@ -62,10 +70,14 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     });
 
     for (row_text, is_visible, row_height, is_ascii_art) in chat_msg_rows {
+
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
+        ui.horizontal(|ui| {
+
         if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-          ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height });
+          ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
+          //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }); // egui <= 0.21
         }
         ui.set_row_height(row_height);
 
@@ -75,18 +87,19 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
         if row_ix == 0 {
           let username = determine_name_to_display(chat_msg.message);
-          let job = get_chat_msg_header_layoutjob(true, ui, &chat_msg.message.channel, channel_color, username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_channel_name, chat_msg.show_timestamp);
+          let job = get_chat_msg_header_layoutjob(true, ui, chat_msg.channel_display_info(), username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_timestamp);
           ui.add(egui::Label::new(job).sense(egui::Sense::hover()));
           if let Some(user_badges) = &chat_msg.badges {
-            for (badge, emote) in user_badges {
+            for emote in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
               if let Some(tex) = emote.get_texture(emote_loader) {
-                ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+                ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)))).on_hover_ui(|ui| {
+                //ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
                   //ui.set_width(BADGE_HEIGHT + 20.);
                   //ui.vertical_centered(|ui| {
                     match chat_msg.message.provider {
                       ProviderName::Twitch => {
-                        let parts = badge.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                        let parts = emote.name.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
                         match parts.0 {
                           "subscriber" => {
                             let num = parts.1.parse::<usize>().unwrap_or(0);
@@ -102,11 +115,11 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                           _ => ui.label(parts.0)
                         };
                       },
-                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(badge)); },
+                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(&emote.name.to_owned())); },
                       ProviderName::YouTube => {}
                     };
 
-                    ui.image(tex.texture_id(ui.ctx()), tex.size_vec2());
+                    ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), tex.size_vec2())));
                   //});
                 });
               }
@@ -114,7 +127,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
           }
     
           if let Some(uname_text) = username {
-            let uname_rich_text = RichText::new(&format!("{uname_text}:"))
+            let uname_rich_text = RichText::new(format!("{uname_text}:"))
               .font(crate::ui::get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
@@ -161,7 +174,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()));
+                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()).truncate(true));
                 if link.hovered() {
                   ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
@@ -203,23 +216,25 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                     ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                   }
                 } else {
-                  ui.add(egui::Label::new(text).sense(egui::Sense::hover()));
+                  ui.add(egui::Label::new(text)/*.sense(egui::Sense::hover())*/);
                 }
               }
             };
           }
         }
-        ui.end_row();
-      }
-      row_ix += 1;
+        ui.end_row(); 
+      });
     }
-  });
-  let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
-  let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
-  if actual != expected {
+    row_ix += 1;
+    }
+  //});
+  //let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
+  //let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
+  //if actual != expected {
     //info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
-  }
-  (ui_row.response.rect, user_selected, msg_right_clicked)
+  //}
+  //(ui_row.response.rect, user_selected, msg_right_clicked)
+  (egui::Rect::ZERO, user_selected, msg_right_clicked)
 }
 
 pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
@@ -230,19 +245,19 @@ pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
   }
 }
 
-fn add_ui_emote_image(word: &str, path: &str, texture: &RetainedImage, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
-    let img = egui::Image::new(texture.texture_id(ui.ctx()), egui::vec2(x, y));
+    let img = egui::Image::new(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y))));
     let cursor = ui.cursor().to_owned();
     let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
     img.paint_at(ui, rect);
   }
   else {
-    ui.image(texture.texture_id(ui.ctx()), egui::vec2(x, y)).on_hover_ui(|ui| {
+    ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y)))).on_hover_ui(|ui| {
       ui.label(format!("{}\n{}", word, path.replace('/',"")));
-      ui.image(texture.texture_id(ui.ctx()), texture.size_vec2());
+      ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), texture.size_vec2())));
     });
     *last_emote_width = Some((x, y));
   }
@@ -276,7 +291,7 @@ fn highlight_ui_row(ui: &egui::Ui, color: Color32) {
       y: cursor.bottom() + ui.spacing().item_spacing.y} };
   ui.painter().rect_filled(
     rect, 
-    Rounding::none(), 
+    Rounding::ZERO, 
     color
   );
 }
@@ -286,13 +301,21 @@ fn is_url(word: &str) -> bool {
     word.starts_with("http") || word.starts_with("#twitch") || word.starts_with("#youtube")
 }
 
-pub fn get_chat_msg_header_layoutjob(for_display: bool, ui: &egui::Ui, channel_name: &str, channel_color: Color32, username: Option<&String>, timestamp: &DateTime<Utc>, profile: &UserProfile, show_channel_name: bool, show_timestamp: bool) -> LayoutJob {
+pub fn get_chat_msg_header_layoutjob(
+  for_display: bool, 
+  ui: &egui::Ui, 
+  channel_name: Option<(&str, Color32)>,
+  username: Option<&String>, 
+  timestamp: &DateTime<Utc>, 
+  profile: &UserProfile, 
+  show_timestamp: bool
+) -> LayoutJob {
   let mut job = LayoutJob {
     break_on_newline: false,
     first_row_min_height: ui.spacing().interact_size.y.max(MIN_LINE_HEIGHT),
     ..Default::default()
   };
-  if show_channel_name {
+  if let Some((channel_name, channel_color)) = channel_name {
     job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
         font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()), 
         color: channel_color.linear_multiply(0.6), 

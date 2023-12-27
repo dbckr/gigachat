@@ -8,7 +8,7 @@ use std::{collections::HashMap, path::Path};
 use async_channel::{Sender, Receiver};
 use backoff::backoff::Backoff;
 use chrono::{Utc, NaiveDateTime, DateTime};
-use futures::{StreamExt, SinkExt, TryFutureExt};
+use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error, debug};
 use crate::{provider::MessageType, emotes::{EmoteRequest, EmoteSource}};
@@ -27,6 +27,7 @@ pub fn init_channel() -> Channel {
     shared: ChannelShared {   
       channel_name: DGG_CHANNEL_NAME.to_owned(),
       show_in_mentions_tab: true,
+      show_tab_when_offline: true,
       send_history: Default::default(),
       send_history_ix: None,
       transient: None,
@@ -60,13 +61,14 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
     loop {
       let retry_wait = backoff.next_backoff();
       match spawn_websocket_live_client(&status_url, &out_tx_2).await {
-        Ok(x) => if x { break; } else { backoff.reset(); },
+        Ok(x) => if x { break; } else { backoff.reset(); backoff.next_backoff(); warn!("Lost connection to DGG status websocket, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())); },
         Err(x) => error!("error connecting to DGG channel status websocket: {:?}", x)
       }
       if let Some(duration) = retry_wait {
         sleep(duration).await;
       }
     }
+    warn!("exiting websocket_live thread");
   });
 
   let name1 = user_name.to_owned();
@@ -107,6 +109,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
         sleep(duration).await;
       }
     }
+    warn!("exiting websocket_chat thread");
   });
 
   channel.transient = Some(ChannelTransient {
@@ -138,7 +141,6 @@ impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
     for handle in self.handles.iter_mut() {
-      let _ = handle.inspect_err(|f| error!("{f:?}"));
       handle.abort();
     }
   }
@@ -154,22 +156,26 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) 
-              && message.contains("dggApi:streamInfo")
-              && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
-              && msg.r#type == Some("dggApi:streamInfo".to_string())
-              && let Some(data) = msg.data
-              && let Some(streams) = data.streams
-              && let Some(yt_data) = streams.youtube {
-                let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
-                  game_name: yt_data.game, 
-                  is_live: yt_data.live.unwrap_or(false), 
-                  title: yt_data.status_text,  
-                  viewer_count: yt_data.viewers, 
-                  started_at: yt_data.started_at 
-                }) };
+            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) {
+              if message.contains("dggApi:streamInfo")
+                && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
+                && msg.r#type == Some("dggApi:streamInfo".to_string())
+                && let Some(data) = msg.data
+                && let Some(streams) = data.streams
+                && let Some(yt_data) = streams.youtube {
+                  let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
+                    game_name: yt_data.game, 
+                    is_live: yt_data.live.unwrap_or(false), 
+                    title: yt_data.status_text,  
+                    viewer_count: yt_data.viewers, 
+                    started_at: yt_data.started_at 
+                  }) };
 
-                if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+                  if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+              }
+              else {
+                warn!("unable to process dgg status message: {}", message);
+              }
             }
           },
           Err(e) => {
@@ -248,8 +254,10 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                       let cmsg = ChatMessage { 
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
-                        timestamp: NaiveDateTime::from_timestamp_opt(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
-                          .map(|x| DateTime::from_utc(x, Utc))
+                        timestamp: msg.timestamp
+                          .and_then(|ts| NaiveDateTime::from_timestamp_opt(ts as i64 / 1000, (ts % 1000 * 1000_usize.pow(2)) as u32)
+                            .map(|x| DateTime::from_utc(x, Utc))
+                          )
                           .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
                         msg_type: MessageType::Announcement,
@@ -292,7 +300,6 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                   },
                   "ERR" => {
                     if let Ok(msg) = serde_json::from_str::<DggErr>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) {
-                      
                       match tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage {
                         channel: DGG_CHANNEL_NAME.to_owned(), 
                         provider: ProviderName::DGG, 
@@ -307,6 +314,23 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                         Err(x) => info!("Send failure for ERR: {}", x)
                       };
                     }
+                  },
+                  "MUTE" => {
+                    if let Ok(msg) = serde_json::from_str::<MsgMessage>(msg).inspect_err(|f| info!("json parse error: {}\n {}", f, message)) && let Some(muted_user) = msg.data {
+                      match tx.try_send(IncomingMessage::UserMuted { channel: DGG_CHANNEL_NAME.to_owned(), username: muted_user.to_lowercase() }) {
+                        Ok(_) => (),
+                        Err(x) => info!("Send failure for MUTE: {}", x)
+                      };
+                    }
+                  },
+                  "POLLSTART" => {
+                    
+                  },
+                  "POLLSTOP" => {
+
+                  },
+                  "VOTECAST" => {
+
                   },
                   _ => debug!("unknown dgg command: {:?}", message)
                 }
@@ -472,8 +496,12 @@ impl CSSLoader {
     let mut result : HashMap<String, CssAnimationData> = Default::default();
     let anim_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*?animation: (?:[^\s]*?) ([^\}]*?;)").unwrap_or_log();
     let width_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? width: (\d+?)px;[^\}]").unwrap_or_log();
+    let bgpos_regex = Regex::new(r"(?s)\.emote\.([^:\-\s]*?)\s?\{[^\}]*? background-position: (\d+?)(?:px;)?[^\}]").unwrap_or_log();
     let css_notabs = css.replace('\t', "  ");
     let width_caps = width_regex.captures_iter(css_notabs.as_str());
+    let bgpos_caps = bgpos_regex.captures_iter(css_notabs.as_str())
+        .map(|f| (f.get(1).map(|x| x.as_str()), f.get(2).and_then(|x| x.as_str().parse::<u32>().ok())))
+        .collect_vec();
     let anim_caps = anim_regex.captures_iter(css_notabs.as_str()).collect_vec();
     for (_ix, captures) in width_caps.enumerate() {
       //println!("{captures:?}");
@@ -484,7 +512,11 @@ impl CSSLoader {
         .and_then(|x| x.get(2))
         .map(|x| x.as_str());
       let width = captures.get(2).and_then(|x| x.as_str().parse::<u32>().ok());
-      //let anim = captures.get(2).map(|x| x.as_str());
+      
+      let bgpos = bgpos_caps.iter()
+        .find(|(k, _v)| k == &prefix)
+        .and_then(|f| f.1);
+      
       //println!("{anim:?}");
       let steps = anim.and_then(|x| self.steps_regex.captures(x).and_then(|y| y.get(1)).and_then(|z| z.as_str().parse::<isize>().ok()));
 
@@ -507,6 +539,12 @@ impl CSSLoader {
             steps: steps.unwrap_or(1)
           });
         }
+      } else if bgpos.is_some() && let Some(prefix) = prefix && let Some(width) = width {
+        result.insert(prefix.to_owned(), CssAnimationData {
+            width,
+            cycle_time_msec: 0,
+            steps: 1
+        });
       }
     }
     //println!("{x}");
@@ -575,7 +613,7 @@ struct MsgMessage {
 
 #[derive(serde::Deserialize)]
 struct BroadcastMessage {
-  timestamp: usize,
+  timestamp: Option<usize>,
   data: Option<String>
 }
 
@@ -606,4 +644,20 @@ pub struct DggFlair {
   priority: isize,
   color: String,
   image: Vec<DggEmoteImage>
+}
+
+// POLLSTART {\"canvote\":true,\"myvote\":0,\"nick\":\"Lemmiwinks\",\"weighted\":false,
+// \"start\":\"2023-03-17T19:46:40+0000\",\"now\":\"2023-03-17T19:46:40+0000\",\"time\":30000,
+// \"question\":\"Are you wearing Green?\",\"options\":[\"PEPE\",\"YEE\"],\"totals\":[0,0],\"totalvotes\":0}"
+
+pub struct DggPollStart {
+  // canvote: bool,
+  // nick: String,
+  // start: usize,
+  // now: usize,
+  // time: usize,
+  // question: String,
+  // options: Vec<String>,
+  // totals: Vec<usize>,
+  // totalvotes: usize
 }

@@ -30,7 +30,10 @@ pub enum IncomingMessage {
   RoomId { channel: String, room_id: String },
   StreamingStatus { channel: String, status: Option<ChannelStatus>},
   UserJoin { channel: String, username: String, display_name: String },
-  UserLeave { channel: String, username: String, display_name: String }
+  UserLeave { channel: String, username: String, display_name: String },
+  UserMuted { channel: String, username: String },
+  VoteStart {  },
+  VoteStop {}
 }
 
 impl Default for IncomingMessage {

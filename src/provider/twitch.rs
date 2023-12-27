@@ -85,11 +85,9 @@ impl TwitchChatManager {
   }
 
   pub fn close(&mut self) {
-    self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
-    //std::thread::sleep(std::time::Duration::from_millis(500));
-    let handle = &mut self.handle;
-    let _ = handle.inspect_err(|f| error!("{:?}", f));
-    //self.handle.abort();
+    if !self.handle.is_finished() {
+      self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
+    }
   }
 
   pub fn init_channel(&mut self, channel_name : &str) -> Channel {
@@ -97,7 +95,7 @@ impl TwitchChatManager {
       shared: ChannelShared {
         channel_name: channel_name.to_lowercase(),
         show_in_mentions_tab: true,
-        
+        show_tab_when_offline: false,
         send_history: Default::default(),
         send_history_ix: None,
         transient: None,
@@ -141,6 +139,8 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
       port: Some(6697), 
       password: Some(format!("oauth:{token}")), 
       use_tls: Some(true),
+      ping_time: Some(180),
+      ping_timeout: Some(90),
       ..Default::default()
     }).await?;
   client.identify()?;
@@ -254,8 +254,12 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                   };
                 }
               },
-              Command::PING(ref target, ref _msg) => {
-                  sender.send_pong(target).expect_or_log("failed to send pong");
+              Command::PING(ref target, ref msg) => {
+                  info!("received PING: {:?} | {:?}", target, msg);
+                  //sender.send_pong(message).expect_or_log("failed to send pong");
+              },
+              Command::PONG(ref target, ref msg) => {
+                  info!("received PONG: {:?} | {:?}", target, msg);
               },
               Command::Raw(ref command, ref str_vec) => {
                 //trace!("Recieved Twitch IRC Command: {}", command);
@@ -301,6 +305,11 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                       } else {
                         Ok(())
                       }
+                    },
+                    "CLEARCHAT" => {
+                      tx.try_send(IncomingMessage::UserMuted { 
+                        channel: channel_name.to_owned(), 
+                        username: str_vec[1].to_owned() })
                     },
                     _ => { debug!("unknown IRC command: {} {}", command, str_vec.join(", ")); Ok(())}
                   };
