@@ -127,7 +127,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
           }
     
           if let Some(uname_text) = username {
-            let uname_rich_text = RichText::new(&format!("{uname_text}:"))
+            let uname_rich_text = RichText::new(format!("{uname_text}:"))
               .font(crate::ui::get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));

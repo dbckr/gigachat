@@ -33,6 +33,11 @@ const BADGE_HEIGHT : f32 = 18.0;
 const MIN_LINE_HEIGHT : f32 = 22.0;
 const COMBO_LINE_HEIGHT : f32 = 32.0;
 
+pub enum ChatPanel {
+    Left,
+    Right
+}
+
 pub struct UiChatMessageRow {
   pub row_height: f32,
   pub msg_char_range: TextRange,
@@ -92,12 +97,11 @@ pub struct AuthTokens {
 
 #[derive(Default)]
 pub struct ChatFrameResponse {
-  channel_removed: Option<String>,
   state: ChatPanelOptions,
   y_size: f32
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct ChatPanelOptions {
@@ -120,6 +124,20 @@ pub struct ChatPanelOptions {
 }
 
 #[derive(Default)]
+#[derive(PartialEq)]
+pub enum DragChannelTabState {
+    #[default]
+    None,
+    DragStart(String, Vec<String>),
+    DragRelease(String, bool, Pos2)
+}
+
+pub enum UiEvent {
+    ChannelChangeLHS,
+    ChannelChangeRHS,
+}
+
+#[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct TemplateApp {
@@ -132,6 +150,7 @@ pub struct TemplateApp {
   channels: HashMap<String, Channel>,
   pub auth_tokens: AuthTokens,
   enable_combos: bool,
+  hide_offline_chats: bool,
   pub show_timestamps: bool,
   pub show_muted: bool,
   enable_yt_integration: bool,
@@ -160,7 +179,9 @@ pub struct TemplateApp {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub show_timestamps_changed: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub dragged_channel_tab: Option<String>,
+  pub dragged_channel_tab: DragChannelTabState,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub last_frame_events: VecDeque<UiEvent>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   rhs_tab_width: Option<f32>,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -179,8 +200,11 @@ impl TemplateApp {
     update_font_sizes(&r, &cc.egui_ctx);
 
     #[cfg(feature = "persistence")]
-    if let Some(storage) = cc.storage {
-        r = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+    if let Some(storage) = cc.storage && let Some(stored) = eframe::get_value(storage, eframe::APP_KEY) {
+        r = stored
+    } else {
+        r = TemplateApp { ..Default::default() };
+        r.chat_history_limit = 100;
     }
     r.emote_loader = EmoteLoader::new("Gigachat", &runtime);
     r.emote_loader.transparent_img = Some(load_image_into_texture_handle(&cc.egui_ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
@@ -392,9 +416,6 @@ impl TemplateApp {
       if msgs > 20 { break; } // Limit to prevent bad UI lag
     }
 
-    let mut channel_swap = false;
-    let mut drag_channel_release : Option<String> = None;
-
     let body_font_size = self.body_text_size;
 
     let tframe = egui::Frame { 
@@ -424,7 +445,8 @@ impl TemplateApp {
 
               ui.add(egui::Slider::new(&mut self.bg_transparency, 0..=255).step_by(1.).text(RichText::new("Background Transparency").text_style(TextStyle::Small)));
               ui.add(egui::Slider::new(&mut self.body_text_size, 10.0..=40.0).step_by(0.5).text(RichText::new("Font Size").text_style(TextStyle::Small)));
-              ui.checkbox(&mut self.enable_combos, "Enable Combos");
+              ui.checkbox(&mut self.hide_offline_chats, "Hide Offline Chats").on_hover_text("Hide offline channel tabs. Can force specific channels to always show using channel level options menu.");
+              ui.checkbox(&mut self.enable_combos, "Enable Combos").on_hover_text("Multiple consecutive messages with the same emote will be reduced to a single line \"combo counter\".");
               if ui.checkbox(&mut self.show_timestamps, "Show Message Timestamps").changed() {
                 self.show_timestamps_changed = true;
               };
@@ -484,57 +506,68 @@ impl TemplateApp {
 
           let label = RichText::new("Mentions").text_style(TextStyle::Button);
           let clbl = ui.selectable_value(&mut self.selected_channel, None, label);
-          if clbl.clicked() {
-            channel_swap = true;
-          }
-          else if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
+          if clbl.secondary_clicked() /*clbl.clicked_by(egui::PointerButton::Secondary)*/ {
             self.show_channel_options = Some((ctx.pointer_hover_pos().unwrap_or_log().to_vec2().to_owned(), "".to_owned()));
           }
     
           let mut tabs : Vec<(String, Response)> = Default::default();
-          for channel in self.channel_tab_list.to_owned().iter() {  
-            if self.rhs_selected_channel.as_ref() != Some(channel) {
-              let clbl = self.ui_channel_tab(channel, ui, ctx, &mut channel_removed, &mut drag_channel_release);
+          for channel in self.channel_tab_list.to_owned().iter() {
+            if let Some(sco) = self.channels.get_mut(channel) && sco.transient().is_none() {
+                debug!("Channel not opened yet, attempting to open: {}", channel);
+                match sco {
+                  Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
+                  Channel::DGG { dgg, shared } => {
+                    if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
+                      chat_mgr.close();
+                    }
+                    dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
+                  },
+                  Channel::Youtube { youtube: _, shared } => {
+                    shared.transient = Some(ChannelTransient { 
+                      channel_emotes: None,
+                      badge_emotes: None,
+                      status: None });
+                  }
+                }
+              }
+
+            let show_channel = self.rhs_selected_channel.as_ref() != Some(channel) && (
+                !self.hide_offline_chats 
+                || self.channels.get(channel).map(|c| c.shared().show_tab_when_offline || c.shared().transient.as_ref().and_then(|t| t.status.as_ref().map(|s| s.is_live)).unwrap_or(false)).unwrap_or(false)
+            );
+            if show_channel {
+              let clbl = self.ui_channel_tab(channel, ui, ctx, &mut channel_removed);
               if let Some(clbl) = clbl {
                 tabs.push((channel.to_owned(), clbl));
               }
             }
           }
     
-          if self.dragged_channel_tab.is_some() && let Some(drag_channel) = self.dragged_channel_tab.as_ref() && let Some(ptr) = ctx.pointer_latest_pos() {
-            let mut swapped = false;
-            for ((l_channel, l_tab), (r_channel, r_tab)) in tabs.iter().tuple_windows() {
-              if ui.min_rect().contains(ptr) {
-                if l_channel == drag_channel && (ptr.x > r_tab.rect.left() && ptr.y > r_tab.rect.top() && ptr.y < r_tab.rect.bottom() || ptr.y > l_tab.rect.bottom()) {
-                  let ix = self.channel_tab_list.iter().position(|x| x == l_channel);
-                  if let Some(ix) = ix && ix < self.channel_tab_list.len() - 1 {
-                    self.channel_tab_list.swap(ix, ix + 1);
-                    swapped = true;
-                  }
+            if let DragChannelTabState::DragStart(drag_channel, _) = &self.dragged_channel_tab {
+                if let Some(ptr) = ctx.pointer_latest_pos() {
+                    for ((l_channel, l_tab), (r_channel, r_tab)) in tabs.iter().tuple_windows() {
+                        if ui.min_rect().contains(ptr) {
+                            if l_channel == drag_channel && (ptr.x > r_tab.rect.left() && ptr.y > r_tab.rect.top() && ptr.y < r_tab.rect.bottom() || ptr.y > l_tab.rect.bottom()) {
+                                let ix = self.channel_tab_list.iter().position(|x| x == l_channel);
+                                if let Some(ix) = ix && ix < self.channel_tab_list.len() - 1 {
+                                    self.channel_tab_list.swap(ix, ix + 1);
+                                }
+                            }
+                            else if r_channel == drag_channel && (ptr.x < l_tab.rect.right() && ptr.y > l_tab.rect.top() && ptr.y < l_tab.rect.bottom() || ptr.y < r_tab.rect.top()) {
+                                let ix = self.channel_tab_list.iter().position(|x| x == r_channel);
+                                if let Some(ix) = ix && ix > 0 {
+                                    self.channel_tab_list.swap(ix - 1, ix);
+                                }
+                            }
+                        }
+                    }
                 }
-                else if r_channel == drag_channel && (ptr.x < l_tab.rect.right() && ptr.y > l_tab.rect.top() && ptr.y < l_tab.rect.bottom() || ptr.y < r_tab.rect.top()) {
-                  let ix = self.channel_tab_list.iter().position(|x| x == r_channel);
-                  if let Some(ix) = ix && ix > 0 {
-                    self.channel_tab_list.swap(ix - 1, ix);
-                    swapped = true;
-                  }
-                }
-              }
             }
-            if !swapped && Some(drag_channel) != self.rhs_selected_channel.as_ref()
-                && ctx.input(|i| i.pointer.primary_clicked())
-                && let Some(x) = tabs.iter_mut().find(|(name, _)| name == drag_channel)  {
-              self.selected_channel = Some(drag_channel.to_owned());
-              x.1.mark_changed();
-              channel_swap = true;
-            }
-          }
-
-          
         });
+
         if let Some(channel) = self.rhs_selected_channel.to_owned() {
             let resp = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-              self.ui_channel_tab(&channel, ui, ctx, &mut channel_removed, &mut drag_channel_release);
+              self.ui_channel_tab(&channel, ui, ctx, &mut channel_removed);
               if ui.button("<").on_hover_text("Close split chat").clicked() {
                 self.rhs_selected_channel = None;
               }
@@ -586,50 +619,92 @@ impl TemplateApp {
       fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, self.bg_transparency),
       ..Default::default() 
     };
-    let mut lhs_response : ChatFrameResponse = Default::default();
-    /*let cpanel_resp =*/ egui::CentralPanel::default()
+
+    egui::CentralPanel::default()
     .frame(cframe)
     .show(ctx, |ui| {
       let height = ui.available_height();
       ui.horizontal(|ui| {
         ui.set_height(height);
-        lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, self.rhs_selected_channel.is_some(), popped_height);
-        if self.rhs_selected_channel.is_none() && let Some(pos) = ctx.pointer_latest_pos() && ui.min_rect().contains(pos) {
-          if self.dragged_channel_tab.is_some() && pos.x > ui.available_width() * 0.5 {
-            //paint rectangle to indicate drop will shift to other chat panel
-            let paintrect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
-            ui.painter().rect_filled(paintrect, Rounding::ZERO, Color32::from_rgba_unmultiplied(40,40,40,150));
-          }
-          if let Some(channel) = drag_channel_release.as_ref() && pos.x > ui.available_width() * 0.5 && ui.min_rect().contains(pos) {
-            self.rhs_selected_channel = Some(channel.to_owned());
-            self.selected_channel = None;
-          }
-        }
-        if self.rhs_selected_channel.is_some() {
-          let rhs_chat_state = ChatPanelOptions {
-            selected_channel: self.rhs_selected_channel.to_owned(),
-            draft_message: self.rhs_chat_state.draft_message.to_owned(),
-            chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
-            chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
-            selected_user: self.rhs_chat_state.selected_user.to_owned(),
-            selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
-            selected_emote: self.rhs_chat_state.selected_emote.to_owned(),
-            selected_emote_input: self.rhs_chat_state.selected_emote_input.to_owned()
-          };
-          let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
-          self.rhs_chat_state = rhs_response.state;
+        let rhs_active = self.rhs_selected_channel.is_some();
 
-         //if drag_channel_release.is_some() {
-         //  self.rhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y:  rhs_response.y_size });
-         //}
+        //let mut lhs_chat_state = self.lhs_chat_state.to_owned();
+        let lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, rhs_active, popped_height);
+
+        let rhs_response = if self.rhs_selected_channel.is_some() {
+            let rhs_chat_state = ChatPanelOptions {
+                selected_channel: self.rhs_selected_channel.to_owned(),
+                draft_message: self.rhs_chat_state.draft_message.to_owned(),
+                chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
+                chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
+                selected_user: self.rhs_chat_state.selected_user.to_owned(),
+                selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
+                selected_emote: self.rhs_chat_state.selected_emote.to_owned(),
+                selected_emote_input: self.rhs_chat_state.selected_emote_input.to_owned()
+            };
+            self.rhs_chat_state.selected_channel = self.rhs_selected_channel.to_owned();
+
+            //let mut rhs_chat_state = self.rhs_chat_state.to_owned();
+            let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
+            self.rhs_chat_state = rhs_response.state;
+            Some(ChatFrameResponse { y_size: rhs_response.y_size, ..Default::default() })
+        } else { None };
+
+        let rhs_rect = ui.max_rect().shrink2(Vec2::new(ui.max_rect().width() * 0.25, 0.)).translate(Vec2::new(ui.max_rect().width() * 0.25, 0.));
+
+        let drag_state_needs_reset = match &self.dragged_channel_tab {
+            DragChannelTabState::DragStart(_channel, drag_start_tab_list) => {
+                if let Some(pos) = ctx.pointer_latest_pos() && rhs_rect.contains(pos) {
+                    // revert any change to tab order while dragging
+                    self.channel_tab_list = drag_start_tab_list.to_owned();
+
+                    //paint rectangle to indicate drop will shift to other chat panel
+                    ui.painter().rect_filled(rhs_rect, Rounding::ZERO, Color32::from_rgba_unmultiplied(40,40,40,150));
+                }
+                false
+            },
+            DragChannelTabState::DragRelease(drag_channel, tab_order_changed, pos) => {
+                if rhs_rect.contains(*pos) {
+                    if self.selected_channel.as_ref() == Some(drag_channel) {
+                        self.selected_channel = if self.rhs_selected_channel.is_some() {
+                            self.rhs_selected_channel.to_owned()
+                        } else { None };
+                    }
+                    self.rhs_selected_channel = Some(drag_channel.to_owned());
+                    self.last_frame_events.push_back(UiEvent::ChannelChangeRHS);
+                    true
+                } else if !tab_order_changed {
+                    self.selected_channel = Some(drag_channel.to_owned());
+                    self.last_frame_events.push_back(UiEvent::ChannelChangeLHS);
+                    true
+                } else {
+                    false
+                }
+            },
+            DragChannelTabState::None => false
+        };
+
+        if drag_state_needs_reset {
+            self.dragged_channel_tab = DragChannelTabState::None;
         }
+
+        while let Some(event) = self.last_frame_events.pop_front() {
+            match event {
+                UiEvent::ChannelChangeLHS => { 
+                    self.lhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y: lhs_response.y_size }); 
+                },
+                UiEvent::ChannelChangeRHS => { 
+                    self.rhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y: rhs_response.as_ref().map(|f| f.y_size).unwrap_or(0.) }); 
+                },
+            }
+        }
+
+        self.lhs_chat_state = lhs_response.state;
+        
       });
     });
-    self.lhs_chat_state = lhs_response.state;
 
-    if channel_swap {
-      self.lhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y:  lhs_response.y_size });
-    }
+    
 
     /*let rect = cpanel_resp.response.rect;
     if self.rhs_selected_channel.is_some() {
@@ -663,8 +738,6 @@ impl TemplateApp {
 
       self.rhs_chat_state = rhs_response.state;
     }*/
-    
-    channel_removed = channel_removed.or(lhs_response.channel_removed);
 
     if let Some(channel) = channel_removed {
       if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
@@ -677,7 +750,7 @@ impl TemplateApp {
     ctx.request_repaint();
   }
 
-  fn ui_channel_tab(&mut self, channel: &String, ui: &mut egui::Ui, ctx: &egui::Context, channel_removed: &mut Option<String>, drag_channel_release: &mut Option<String>) -> Option<Response> {
+  fn ui_channel_tab(&mut self, channel: &String, ui: &mut egui::Ui, ctx: &egui::Context, channel_removed: &mut Option<String>) -> Option<Response> {
     if let Some(sco) = self.channels.get_mut(channel) {
       let provider = match sco {
         Channel::Twitch { twitch: _, shared: _ } => "Twitch",
@@ -708,7 +781,7 @@ impl TemplateApp {
             ..Default::default()
           });
         }
-        //let clbl = ui.selectable_value(&mut self.selected_channel, Some(channel.to_owned()), job);
+
         let clblx = SelectableLabel::new(self.selected_channel == Some(channel.to_owned()), job);
         let mut clbl = ui.add(clblx);
         
@@ -718,12 +791,15 @@ impl TemplateApp {
         else if clbl.middle_clicked() {
           *channel_removed = Some(channel.to_owned());
         }
-        if clbl.drag_started() && self.dragged_channel_tab.is_none() {
-          self.dragged_channel_tab = Some(channel.to_owned());
+        if clbl.drag_started() && !matches!(&self.dragged_channel_tab, DragChannelTabState::DragStart(_, _)) {
+          self.dragged_channel_tab = DragChannelTabState::DragStart(channel.to_owned(), self.channel_tab_list.to_owned());
         }
-        else if clbl.drag_released() {
-          self.dragged_channel_tab = None;
-          *drag_channel_release = Some(channel.to_owned());
+        else if clbl.drag_released() 
+        && let DragChannelTabState::DragStart(_, drag_start_tab_order) = &self.dragged_channel_tab 
+        && let Some(pos) = ctx.pointer_latest_pos() {
+            let tab_order_changed = !&self.channel_tab_list.iter().eq(drag_start_tab_order);
+            
+            self.dragged_channel_tab = DragChannelTabState::DragRelease(channel.to_owned(), tab_order_changed, pos);
         }
 
         //if t.status.is_some_and(|s| s.is_live) || channel.len() > 16 {
@@ -760,24 +836,6 @@ impl TemplateApp {
         //}
         return Some(clbl);
       }
-      else {
-        debug!("Channel not opened yet, attempting to open: {}", channel);
-        match sco {
-          Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
-          Channel::DGG { dgg, shared } => {
-            if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
-              chat_mgr.close();
-            }
-            dgg.dgg_chat_manager = Some(dgg::open_channel(&self.auth_tokens.dgg_username, &self.auth_tokens.dgg_auth_token, dgg, shared, self.runtime.as_ref().unwrap_or_log(), &self.emote_loader));
-          },
-          Channel::Youtube { youtube: _, shared } => {
-            shared.transient = Some(ChannelTransient { 
-              channel_emotes: None,
-              badge_emotes: None,
-              status: None });
-          }
-        }
-      }
     }
     None
   }
@@ -806,7 +864,8 @@ impl TemplateApp {
         let outgoing_msg_hint : egui::WidgetText = "Type a message to send".into();
 
         ui.style_mut().visuals.extreme_bg_color = Color32::from_rgba_premultiplied(0, 0, 0, 120);
-        let mut outgoing_msg = egui::TextEdit::multiline(&mut chat_panel.draft_message)
+        let draft_message = &mut chat_panel.draft_message;
+        let mut outgoing_msg = egui::TextEdit::multiline(draft_message)
           .desired_rows(2)
           .desired_width(ui.available_width())
           .hint_text(outgoing_msg_hint)
@@ -827,16 +886,16 @@ impl TemplateApp {
               ix = ix.saturating_sub(1);
             };
             if let Some(msg) = msg {
-              chat_panel.draft_message = msg.to_owned();
+              *draft_message = msg.to_owned();
               outgoing_msg.state.set_ccursor_range(
-                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(chat_panel.draft_message.len())))
+                Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(draft_message.len())))
               );
             }
             sco.shared_mut().send_history_ix = Some(ix);
           }
         }
 
-        if outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) && !chat_panel.draft_message.is_empty() {
+        if outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) && !draft_message.is_empty() {
           if let Some(sco) = self.channels.get_mut(sc) {
             let (chat_tx, shared) = match sco {
               Channel::Twitch { twitch: _, ref mut shared } => (self.twitch_chat_manager.as_mut().map(|m| m.in_tx()), shared),
@@ -844,24 +903,25 @@ impl TemplateApp {
               Channel::Youtube { youtube: _, ref mut shared } => (self.yt_chat_manager.as_mut().map(|m| m.in_tx()), shared)
             };
             if let Some(chat_tx) = chat_tx {
-              match chat_tx.try_send(OutgoingMessage::Chat { channel: shared.channel_name.to_owned(), message: chat_panel.draft_message.replace('\n', " ") }) {
+              match chat_tx.try_send(OutgoingMessage::Chat { channel: shared.channel_name.to_owned(), message: draft_message.replace('\n', " ") }) {
                 Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                 _ => {
-                  shared.send_history.push_front(chat_panel.draft_message.trim_end().to_owned());
-                  chat_panel.draft_message = String::new();
+                  shared.send_history.push_front(draft_message.trim_end().to_owned());
+                  *draft_message = String::new();
                   shared.send_history_ix = None;
                 }
               }
             }
           } 
         }
-        else if outgoing_msg.response.has_focus() && !chat_panel.draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+        else if outgoing_msg.response.has_focus() && !draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
           let cursor = cursor_pos.primary.index;
-          let msg = &chat_panel.draft_message.to_owned();
+          let msg = &draft_message.to_owned();
           let word : Option<(usize, &str)> = msg.split_whitespace()
             .map(move |s| (s.as_ptr() as usize - msg.as_ptr() as usize, s))
             .filter_map(|p| if p.0 <= cursor && cursor <= p.0 + p.1.len() { Some((p.0, p.1)) } else { None })
             .next();
+
           let word_input = word.map(|x| (x.0.to_owned(), x.1.to_owned()));
 
           if chat_panel.selected_emote_input.is_none() || chat_panel.selected_emote.is_none() {
@@ -871,11 +931,11 @@ impl TemplateApp {
           if let Some((pos, word)) = chat_panel.selected_emote_input.as_ref().or(word_input.as_ref()) {
 
             let is_user_list = word.starts_with('@');
-            let emotes = if is_user_list { self.get_possible_users(&chat_panel.selected_channel, Some(word)) } else { self.get_possible_emotes(&chat_panel.selected_channel, Some(word)) };
+            let emotes = if is_user_list { self.get_possible_users(chat_panel.selected_channel.as_ref(), Some(word)) } else { self.get_possible_emotes(chat_panel.selected_channel.as_ref(), Some(word)) };
 
             let update_ui_draft_msg = |word: &String, pos: &usize, emote_text: &String, draft_msg: &mut String, state: &mut TextEditState| {
-              let msg = /*if chat_panel.draft_message.len() <= pos + word.len() || &chat_panel.draft_message[pos + word.len()..pos + word.len() + 1] != " " {
-                format!("{}{} {}", &chat_panel.draft_message[..*pos], emote_text, &chat_panel.draft_message[pos + word.len()..])
+              let msg = /*if draft_message.len() <= pos + word.len() || &draft_message[pos + word.len()..pos + word.len() + 1] != " " {
+                format!("{}{} {}", &draft_message[..*pos], emote_text, &draft_message[pos + word.len()..])
               } else {*/
                 format!("{}{}{}", &draft_msg[..*pos], emote_text, &draft_msg[pos + word.len()..]);
               //};
@@ -1010,7 +1070,7 @@ impl TemplateApp {
                 if let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {
                   chat_panel.selected_emote = emotes.get(ix + 1).map(|x| x.0.to_owned());
                 } else {
-                  chat_panel.selected_emote = emotes.get(0).map(|x| x.0.to_owned());
+                  chat_panel.selected_emote = emotes.first().map(|x| x.0.to_owned());
                 }
               }
               else if goto_prev_emote && let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix > 0 {
@@ -1024,11 +1084,11 @@ impl TemplateApp {
               }
 
               if (goto_next_emote || goto_prev_emote) && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
-                update_ui_draft_msg(textbox_word, pos, emote_text, &mut chat_panel.draft_message, &mut outgoing_msg.state);
+                update_ui_draft_msg(textbox_word, pos, emote_text, draft_message, &mut outgoing_msg.state);
               }
 
               if enter_emote && let Some(emote_text) = &chat_panel.selected_emote && !emote_text.is_empty() {
-                update_ui_draft_msg(textbox_word, pos, &format!("{emote_text} "), &mut chat_panel.draft_message, &mut outgoing_msg.state);
+                update_ui_draft_msg(textbox_word, pos, &format!("{emote_text} "), draft_message, &mut outgoing_msg.state);
                 outgoing_msg.response.request_focus();
                 chat_panel.selected_emote = None;
                 chat_panel.selected_emote_input = None;
@@ -1058,8 +1118,6 @@ impl TemplateApp {
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
         //.always_show_scroll(true) // egui <= 0.21
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));
-
-      
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
       let mut y_size = 0.;
@@ -1122,6 +1180,10 @@ impl TemplateApp {
       .collapsible(false)
       .show(ctx, |ui| {
         if !channel.is_empty() {
+          if let Some(ch) = self.channels.get_mut(&channel) {
+            ui.checkbox(&mut ch.shared_mut().show_tab_when_offline, "Always Show Tab").on_hover_text("Ignore the Hide Offline setting and always display this channel in tab list.");
+          }
+          ui.separator();
           if ui.button("Remove channel").clicked() {
             channel_removed = Some(channel.to_owned());
             self.show_channel_options = None;
@@ -1154,10 +1216,12 @@ impl TemplateApp {
             self.show_channel_options = None;
           }
           if ui.button("Split screen").clicked() {
-            self.rhs_selected_channel = Some(channel.to_owned());
-            if self.selected_channel == self.rhs_selected_channel {
-              self.selected_channel = None;
+            if self.selected_channel.as_ref() == Some(&channel) {
+                self.selected_channel = if self.rhs_selected_channel.is_some() {
+                    self.rhs_selected_channel.to_owned()
+                } else { None };
             }
+            self.rhs_selected_channel = Some(channel.to_owned());
             self.show_channel_options = None;
           }
         } else {
@@ -1365,8 +1429,9 @@ impl TemplateApp {
       };
 
       let name = c.channel_name().to_owned();
-      self.channels.insert(name.to_owned(), c);
-      self.channel_tab_list.push(name.to_owned());
+      if self.channels.try_insert(name.to_owned(), c).is_ok() {
+        self.channel_tab_list.push(name.to_owned());
+      }
       self.selected_channel = Some(name);
       channel_options.channel_name = Default::default();
     };
@@ -1488,6 +1553,7 @@ impl TemplateApp {
       providers,
       channels,
       auth_tokens : _,
+      hide_offline_chats : _,
       enable_combos,
       show_timestamps,
       show_muted,
@@ -1508,7 +1574,8 @@ impl TemplateApp {
       dragged_channel_tab : _,
       rhs_tab_width: _,
       yt_chat_manager: _,
-      enable_yt_integration: _
+      enable_yt_integration: _,
+      last_frame_events: _,
     } = self;
 
     let ChatPanelOptions {
@@ -1866,7 +1933,7 @@ impl TemplateApp {
     };
   }
 
-  fn get_possible_emotes(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
+  fn get_possible_emotes(&mut self, selected_channel: Option<&String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
     let emote_loader = &mut self.emote_loader;
     if let Some(input_str) = word {
       if input_str.len() < 2  {
@@ -1930,7 +1997,7 @@ impl TemplateApp {
     }
   }
 
-  fn get_possible_users(&mut self, selected_channel: &Option<String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
+  fn get_possible_users(&self, selected_channel: Option<&String>, word: Option<&String>) -> Option<Vec<(String, Option<OverlayItem>)>> {
     if let Some(input_str) = word {
       if input_str.len() < 3  {
         return None;
@@ -1941,7 +2008,7 @@ impl TemplateApp {
       let mut starts_with_users : HashMap<String, Option<OverlayItem>> = Default::default();
       let mut contains_users : HashMap<String, Option<OverlayItem>> = Default::default();
       
-      if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get_mut(channel_name) {
+      if let Some(channel_name) = selected_channel && let Some(channel) = self.channels.get(channel_name) {
         for (name_lower, user) in channel.shared().users.iter().filter(|(_k, v)| v.is_active) {
           if name_lower.starts_with(word_lower) || name_lower.contains(word_lower) {
             _ = match name_lower.starts_with(word_lower) {

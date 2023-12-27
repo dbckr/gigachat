@@ -216,7 +216,7 @@ fn get_texture(emote: &Emote) -> Option<&TextureHandle> {
           }
           None
         }
-        else if let Some((frame, _delay)) = frames.get(0) {
+        else if let Some((frame, _delay)) = frames.first() {
           Some(frame)
         }
         else {

@@ -14,9 +14,12 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{Layer, Registry};
 use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
 use tracing_unwrap::ResultExt;
+use tracing_log::LogTracer;
 
 fn main() {
   use eframe::Renderer;
+
+  LogTracer::init_with_filter(tracing_log::log::LevelFilter::Warn).expect("failed to init LogTracer");
 
   let args: Vec<String> = env::args().collect();
 
@@ -59,7 +62,7 @@ fn init_logging(args: Vec<String>) -> WorkerGuard {
     "WARN" => tracing::level_filters::LevelFilter::WARN,
     "ERROR" => tracing::level_filters::LevelFilter::ERROR,
     _ => tracing::level_filters::LevelFilter::ERROR
-  }).unwrap_or(tracing::level_filters::LevelFilter::DEBUG);
+  }).unwrap_or(tracing::level_filters::LevelFilter::INFO);
 
   let file = tracing_subscriber::fmt::layer()
     .with_line_number(true)

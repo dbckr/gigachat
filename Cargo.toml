@@ -16,7 +16,8 @@ futures = "0.3.26"
 tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "macros"] }
 egui = { version = "0.23.0" }
 eframe = { version = "0.23.0", features = ["wgpu"] }
-irc = { version = "0.15.0", features = ["default"]}
+#irc = { version = "0.15.0", features = ["default"]}
+irc = { path = "../irc" }
 anyhow = { version = "1.0.71" }
 args = "2.2.0"
 getopts = "0.2.21"
@@ -55,6 +56,7 @@ ahash = "0.8.3"
 num_cpus = "1.15.0"
 libwebp-sys2 = "0.1.2"
 egui_extras = { version = "0.23.0", features = ["all_loaders"] }
+tracing-log = "0.2.0"
 
 [profile.release]
 #opt-level = 2 # fast and small wasm
@@ -67,4 +69,4 @@ console_error_panic_hook = "0.1.6"
 tracing-wasm = "0.2"
 
 [profile.bench]
-debug = true
+#debug = true

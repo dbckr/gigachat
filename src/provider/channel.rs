@@ -17,6 +17,7 @@ use super::{ProviderName, ChatManager, ChatManagerRx, OutgoingMessage};
 pub struct ChannelShared {
   pub channel_name: String,
   pub show_in_mentions_tab: bool,
+  pub show_tab_when_offline: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history: VecDeque<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
@@ -24,7 +25,7 @@ pub struct ChannelShared {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub transient: Option<ChannelTransient>,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub users: HashMap<String, ChannelUser>
+  pub users: HashMap<String, ChannelUser>,
 }
 
 impl ChannelShared {

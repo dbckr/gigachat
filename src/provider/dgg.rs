@@ -8,7 +8,7 @@ use std::{collections::HashMap, path::Path};
 use async_channel::{Sender, Receiver};
 use backoff::backoff::Backoff;
 use chrono::{Utc, NaiveDateTime, DateTime};
-use futures::{StreamExt, SinkExt, TryFutureExt};
+use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error, debug};
 use crate::{provider::MessageType, emotes::{EmoteRequest, EmoteSource}};
@@ -27,6 +27,7 @@ pub fn init_channel() -> Channel {
     shared: ChannelShared {   
       channel_name: DGG_CHANNEL_NAME.to_owned(),
       show_in_mentions_tab: true,
+      show_tab_when_offline: true,
       send_history: Default::default(),
       send_history_ix: None,
       transient: None,
@@ -140,7 +141,6 @@ impl ChatManager {
   pub fn close(&mut self) {
     self.in_tx.try_send(OutgoingMessage::Quit {}).expect_or_log("channel failure");
     for handle in self.handles.iter_mut() {
-      let _ = handle.inspect_err(|f| error!("{f:?}"));
       handle.abort();
     }
   }
