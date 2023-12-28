@@ -3,6 +3,7 @@
 #![feature(map_try_insert)]
 #![feature(let_chains)]
 #![feature(async_closure)]
+#![allow(clippy::blocks_in_conditions)]
 
 pub mod ui;
 pub mod provider;

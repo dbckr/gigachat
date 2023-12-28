@@ -18,7 +18,7 @@ use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, cha
 
 const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
-pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
+pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
   let channel_color = get_provider_color(&row.message.provider);
   let job = if show_channel_name {
     get_chat_msg_header_layoutjob(true, ui, Some((&row.message.channel, channel_color)), None, &row.message.timestamp, &row.message.profile, show_timestamp)
@@ -36,7 +36,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channe
     if let Some(combo) = row.message.combo_data.as_ref() {
       let emote = row.emotes.get(&combo.word);
       if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader) {
-        add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4.);
+        add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4., interactable);
       }
       ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6)).sense(egui::Sense { click: true, drag: false, focusable: false }));
     }
@@ -44,7 +44,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channe
   ui_row.response.rect
 }
 
-pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlight: Option<Color32>, emote_loader: &mut EmoteLoader) -> (emath::Rect, Option<String>, bool) {
+pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlight: Option<Color32>, interactable: bool, emote_loader: &mut EmoteLoader) -> (emath::Rect, Option<String>, bool) {
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
@@ -93,35 +93,38 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             for emote in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
               if let Some(tex) = emote.get_texture(emote_loader) {
-                ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)))).on_hover_ui(|ui| {
-                //ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
-                  //ui.set_width(BADGE_HEIGHT + 20.);
-                  //ui.vertical_centered(|ui| {
-                    match chat_msg.message.provider {
-                      ProviderName::Twitch => {
-                        let parts = emote.name.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
-                        match parts.0 {
-                          "subscriber" => {
-                            let num = parts.1.parse::<usize>().unwrap_or(0);
-                            let tier = match num / 1000 {
-                              3 => "T3",
-                              2 => "T2",
-                              _ => "T1",
-                            };
-                            ui.label(format!("{} Month Sub ({})", num % 1000, tier))
-                          }, 
-                          "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
-                          "bits" => ui.label(format!("{} Bits", parts.1)),
-                          _ => ui.label(parts.0)
-                        };
-                      },
-                      ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(&emote.name.to_owned())); },
-                      ProviderName::YouTube => {}
-                    };
-
-                    ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), tex.size_vec2())));
-                  //});
-                });
+                let resp = ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT))));
+                if interactable {
+                  resp.on_hover_ui(|ui| {
+                  //ui.image(tex.texture_id(ui.ctx()), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT)).on_hover_ui(|ui| {
+                    //ui.set_width(BADGE_HEIGHT + 20.);
+                    //ui.vertical_centered(|ui| {
+                      match chat_msg.message.provider {
+                        ProviderName::Twitch => {
+                          let parts = emote.name.split('/').collect_tuple::<(&str, &str)>().unwrap_or(("",""));
+                          match parts.0 {
+                            "subscriber" => {
+                              let num = parts.1.parse::<usize>().unwrap_or(0);
+                              let tier = match num / 1000 {
+                                3 => "T3",
+                                2 => "T2",
+                                _ => "T1",
+                              };
+                              ui.label(format!("{} Month Sub ({})", num % 1000, tier))
+                            }, 
+                            "sub-gifter" => ui.label(format!("{}\nGift Subs", parts.1)),
+                            "bits" => ui.label(format!("{} Bits", parts.1)),
+                            _ => ui.label(parts.0)
+                          };
+                        },
+                        ProviderName::DGG => { ui.label(emote.display_name.as_ref().unwrap_or(&emote.name.to_owned())); },
+                        ProviderName::YouTube => {}
+                      };
+  
+                      ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), tex.size_vec2())));
+                    //});
+                  });
+                }
               }
             }
           }
@@ -131,13 +134,13 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
               .font(crate::ui::get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
-            if uname.clicked() {
+            if interactable && uname.clicked() {
               user_selected = Some(uname_text.to_lowercase());
             }
-            else if uname.secondary_clicked() {
+            else if interactable && uname.secondary_clicked() {
               msg_right_clicked = true;
             }
-            if uname.hovered() {
+            if interactable && uname.hovered() {
               ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
             }
           }
@@ -167,7 +170,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             ui.image(&tx, egui::vec2(x, y));
           } else */ if let Some(emote) = emote {
             if let Some(tex) = emote.get_texture(emote_loader) {
-              add_ui_emote_image(word, &emote.path, tex, &emote.zero_width, &mut last_emote_width, ui, emote_height);
+              add_ui_emote_image(word, &emote.path, tex, &emote.zero_width, &mut last_emote_width, ui, emote_height, interactable);
             }
           }
           else {
@@ -209,10 +212,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
                 if let Some (mention) = chat_msg.mentions.as_ref().and_then(|f| f.iter().find(|m| word.to_lowercase().contains(&m.to_lowercase()))) {
                   let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
-                  if lbl.clicked() {
+                  if interactable && lbl.clicked() {
                     user_selected = Some(mention.to_owned());
                   }
-                  if lbl.hovered() {
+                  if interactable && lbl.hovered() {
                     ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                   }
                 } else {
@@ -245,7 +248,7 @@ pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
   }
 }
 
-fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32, show_tooltip: bool) {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
@@ -255,10 +258,13 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_widt
     img.paint_at(ui, rect);
   }
   else {
-    ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y)))).on_hover_ui(|ui| {
-      ui.label(format!("{}\n{}", word, path.replace('/',"")));
-      ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), texture.size_vec2())));
-    });
+    let img = ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y))));
+    if show_tooltip {
+      img.on_hover_ui(|ui| {
+        ui.label(format!("{}\n{}", word, path.replace('/',"")));
+        ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), texture.size_vec2())));
+      });
+    }  
     *last_emote_width = Some((x, y));
   }
 }

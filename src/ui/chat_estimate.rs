@@ -196,7 +196,7 @@ fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId,
 const ASCII_ART_MIN_LINES : usize = 5;
 const ASCII_ART_MIN_LINE_WIDTH: usize = 15;
 
-fn is_start_of_ascii_art(words: &Vec<&str>, ix: usize, emotes: &HashMap<String, &Emote>) -> Option<usize> {
+fn is_start_of_ascii_art(words: &[&str], ix: usize, emotes: &HashMap<String, &Emote>) -> Option<usize> {
   if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && !emotes.contains_key(words[ix]) && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
     Some(words[ix].len())
   }

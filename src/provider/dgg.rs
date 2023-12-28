@@ -503,7 +503,7 @@ impl CSSLoader {
         .map(|f| (f.get(1).map(|x| x.as_str()), f.get(2).and_then(|x| x.as_str().parse::<u32>().ok())))
         .collect_vec();
     let anim_caps = anim_regex.captures_iter(css_notabs.as_str()).collect_vec();
-    for (_ix, captures) in width_caps.enumerate() {
+    for captures in width_caps {
       //println!("{captures:?}");
       let prefix = captures.get(1).map(|x| x.as_str());
       //println!("{:?}", prefix);
