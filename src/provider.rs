@@ -5,6 +5,7 @@
  */
 
 use async_channel::{Sender, Receiver};
+use egui::Color32;
 use reqwest::header::{HeaderValue, HeaderName, HeaderMap};
 //use rand::{distributions::{Alphanumeric, DistString}};
 use tracing::info;
@@ -13,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use tracing_unwrap::ResultExt;
 
-use crate::emotes::Emote;
+use crate::{emotes::Emote, ui::chat};
 
 use self::channel::ChannelStatus;
 
@@ -142,6 +143,13 @@ impl Default for ChatMessage {
       //unique_id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16)
     }
   }
+}
+
+impl ChatMessage {
+    pub fn get_username_with_color(&self) -> Option<(&String, Color32)> {
+        chat::determine_name_to_display(self)
+            .map(|username| (username, chat::convert_color(self.profile.color.as_ref().unwrap_or(&chat::DEFAULT_USER_COLOR))))
+    }
 }
 
 #[derive(Clone, Default)]

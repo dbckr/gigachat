@@ -70,7 +70,21 @@ impl<'a, 'b> UiChatMessage<'a, 'b> {
       None
     }
   }
+
+  pub fn username_display(&'a self) -> Option<(&'a String, Color32)> {
+    self.message.get_username_with_color()
+  }
+
+  pub fn timestamp(&'a self) -> Option<&'a DateTime<Utc>> {
+    if self.show_timestamp {
+        Some(&self.message.timestamp)
+    } else {
+        None
+    }
+  }
 }
+
+
 
 pub struct AddChannelMenu {
   channel_name: String,
@@ -460,6 +474,7 @@ impl TemplateApp {
               if ui.checkbox(&mut self.show_muted, "Show Muted/Banned Messages").changed() {
                 self.show_timestamps_changed = true;
               };
+              ui.checkbox(&mut self.force_compact_emote_selector, "Force Compact Emote Selector").on_hover_text("Only show emote images in selector. If disabled, selector will show emote text alongside images, if all emotes can fit into displayable area.");
               ui.checkbox(&mut self.enable_yt_integration, "Enable YT Integration");
               ui.add(egui::Slider::new(&mut self.chat_history_limit, 100..=10000).step_by(100.).text(RichText::new("Chat history limit").text_style(TextStyle::Small)));
               if ui.button("Reload Global and TTV Sub Emotes").clicked() {
@@ -485,7 +500,6 @@ impl TemplateApp {
                   }
                 }
               }
-              ui.checkbox(&mut self.force_compact_emote_selector, "Force Compact Emote Selector").on_hover_text("Only show emote images in selector. If disabled, selector will show emote text alongside images, if all emotes can fit into displayable area.");
             });
           });
           ui.separator();
@@ -1822,7 +1836,7 @@ impl TemplateApp {
             }
           }
           else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-            chat::display_combo_message(ui, chat_msg, show_channel_names, *show_timestamps, chat_panel.selected_emote.is_none(), emote_loader);
+            chat::display_combo_message(ui, chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
           }
         }
       });

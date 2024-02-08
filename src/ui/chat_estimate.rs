@@ -47,9 +47,9 @@ pub fn get_chat_msg_size(
   //info!("ascii {}", is_ascii_art.is_some());
 
   let job = if show_channel_name {
-    chat::get_chat_msg_header_layoutjob(false, ui, Some((&row.channel, Color32::WHITE)), chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_timestamp)
+    chat::get_chat_msg_header_layoutjob(false, ui, Some((&row.channel, Color32::WHITE)), row.get_username_with_color(), if show_timestamp { Some(&row.timestamp) } else { None })
   } else {
-    chat::get_chat_msg_header_layoutjob(false, ui, None, chat::determine_name_to_display(row), &row.timestamp, &row.profile, show_timestamp)
+    chat::get_chat_msg_header_layoutjob(false, ui, None, row.get_username_with_color(), if show_timestamp { Some(&row.timestamp) } else { None })
   };
 
   let header_rows = &ui.fonts(|f| f.layout_job(job)).rows;

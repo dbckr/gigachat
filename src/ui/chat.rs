@@ -11,20 +11,15 @@ use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 
 use crate::provider::ChatMessage;
-use crate::{emotes::*, provider::{ProviderName, UserProfile, MessageType}};
+use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
 use super::EMOTE_SCALING;
 use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
 
-const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
+pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
-pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, show_channel_name: bool, show_timestamp: bool, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
-  let channel_color = get_provider_color(&row.message.provider);
-  let job = if show_channel_name {
-    get_chat_msg_header_layoutjob(true, ui, Some((&row.message.channel, channel_color)), None, &row.message.timestamp, &row.message.profile, show_timestamp)
-  } else {
-    get_chat_msg_header_layoutjob(true, ui, None, None, &row.message.timestamp, &row.message.profile, show_timestamp)
-  };
+pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
+  let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), row.username_display(), row.timestamp());
 
   let ui_row = ui.horizontal(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
@@ -87,7 +82,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
         if row_ix == 0 {
           let username = determine_name_to_display(chat_msg.message);
-          let job = get_chat_msg_header_layoutjob(true, ui, chat_msg.channel_display_info(), username, &chat_msg.message.timestamp, &chat_msg.message.profile, chat_msg.show_timestamp);
+          let job = get_chat_msg_header_layoutjob(true, ui, chat_msg.channel_display_info(), chat_msg.username_display(), chat_msg.timestamp());
           ui.add(egui::Label::new(job).sense(egui::Sense::hover()));
           if let Some(user_badges) = &chat_msg.badges {
             for emote in user_badges {
@@ -211,7 +206,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                 }
 
                 if let Some (mention) = chat_msg.mentions.as_ref().and_then(|f| f.iter().find(|m| word.to_lowercase().contains(&m.to_lowercase()))) {
-                  let lbl = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                  let lbl = ui.add(egui::Label::new(mention.to_owned()).sense(egui::Sense::click()));
                   if interactable && lbl.clicked() {
                     user_selected = Some(mention.to_owned());
                   }
@@ -311,10 +306,8 @@ pub fn get_chat_msg_header_layoutjob(
   for_display: bool, 
   ui: &egui::Ui, 
   channel_name: Option<(&str, Color32)>,
-  username: Option<&String>, 
-  timestamp: &DateTime<Utc>, 
-  profile: &UserProfile, 
-  show_timestamp: bool
+  user_name: Option<(&String, Color32)>,
+  timestamp: Option<&DateTime<Utc>>
 ) -> LayoutJob {
   let mut job = LayoutJob {
     break_on_newline: false,
@@ -329,7 +322,7 @@ pub fn get_chat_msg_header_layoutjob(
         ..Default::default()
       });
   }
-  if show_timestamp {
+  if let Some(timestamp) = timestamp {
     job.append(&format!("{} ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
       font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()),
       color: Color32::DARK_GRAY, 
@@ -339,10 +332,10 @@ pub fn get_chat_msg_header_layoutjob(
   }
   if for_display { return job; }
 
-  if let Some(username) = username {
-    job.append(&format!("{}:", &profile.display_name.as_ref().unwrap_or(username)), ui.spacing().item_spacing.x, egui::TextFormat {
+  if let Some((username, color)) = user_name {
+    job.append(&format!("{}:", &username), ui.spacing().item_spacing.x, egui::TextFormat {
       font_id: crate::ui::get_body_text_style(ui.ctx()),
-      color: convert_color(profile.color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)),
+      color,
       valign: Align::Center,
       ..Default::default()
     });
