@@ -19,7 +19,7 @@ use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, cha
 pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
 pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
-  let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), row.username_display(), row.timestamp());
+  let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), None, row.timestamp());
 
   let ui_row = ui.horizontal(|ui| {
     if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
@@ -220,6 +220,9 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             };
           }
         }
+        // if let Some(img) = emote_loader.red_img.as_ref() {
+        //     ui.image(ImageSource::Texture(SizedTexture::new(img.id(), emath::Vec2 { x: 1.0, y: emote_height })));
+        // }
         ui.end_row(); 
       });
     }

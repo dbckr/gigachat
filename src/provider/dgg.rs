@@ -156,25 +156,30 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
       Some(result) = socket.next() => {
         match result {
           Ok(message) => {
-            if let Ok(message) = message.into_text().inspect_err(|f| warn!("websocket error: {}", f)) {
-              if message.contains("dggApi:streamInfo")
-                && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
-                && msg.r#type == Some("dggApi:streamInfo".to_string())
-                && let Some(data) = msg.data
-                && let Some(streams) = data.streams
-                && let Some(yt_data) = streams.youtube {
-                  let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
-                    game_name: yt_data.game, 
-                    is_live: yt_data.live.unwrap_or(false), 
-                    title: yt_data.status_text,  
-                    viewer_count: yt_data.viewers, 
-                    started_at: yt_data.started_at 
-                  }) };
-
-                  if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
-              }
-              else {
-                warn!("unable to process dgg status message: {}", message);
+            match message.into_text() {
+              Ok(message) => {
+                if message.contains("dggApi:streamInfo")
+                  && let Ok(msg) = serde_json::from_str::<DggApiMsg>(&message).inspect_err(|f| warn!("json parse error: {}\n {}", f, message))
+                  && msg.r#type == Some("dggApi:streamInfo".to_string())
+                  && let Some(data) = msg.data
+                  && let Some(streams) = data.streams
+                  && let Some(yt_data) = streams.youtube {
+                    let status_msg = IncomingMessage::StreamingStatus { channel: DGG_CHANNEL_NAME.to_owned(), status: Some(ChannelStatus { 
+                      game_name: yt_data.game, 
+                      is_live: yt_data.live.unwrap_or(false), 
+                      title: yt_data.status_text,  
+                      viewer_count: yt_data.viewers, 
+                      started_at: yt_data.started_at 
+                    }) };
+  
+                    if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+                }
+                else {
+                  warn!("unable to process dgg status message: {}", message);
+                }
+              },
+              Err(e) => {
+                  warn!("websocket error: {}", e);
               }
             }
           },

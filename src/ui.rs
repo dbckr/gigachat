@@ -310,6 +310,10 @@ impl TemplateApp {
       self.emote_loader.transparent_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([100, 100, 100, 0]) )))));
     }
 
+    if self.emote_loader.red_img.is_none() {
+        self.emote_loader.red_img = Some(load_image_into_texture_handle(ctx, emotes::imaging::to_egui_image(DynamicImage::from(image::ImageBuffer::from_pixel(112, 112, image::Rgba::<u8>([254, 100, 100, 254]) )))));
+    }
+
     if self.yt_chat_manager.is_none() && self.enable_yt_integration {
       self.yt_chat_manager = Some(youtube_server::start_listening(self.runtime.as_ref().unwrap()));
     }

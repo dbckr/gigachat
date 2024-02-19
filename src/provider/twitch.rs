@@ -129,7 +129,9 @@ impl ChatManagerRx for TwitchChatManager {
 }
 
 async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
-  let web_client = reqwest::Client::new();
+  let web_client_builder = reqwest::Client::builder()
+      .timeout(Duration::from_secs(30));
+  let web_client = web_client_builder.build().unwrap_or_log();
 
   let mut profiles : HashMap<String, UserProfile> = Default::default();
   let mut client = Client::from_config(Config { 
@@ -159,7 +161,10 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
   let mut seen_emote_ids : HashSet<String> = Default::default();
   let mut active_room_ids : HashMap<String, String> = Default::default();
   let mut last_status_check : Option<DateTime<Utc>> = None;
+  let mut last_ping_received : DateTime<Utc> = Utc::now();
   loop {
+
+    //TODO: split this out to a separate thread
     // check channel statuses
     if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_milliseconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC * 1000) {
       let room_ids = active_room_ids.values().collect_vec();
@@ -256,6 +261,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
               },
               Command::PING(ref target, ref msg) => {
                   info!("received PING: {:?} | {:?}", target, msg);
+                  last_ping_received = Utc::now();
                   //sender.send_pong(message).expect_or_log("failed to send pong");
               },
               Command::PONG(ref target, ref msg) => {
@@ -349,7 +355,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
               Err(x) => info!("Send failure: {}", x)
             };
           },
-          OutgoingMessage::Quit {  } => { client.send_quit("Leaving").expect_or_log("Error while quitting IRC server"); return Ok(true); },
+          OutgoingMessage::Quit {  } => { client.send_quit("Leaving").expect_or_log("Error while quitting IRC server"); info!("quit command received"); return Ok(true); },
           OutgoingMessage::Leave { channel_name } => {
             client.send_part(format!("#{}", channel_name.to_owned())).expect_or_log("failed to leave channel");
             active_room_ids.remove(&channel_name);
@@ -362,8 +368,17 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
             channels.push(channel_name);
           }
         };
+      },
+      _ = tokio::time::sleep(Duration::from_secs(600)) => {
+        if last_ping_received.checked_add_signed(chrono::Duration::minutes(10)).unwrap_or_log() < Utc::now() {
+            error!("IRC is unresponsive, reconnecting...");
+            super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, "IRC is unresponsive, reconnecting...".to_owned(), MessageType::Error);
+            //return Err(anyhow::Error::msg("Twitch IRC is hanging. Restarting..."));
+            return Ok(false);
+        }
       }
     };
+
   }
 }
 

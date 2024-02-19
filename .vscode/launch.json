@@ -3,11 +3,11 @@
   "configurations": [
       {
           "name": "(Windows) Launch",
-          "type": "lldb", // lldb || cppvsdbg
+          "type": "cppvsdbg", // lldb || cppvsdbg
           "request": "launch",
           "program": "${workspaceRoot}/target/debug/gigachat.exe",
           "args": [],
-          "stopAtEntry": false,
+          //"stopAtEntry": false,
           "cwd": "${workspaceFolder}",
           "preLaunchTask": "cargo build",
           "environment": [{"name": "RUST_BACKTRACE", "value": "1"}],

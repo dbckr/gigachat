@@ -232,6 +232,7 @@ pub struct EmoteLoader {
   pub rx: Receiver<EmoteResponse>,
   handle: Vec<JoinHandle<()>>,
   pub transparent_img: Option<TextureHandle>,
+  pub red_img: Option<TextureHandle>,
   pub base_path: PathBuf,
   pub loading_emotes: HashSet<String>
 }
@@ -243,6 +244,7 @@ impl Default for EmoteLoader {
       rx: async_channel::bounded::<EmoteResponse>(10000).1, 
       handle: Default::default(), 
       transparent_img: None,
+      red_img: None,
       base_path: Default::default(), 
       loading_emotes: Default::default() 
     }
@@ -347,6 +349,7 @@ impl EmoteLoader {
       rx: out_rx,
       handle: tasks,
       transparent_img: None,
+      red_img: None,
       base_path: cache_path,
       loading_emotes: Default::default()
      }
