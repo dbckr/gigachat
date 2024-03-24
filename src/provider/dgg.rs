@@ -174,8 +174,8 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
   
                     if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
                 }
-                else {
-                  warn!("unable to process dgg status message: {}", message);
+                else if !message.is_empty() {
+                  debug!("received dgg status message: {}", message);
                 }
               },
               Err(e) => {

@@ -541,7 +541,9 @@ impl TemplateApp {
             if let Some(sco) = self.channels.get_mut(channel) && sco.transient().is_none() {
                 debug!("Channel not opened yet, attempting to open: {}", channel);
                 match sco {
-                  Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { chat_mgr.open_channel(shared); },
+                  Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { 
+                    chat_mgr.open_channel(shared); 
+                  },
                   Channel::DGG { dgg, shared } => {
                     if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
                       chat_mgr.close();

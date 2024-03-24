@@ -365,6 +365,7 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
           },
           OutgoingMessage::Join { channel_name } => {
             client.send_join(format!("#{channel_name}")).expect_or_log("failed to join channel");
+            //super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, format!("Joined {channel_name} chat."), MessageType::Information);
             channels.push(channel_name);
           }
         };
