@@ -48,6 +48,7 @@ pub enum OutgoingMessage {
   Chat { channel: String, message: String },
   Leave { channel_name: String },
   Join { channel_name: String },
+  TwitchJoin { channel_name: String, room_id: Option<String>, show_offline_chat: bool },
   Quit { }
 }
 

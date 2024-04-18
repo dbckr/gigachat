@@ -110,7 +110,7 @@ impl Channel {
 #[derive(Default)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 pub struct TwitchChannel {
-  pub room_id: String
+  pub room_id: Option<String>
 }
 
 #[derive(Default)]

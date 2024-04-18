@@ -19,6 +19,11 @@ use super::{ChatMessage, UserProfile, IncomingMessage, OutgoingMessage, ChatMana
 
 const TWITCH_STATUS_FETCH_INTERVAL_SEC : i64 = 60;
 
+struct TwitchChannelData {
+    room_id: Option<String>,
+    show_offline_chat: bool
+}
+
 pub struct TwitchChatManager {
   handle: tokio::task::JoinHandle<()>,
   pub username: String,
@@ -41,7 +46,7 @@ impl TwitchChatManager {
       .with_randomization_factor(0.)
       .build();
 
-      let mut channels_joined : Vec<String> = Default::default();
+      let mut channels_joined : HashMap<String,TwitchChannelData> = Default::default();
       loop {
         let retry_wait = backoff.next_backoff();
         match spawn_irc(&name2, &token2, &out_tx, &in_rx, &mut channels_joined).await {
@@ -105,17 +110,23 @@ impl TwitchChatManager {
         room_id: Default::default()
       }
     };
-    self.open_channel(channel.shared_mut());
+    if let Channel::Twitch { twitch, shared } = &mut channel {
+        self.open_channel(twitch, shared);
+    }
+    
     channel
   }
 
-  pub fn open_channel(&mut self, channel: &mut ChannelShared) {
-    channel.transient = Some(ChannelTransient {
-      channel_emotes: None,
-      badge_emotes: None,
-      status: None
-    });
-    self.in_tx.try_send(OutgoingMessage::Join{ channel_name: channel.channel_name.to_owned() }).expect_or_log("channel failure");
+  pub fn open_channel(&mut self, twitch: &TwitchChannel, shared: &mut ChannelShared) {
+    if shared.transient.is_none() {
+            shared.transient = Some(ChannelTransient {
+            channel_emotes: None,
+            badge_emotes: None,
+            status: None
+        });
+    }
+
+    self.in_tx.try_send(OutgoingMessage::TwitchJoin{ channel_name: shared.channel_name.to_owned(), room_id: twitch.room_id.clone(), show_offline_chat: shared.show_tab_when_offline }).expect_or_log("channel failure");
   }
 }
 
@@ -128,7 +139,7 @@ impl ChatManagerRx for TwitchChatManager {
   }
 }
 
-async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>, channels: &mut Vec<String>) -> Result<bool, anyhow::Error> {
+async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>, channels: &mut HashMap<String,TwitchChannelData>) -> Result<bool, anyhow::Error> {
   let web_client_builder = reqwest::Client::builder()
       .timeout(Duration::from_secs(30));
   let web_client = web_client_builder.build().unwrap_or_log();
@@ -150,49 +161,58 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
   let sender = client.sender();
   sender.send_cap_req(&[Capability::Custom("twitch.tv/tags"), Capability::Custom("twitch.tv/commands")]).expect_or_log("failed to send cap req");
 
-  super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, "Connected to chat.".to_owned(), MessageType::Information);
+  //super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, "Connected to chat.".to_owned(), MessageType::Information);
 
-  // If reconnecting, rejoin any previously joined channels
-  for channel in channels.iter() {
-    client.send_join(format!("#{channel}")).expect_or_log("failed to join channel");
-  }
-
-  //sender.send_join(format!("#{}", name.to_owned())).expect_or_log("failed to join channel");
+  let mut joined_channels : HashMap<String, bool> = Default::default();
   let mut seen_emote_ids : HashSet<String> = Default::default();
-  let mut active_room_ids : HashMap<String, String> = Default::default();
   let mut last_status_check : Option<DateTime<Utc>> = None;
   let mut last_ping_received : DateTime<Utc> = Utc::now();
+
+  // If reconnecting, rejoin any previously joined channels
+  // for (channel, _) in channels.iter() {
+  //    client.send_join(format!("#{channel}")).expect_or_log("failed to join channel");
+  //}
+
+  //sender.send_join(format!("#{}", name.to_owned())).expect_or_log("failed to join channel");
+  
   loop {
 
     //TODO: split this out to a separate thread
     // check channel statuses
     if last_status_check.is_none() || last_status_check.is_some_and(|f| Utc::now().signed_duration_since(f.to_owned()).num_milliseconds() > TWITCH_STATUS_FETCH_INTERVAL_SEC * 1000) {
-      let room_ids = active_room_ids.values().collect_vec();
+      let room_ids = channels.values().filter_map(|x| x.room_id.as_ref()).collect_vec();
       if !room_ids.is_empty() {
         last_status_check = Some(Utc::now());
         let status_data = get_channel_statuses(room_ids, token, &web_client).await;
 
-        for (channel, room_id) in active_room_ids.iter() {
-          let status_update_msg = if let Some(status) = status_data.iter().find(|x| &x.user_id == room_id) {
-            IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(ChannelStatus {
+        for (channel, channel_data) in channels.iter() {
+
+          let status_update_msg = if let Some(status) = status_data.iter().find(|x| Some(&x.user_id) == channel_data.room_id.as_ref()) {
+            ChannelStatus {
               game_name: Some(status.game_name.to_owned()),
               is_live: matches!(status.stream_type.as_str(), "live"),
               title: Some(status.title.to_owned()),
               viewer_count: Some(status.viewer_count),
               started_at: Some(status.started_at.to_owned()),
-            }) }
+            }
           }
           else {
-            IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(ChannelStatus {
+            ChannelStatus {
               game_name: None,
               is_live: false,
               title: None,
               viewer_count: None,
               started_at: None,
-            }) }
+            }
           };
 
-          if let Err(e) = tx.try_send(status_update_msg) {
+          if (status_update_msg.is_live || channel_data.show_offline_chat) && joined_channels.get(channel).unwrap_or(&false) == &false {
+            join(&client, tx, &mut joined_channels, channel);
+          } else if !status_update_msg.is_live && !channel_data.show_offline_chat && joined_channels.get(channel).unwrap_or(&false) == &true {
+            leave(&client, tx, &mut joined_channels, channel);
+          }
+
+          if let Err(e) = tx.try_send(IncomingMessage::StreamingStatus { channel: channel.to_lowercase().to_owned(), status: Some(status_update_msg)}) {
             info!("error sending status: {}", e)
           }
         }
@@ -281,7 +301,10 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                       })
                     },
                     "ROOMSTATE" => {
-                      active_room_ids.insert(channel_name.to_owned(), get_tag_value(&tags, "room-id").unwrap_or_log().to_owned());
+                      if let Some(channel_data) = channels.get_mut(channel_name) {
+                        channel_data.room_id = Some(get_tag_value(&tags, "room-id").unwrap_or_log().to_owned());
+                      }
+
                       // small delay to not spam twitch API when joining channels at app start
                       last_status_check = Some(Utc::now() - chrono::Duration::milliseconds(TWITCH_STATUS_FETCH_INTERVAL_SEC * 1000 - 250));
                       tx.try_send(IncomingMessage::RoomId { 
@@ -357,20 +380,21 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
           },
           OutgoingMessage::Quit {  } => { client.send_quit("Leaving").expect_or_log("Error while quitting IRC server"); info!("quit command received"); return Ok(true); },
           OutgoingMessage::Leave { channel_name } => {
-            client.send_part(format!("#{}", channel_name.to_owned())).expect_or_log("failed to leave channel");
-            active_room_ids.remove(&channel_name);
-            if let Some(ix) = channels.iter().position(|x| x == &channel_name) {
-              channels.remove(ix);
-            }
+            leave(&client, tx, &mut joined_channels, &channel_name);
           },
-          OutgoingMessage::Join { channel_name } => {
-            client.send_join(format!("#{channel_name}")).expect_or_log("failed to join channel");
-            //super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, format!("Joined {channel_name} chat."), MessageType::Information);
-            channels.push(channel_name);
+          OutgoingMessage::Join { channel_name: _ } => {},
+          OutgoingMessage::TwitchJoin { channel_name, room_id, show_offline_chat } => {
+            let has_room_id = room_id.is_some();
+            channels.insert(channel_name.to_owned(), TwitchChannelData { room_id, show_offline_chat });
+        
+            // Join chat to get the roomid (needed for status checks)
+            if !has_room_id || show_offline_chat {
+                join(&client, tx, &mut joined_channels, &channel_name);
+            }
           }
         };
       },
-      _ = tokio::time::sleep(Duration::from_secs(600)) => {
+      _ = tokio::time::sleep(Duration::from_secs(3)) => {
         if last_ping_received.checked_add_signed(chrono::Duration::minutes(10)).unwrap_or_log() < Utc::now() {
             error!("IRC is unresponsive, reconnecting...");
             super::display_system_message_in_chat(tx, String::new(), ProviderName::Twitch, "IRC is unresponsive, reconnecting...".to_owned(), MessageType::Error);
@@ -381,6 +405,18 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
     };
 
   }
+}
+
+fn join(client: &Client, tx: &Sender<IncomingMessage>, joined_channels: &mut HashMap<String, bool>, channel: &String) {
+    client.send_join(format!("#{channel}")).expect_or_log("failed to join channel");
+    super::display_system_message_in_chat(tx, channel.to_owned(), ProviderName::Twitch, format!("Joined {channel} chat."), MessageType::Information);
+    joined_channels.insert(channel.to_owned(), true);
+}
+
+fn leave(client: &Client, tx: &Sender<IncomingMessage>, joined_channels: &mut HashMap<String, bool>, channel: &String) {
+    client.send_part(format!("#{channel}")).expect_or_log("failed to leave channel");
+    super::display_system_message_in_chat(tx, channel.to_owned(), ProviderName::Twitch, format!("Leaving {channel} chat."), MessageType::Information);
+    joined_channels.insert(channel.to_owned(), false);
 }
 
 fn get_user_profile(tags: &Vec<irc::proto::message::Tag>) -> UserProfile {

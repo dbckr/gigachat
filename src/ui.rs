@@ -541,8 +541,9 @@ impl TemplateApp {
             if let Some(sco) = self.channels.get_mut(channel) && sco.transient().is_none() {
                 debug!("Channel not opened yet, attempting to open: {}", channel);
                 match sco {
-                  Channel::Twitch { twitch: _, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { 
-                    chat_mgr.open_channel(shared); 
+                  Channel::Twitch { twitch, ref mut shared } => if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() { 
+                    //chat_mgr.open_channel(shared, Some(twitch.room_id.to_owned())); 
+                    chat_mgr.open_channel(twitch, shared);
                   },
                   Channel::DGG { dgg, shared } => {
                     if let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() {
@@ -1276,7 +1277,10 @@ impl TemplateApp {
       .show(ctx, |ui| {
         if !channel.is_empty() {
           if let Some(ch) = self.channels.get_mut(&channel) {
-            ui.checkbox(&mut ch.shared_mut().show_tab_when_offline, "Always Show Tab").on_hover_text("Ignore the Hide Offline setting and always display this channel in tab list.");
+            let resp = ui.checkbox(&mut ch.shared_mut().show_tab_when_offline, "Always Show Tab").on_hover_text("Ignore the Hide Offline setting and always display this channel in tab list.");
+            if resp.changed() && let Some(mgr) = self.twitch_chat_manager.as_mut() && let Channel::Twitch { twitch, shared } = ch {
+                mgr.open_channel(twitch, shared);
+            }
           }
           ui.separator();
           if ui.button("Remove channel").clicked() {
@@ -1287,8 +1291,8 @@ impl TemplateApp {
             if let Some(ch) = self.channels.get_mut(&channel) {
               match ch {
                 Channel::Twitch { twitch, shared } => {
-                  if let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
-                    channel_id: twitch.room_id.to_owned(), 
+                  if let Some(room_id) = twitch.room_id.as_ref() && let Err(e) = self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
+                    channel_id: room_id.to_owned(), 
                     channel_name: shared.channel_name.to_owned(),
                     token: self.auth_tokens.twitch_auth_token.to_owned(), 
                     force_redownload: true
@@ -1450,8 +1454,9 @@ impl TemplateApp {
       if !self.auth_tokens.twitch_auth_token.is_empty() {
         let mut mgr = TwitchChatManager::new(&self.auth_tokens.twitch_username, &self.auth_tokens.twitch_auth_token, self.runtime.as_ref().unwrap_or_log());
         for (_, channel) in self.channels.iter_mut() {
-          if let Channel::Twitch { twitch: _, ref mut shared } = channel {
-            mgr.open_channel(shared)
+          if let Channel::Twitch { twitch, ref mut shared } = channel {
+            //mgr.open_channel(shared, Some(twitch.room_id.to_owned()))
+            mgr.open_channel(twitch, shared);
           }
         }
         self.twitch_chat_manager = Some(mgr);
@@ -1950,9 +1955,9 @@ impl TemplateApp {
       },
       IncomingMessage::RoomId { channel, room_id } => {
         if let Some(sco) = self.channels.get_mut(&channel) && let Channel::Twitch { twitch, shared } = sco {
-          twitch.room_id = room_id;
+          twitch.room_id = Some(room_id.to_owned());
           match self.emote_loader.tx.try_send(EmoteRequest::TwitchBadgeEmoteListRequest { 
-            channel_id: twitch.room_id.to_owned(), 
+            channel_id: room_id, 
             channel_name: shared.channel_name.to_owned(),
             token: self.auth_tokens.twitch_auth_token.to_owned(), 
             force_redownload: false
