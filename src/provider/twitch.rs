@@ -301,8 +301,8 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                       })
                     },
                     "ROOMSTATE" => {
-                      if let Some(channel_data) = channels.get_mut(channel_name) {
-                        channel_data.room_id = Some(get_tag_value(&tags, "room-id").unwrap_or_log().to_owned());
+                      if let Some(channel_data) = channels.get_mut(channel_name) && let Some(roomid) = get_tag_value(&tags, "room-id") {
+                        channel_data.room_id = Some(roomid);
                       }
 
                       // small delay to not spam twitch API when joining channels at app start

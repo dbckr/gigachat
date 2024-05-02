@@ -278,8 +278,9 @@ pub async fn get_json_from_url(
     let mut hmap = HeaderMap::new();
     if let Some(x) = headers { 
       x.iter().for_each(|(h,v)| {
-        let v = HeaderValue::from_str(v.to_owned().as_str()).unwrap_or_log();
-        hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+        if let Ok(v) = HeaderValue::from_str(v.to_owned().as_str()) {
+            hmap.insert(HeaderName::try_from(*h).unwrap_or_log(), v);
+        }
       }) 
     }
     //let client = reqwest::Client::new();

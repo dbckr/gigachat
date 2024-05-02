@@ -13,8 +13,9 @@ use itertools::Itertools;
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
-use super::EMOTE_SCALING;
+use super::{chat_estimate, EMOTE_SCALING};
 use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
+use super::super::ui;
 
 pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
@@ -34,6 +35,21 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
         add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4., interactable);
       }
       ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6)).sense(egui::Sense { click: true, drag: false, focusable: false }));
+
+        let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
+        let mut font = ui::get_body_text_style(ui.ctx());
+        font.size = COMBO_LINE_HEIGHT * 0.35;
+        let job = chat_estimate::get_text_rect_job(ui.available_width(), users.as_str(), &0., font, false);
+        
+        let rows = &ui.fonts(|f| f.layout_job(job)).rows;
+        if !rows.is_empty() {
+            let user_count = rows[0].text().split(' ').count();
+            for (user, color) in combo.users.iter().unique().take(user_count) {
+                ui.add(egui::Label::new(RichText::new(user).size(COMBO_LINE_HEIGHT * 0.35).color(*color)));
+            }
+
+            //ui.add(egui::Label::new(RichText::new(rows[0]..text()).size(COMBO_LINE_HEIGHT * 0.3).color(Color32::DARK_GRAY)));
+        }
     }
   });
   ui_row.response.rect

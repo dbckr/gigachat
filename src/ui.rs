@@ -1821,7 +1821,9 @@ impl TemplateApp {
         
         //ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
 
-        for chat_msg in in_view.iter() {
+        let last_msg_ix = in_view.len() - 1;
+
+        for (ix, chat_msg) in in_view.iter().enumerate() {
           if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
             let highlight_msg = match chat_msg.message.msg_type {
               MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
@@ -1846,7 +1848,7 @@ impl TemplateApp {
               set_selected_msg = Some(chat_msg.message.to_owned());
             }
           }
-          else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
+          else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end || ix == last_msg_ix) { 
             chat::display_combo_message(ui, chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
           }
         }
@@ -2208,7 +2210,7 @@ fn get_emote_rects<'a>(
   }
 
 
-fn get_body_text_style(ctx: &egui::Context) -> FontId {
+pub fn get_body_text_style(ctx: &egui::Context) -> FontId {
     TextStyle::resolve(&TextStyle::Body, ctx.style().as_ref())
 }
 
@@ -2317,11 +2319,15 @@ fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut mes
 
 fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Option<ComboCounter> { 
   if let Some(last_combo) = last_combo && last_combo.word == row.message.trim() {
+    let mut users = last_combo.users.clone();
+    
+    users.push(row.get_username_with_color().map(|(a,b)| (a.to_owned(), b)).unwrap_or((String::default(), Color32::GRAY)).to_owned());
     Some(ComboCounter {
         word: last_combo.word.to_owned(),
         count: last_combo.count + 1,
         is_new: false,
-        is_end: true
+        is_end: true,
+        users
     })
   }
   else if row.message.trim().contains(' ') {
@@ -2332,7 +2338,8 @@ fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) -> Opt
       word: row.message.trim().to_owned(),
       count: 1,
       is_new: true,
-      is_end: true
+      is_end: true,
+      users: [ row.get_username_with_color().map(|(a,b)| (a.to_owned(), b)).unwrap_or((String::default(), Color32::GRAY)).to_owned() ].to_vec()
     })
   }
 }

@@ -169,7 +169,7 @@ fn get_text_rect(ui: &egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32,
   galley.rows.iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
 }
 
-fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId, is_ascii_art: bool) -> LayoutJob {
+pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId, is_ascii_art: bool) -> LayoutJob {
   let big_word = word.len() >= WORD_LENGTH_MAX || is_ascii_art;
   let mut job = LayoutJob {
     //wrap_width: max_width,
