@@ -1077,15 +1077,17 @@ impl TemplateApp {
                 painter.rect_filled(emote_bg_rect, Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 80));
               }
               
-              if ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary))
-              && let Some(click_pos) = ui.input(|i| i.pointer.press_origin()) && emote_bg_rect.contains(click_pos) {
-                if chat_panel.selected_emote == Some(disp_text.to_owned()) {
-                  chat_panel.selected_emote = Some(disp_text.to_owned());
-                  enter_emote = true;
-                } else {
-                  chat_panel.selected_emote = Some(disp_text.to_owned());
-                  update_ui_draft_msg(textbox_word, pos, disp_text, &mut draft_message, &mut outgoing_msg.state, false);
+              if let Some(click_pos) = ui.input(|i| i.pointer.press_origin()) && emote_bg_rect.contains(click_pos) {
+                if ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary)) {
+                    chat_panel.selected_emote = Some(disp_text.to_owned());
+                    update_ui_draft_msg(textbox_word, pos, disp_text, &mut draft_message, &mut outgoing_msg.state, false);
+                    enter_emote = true;
                 }
+                else if ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary)) {
+                    chat_panel.selected_emote = Some(disp_text.to_owned());
+                    update_ui_draft_msg(textbox_word, pos, disp_text, &mut draft_message, &mut outgoing_msg.state, false);
+                }
+
                 keep_focus_on_msg_box = true;
               }
               /*else if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) && emote_bg_rect.contains(hover_pos) && !disp_text.is_empty() {
@@ -1094,11 +1096,17 @@ impl TemplateApp {
               }*/               
             }
 
+            // draw outline around selected emote
+            if let Some((_, _, hovered_disp_text, _)) = hovered_emote && let Some((emote_bg_rect, _, disp_text, _)) = selected_emote
+              && hovered_disp_text != disp_text {
+              painter.rect_stroke(emote_bg_rect, Rounding::ZERO, egui::Stroke::new(1., Color32::LIGHT_GRAY));
+            }
+
             // draw larger version of hovered over emote
-            
-            if format == SelectorFormat::EmoteOnly && let Some((emote_bg_rect, emote_img_rect, disp_text, texture)) = hovered_emote {
+            if format == SelectorFormat::EmoteOnly && let Some((emote_bg_rect, emote_img_rect, disp_text, texture)) = hovered_emote.or(selected_emote) {
               let enlarge_by = 0.5;  
-              painter.rect_filled(emote_bg_rect.expand(emote_height * enlarge_by), Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+              let enlarged_rect = emote_bg_rect.expand(emote_height * enlarge_by);
+              painter.rect_filled(enlarged_rect.to_owned(), Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
       
               if let Some(texture) = texture {
                 let uv = egui::Rect::from_two_pos(egui::pos2(0., 0.), egui::pos2(1., 1.));
@@ -1107,15 +1115,22 @@ impl TemplateApp {
                 painter.add(egui::Shape::mesh(mesh));
 
                 if selected_emote.map(|e| e.2).is_some_and(|text| text == disp_text) {
-                    painter.rect_stroke(emote_bg_rect.expand(emote_height * enlarge_by), Rounding::ZERO, egui::Stroke::new(1., Color32::LIGHT_GRAY));  
+                    painter.rect_stroke(enlarged_rect.to_owned(), Rounding::ZERO, egui::Stroke::new(1., Color32::LIGHT_GRAY));  
                 }
               }
-            }
-            // draw outline around selected emote
-            else if let Some((emote_bg_rect, _, disp_text, _)) = selected_emote {
-              if hovered_emote.is_none() || hovered_emote.map(|e| e.2).is_some_and(|text| text != disp_text) {
-                painter.rect_stroke(emote_bg_rect, Rounding::ZERO, egui::Stroke::new(1., Color32::LIGHT_GRAY));
-              }
+
+              // draw text above image
+              let galley = painter.layout(
+                disp_text.to_owned(), 
+                get_text_style(TextStyle::Small, ctx), 
+                Color32::WHITE,
+                enlarged_rect.width()
+              );
+              let mut rect = galley.rect.to_owned();
+              rect.set_center((enlarged_rect.center_top() - Pos2::new(0., galley.rect.height() / 2.)).to_pos2());
+              painter.rect_filled(rect.to_owned(), Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
+              painter.galley(rect.left_top(), galley);
+
             }
       
             if emotes.len() > drawn_emote_count {
@@ -1217,6 +1232,8 @@ impl TemplateApp {
         update_ui_draft_msg(emote_text, pos, emote_text, &mut draft_message, &mut outgoing_msg.state, true);
         chat_panel.selected_emote = None;
         chat_panel.selected_emote_input = None;
+
+        outgoing_msg.response.request_focus();
       }
       chat_panel.draft_message = draft_message;
       // needed for cursor reposition to take effect:
