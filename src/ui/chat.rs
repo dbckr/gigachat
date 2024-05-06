@@ -9,49 +9,74 @@ use egui::load::SizedTexture;
 use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
+use tracing::error;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
-use super::{chat_estimate, EMOTE_SCALING};
+use super::EMOTE_SCALING;
 use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
+use super::chat_estimate;
 use super::super::ui;
 
 pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
 pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
-  let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), None, row.timestamp());
-
+  
   let ui_row = ui.horizontal(|ui| {
-    if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-      ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }))); // egui >= 0.23
-      //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
-    }
-    ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
+    ui.spacing_mut().interact_size.y = COMBO_LINE_HEIGHT;
+    ui.set_height(COMBO_LINE_HEIGHT);
+    
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
     if let Some(combo) = row.message.combo_data.as_ref() {
-      let emote = row.emotes.get(&combo.word);
-      if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader) {
-        add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 4., interactable);
-      }
-      ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.6)).sense(egui::Sense { click: true, drag: false, focusable: false }));
+        let emote = row.emotes.get(&combo.word);
 
-        let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
-        let mut font = ui::get_body_text_style(ui.ctx());
-        font.size = COMBO_LINE_HEIGHT * 0.35;
-        let job = chat_estimate::get_text_rect_job(ui.available_width(), users.as_str(), &0., font, false);
-        
-        let rows = &ui.fonts(|f| f.layout_job(job)).rows;
-        if !rows.is_empty() {
-            let user_count = rows[0].text().split(' ').count();
-            for (user, color) in combo.users.iter().unique().take(user_count) {
-                ui.add(egui::Label::new(RichText::new(user).size(COMBO_LINE_HEIGHT * 0.35).color(*color)));
+        ui.horizontal(|ui| {
+            if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
+                ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT - 9.}))); // egui >= 0.23
+                //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
             }
 
-            //ui.add(egui::Label::new(RichText::new(rows[0]..text()).size(COMBO_LINE_HEIGHT * 0.3).color(Color32::DARK_GRAY)));
-        }
+            let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), None, row.timestamp());
+            ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
+
+            //let mut used_width : f32 = 0.;
+            if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader) {
+                add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 9., interactable);
+                //used_width += r.map(|f| f.rect.width()).unwrap_or(0.);
+            }
+            ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.5)).sense(egui::Sense { click: true, drag: false, focusable: false }));
+            //used_width += r.rect.width();
+        });
+
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.y = 0.;
+            ui.set_row_height(COMBO_LINE_HEIGHT / 2.5);
+
+            let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
+            let size = COMBO_LINE_HEIGHT * 0.25;
+            let mut font = ui::get_body_text_style(ui.ctx());
+            font.size = size;
+            let job = chat_estimate::get_text_rect_job(ui.available_width() - 10., users.as_str(), &0., font, false);
+            
+            let rows = &ui.fonts(|f| f.layout_job(job)).rows;
+            if !rows.is_empty() {
+                let user_count = rows.iter().take(2).map(|x| x.text().split(' ').count()).sum();
+                for (user, color) in combo.users.iter().unique().take(user_count) {
+                    ui.add(egui::Label::new(RichText::new(user).size(size).color(*color)));
+                }
+    
+                //ui.add(egui::Label::new(RichText::new(rows[0]..text()).size(COMBO_LINE_HEIGHT * 0.3).color(Color32::DARK_GRAY)));
+            }
+        });
+        
     }
   });
+
+  if ui_row.response.rect.height() >= COMBO_LINE_HEIGHT {
+    error!("{} {}", ui_row.response.rect.height(), COMBO_LINE_HEIGHT);
+  }
+
   ui_row.response.rect
 }
 
@@ -262,7 +287,7 @@ pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {
   }
 }
 
-fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32, show_tooltip: bool) {
+fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_width: &bool, last_emote_width: &mut Option<(f32, f32)>, ui: &mut egui::Ui, emote_height: f32, show_tooltip: bool) -> Option<egui::Response> {
   let (x, y) = (texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height);
   if *zero_width {
     let (x, y) = last_emote_width.unwrap_or((x, y));
@@ -270,16 +295,19 @@ fn add_ui_emote_image(word: &str, path: &str, texture: &TextureHandle, zero_widt
     let cursor = ui.cursor().to_owned();
     let rect = egui::epaint::Rect { min: Pos2 {x: cursor.left() - x - ui.spacing().item_spacing.x, y: cursor.top()}, max:  Pos2 {x: cursor.left() - ui.spacing().item_spacing.x, y: cursor.bottom()} };
     img.paint_at(ui, rect);
+    None
   }
   else {
-    let img = ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y))));
+    let mut img = ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), egui::vec2(x, y))));
     if show_tooltip {
-      img.on_hover_ui(|ui| {
+      img = img.on_hover_ui(|ui| {
         ui.label(format!("{}\n{}", word, path.replace('/',"")));
         ui.image(ImageSource::Texture(SizedTexture::new(texture.id(), texture.size_vec2())));
       });
     }  
     *last_emote_width = Some((x, y));
+
+    Some(img)
   }
 }
 

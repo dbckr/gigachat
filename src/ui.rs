@@ -29,7 +29,7 @@ const BADGE_HEIGHT : f32 = 18.0;
 
 /// Should be at least equal to ui.spacing().interact_size.y
 const MIN_LINE_HEIGHT : f32 = 22.0;
-const COMBO_LINE_HEIGHT : f32 = 32.0;
+const COMBO_LINE_HEIGHT : f32 = 42.0;
 
 pub enum ChatPanel {
     Left,
@@ -1780,7 +1780,7 @@ impl TemplateApp {
         let mut row_y = 0.;
         let mut has_visible = false;
         for line in uimsg.row_data.iter_mut() {
-          let size_y = line.row_height;
+          let size_y = if combo.as_ref().is_some_and(|f| f.count > 1) { COMBO_LINE_HEIGHT } else { line.row_height };
           //info!("{} {}", viewport.min.y, viewport.max.y);
           if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
             if excess_top_space.is_none() {
@@ -1790,22 +1790,24 @@ impl TemplateApp {
             has_visible = true;
 
             msg_visible_rows += 1;
-            msg_visible_y += line.row_height + ui.spacing().item_spacing.y;
+            msg_visible_y += size_y + ui.spacing().item_spacing.y;
           }
           else {
             line.is_visible = false;
           }
           row_y += size_y + ui.spacing().item_spacing.y;
         }
-        if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
-          // add nothing to y_pos
-        } else if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
-          y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
 
-          if has_visible {
-            _visible_rows += 1;
-            visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-          }
+        // if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
+        //   y_pos += row_y;
+
+        //   if has_visible {
+        //     _visible_rows += 1;
+        //     visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+        //   }
+        // }
+        if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
+            // add nothing to y_pos
         } else {
           y_pos += row_y;
 
@@ -1817,6 +1819,11 @@ impl TemplateApp {
         if has_visible {
           in_view.push(uimsg);
         }
+      }
+
+      // Correct for last line unfinished emote combo
+      if let Some(last_msg) = in_view.last() && last_msg.message.combo_data.as_ref().is_some_and(|c| !c.is_end && c.count > 1) {
+        visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
       }
 
       // vertical justify the in_view rows
@@ -1838,10 +1845,10 @@ impl TemplateApp {
         
         //ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
 
-        let last_msg_ix = in_view.len() - 1;
+        let last_msg_ix = in_view.len().saturating_sub(1);
 
         for (ix, chat_msg) in in_view.iter().enumerate() {
-          if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.is_end && c.count == 1) {
+          if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && (c.is_end || ix == last_msg_ix)) {
             let highlight_msg = match chat_msg.message.msg_type {
               MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
               MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),

@@ -164,19 +164,19 @@ fn process_word_result(
 }
 
 fn get_text_rect(ui: &egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<(usize, egui::Vec2)> {
-  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, crate::ui::get_body_text_style(ui.ctx()), is_ascii_art.is_some());
+  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, crate::ui::get_body_text_style(ui.ctx()), word.len() > WORD_LENGTH_MAX || is_ascii_art.is_some());
   let galley = ui.fonts(|f| f.layout_job(job));
   galley.rows.iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
 }
 
-pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId, is_ascii_art: bool) -> LayoutJob {
-  let big_word = word.len() >= WORD_LENGTH_MAX || is_ascii_art;
+pub fn get_text_rect_job(max_width: f32, word: &str, width_used: &f32, font: FontId, break_anywhere: bool) -> LayoutJob {
+  // let big_word = word.len() >= WORD_LENGTH_MAX || is_ascii_art;
   let mut job = LayoutJob {
     //wrap_width: max_width,
     //break_on_newline: word.len() >= WORD_LENGTH_MAX || is_ascii_art.is_some(),
     wrap: egui::epaint::text::TextWrapping { 
-      break_anywhere: big_word,
-      max_width: match big_word {
+      break_anywhere,
+      max_width: match break_anywhere {
         true => max_width /*- 3.*/,
         false => max_width
       },
