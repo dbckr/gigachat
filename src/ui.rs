@@ -8,11 +8,11 @@ use tracing::{info, error, warn, debug};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::Add, iter::Peekable};
 use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, RichText, Key, Modifiers, epaint::FontId, Rounding, Stroke, Pos2, Response, text_edit::TextEditState, TextStyle, OpenUrl, TextureHandle};
+use egui::{emath::{Align, Rect}, epaint::FontId, text_edit::TextEditState, Key, Modifiers, OpenUrl, Pos2, Response, RichText, Rounding, Stroke, TextStyle, TextureHandle};
 use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Provider, ProviderName, ComboCounter, ChatManager, MessageType, youtube_server, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared}, dgg}, mod_selected_label::SelectableLabel, emotes::{LoadEmote, AddEmote, OverlayItem, EmoteSource}};
+use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Provider, ProviderName, ComboCounter, ChatManager, MessageType, youtube_server, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared}, dgg}, emotes::{LoadEmote, AddEmote, OverlayItem, EmoteSource}};
 use crate::emotes::imaging::load_file_into_buffer;
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::load_image_into_texture_handle}};
 use self::chat_estimate::TextRange;
@@ -265,6 +265,7 @@ impl eframe::App for TemplateApp {
   }
 
   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+
     self.update_inner(ctx);
   }
 
@@ -287,8 +288,7 @@ impl eframe::App for TemplateApp {
 //   }
 
   fn clear_color(&self, _visuals : &eframe::egui::Visuals) -> [f32;4] {
-    egui::Rgba::TRANSPARENT.to_array()
-    //eframe::egui::Color32::to_normalized_gamma_f32(eframe::egui::Color32::from_rgba_unmultiplied(20, 20, 20, 80))
+    egui::Color32::from_rgba_unmultiplied(20, 20, 20, 80).to_normalized_gamma_f32()
   }
 
 //   fn persist_native_window(&self) -> bool {
@@ -299,9 +299,9 @@ impl eframe::App for TemplateApp {
     true
   }
 
-  fn warm_up_enabled(&self) -> bool {
-    false
-  }
+//   fn warm_up_enabled(&self) -> bool {
+//     false
+//   }
 }
 
 impl TemplateApp {
@@ -444,8 +444,8 @@ impl TemplateApp {
     let body_font_size = self.body_text_size;
 
     let tframe = egui::Frame { 
-        inner_margin: egui::style::Margin::same(3.), 
-        outer_margin: egui::style::Margin::same(0.),
+        inner_margin: egui::epaint::Margin::same(3.), 
+        outer_margin: egui::epaint::Margin::same(0.),
         fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, self.bg_transparency),
         ..Default::default() 
       };
@@ -643,8 +643,8 @@ impl TemplateApp {
     }
 
     let cframe = egui::Frame { 
-      inner_margin: egui::style::Margin::same(3.), 
-      outer_margin: egui::style::Margin::same(0.),
+      inner_margin: egui::epaint::Margin::same(3.), 
+      outer_margin: egui::epaint::Margin::same(0.),
       fill: egui::Color32::from_rgba_unmultiplied(20, 20, 20, self.bg_transparency),
       ..Default::default() 
     };
@@ -811,7 +811,8 @@ impl TemplateApp {
           });
         }
 
-        let clblx = SelectableLabel::new(self.selected_channel == Some(channel.to_owned()), job);
+        let clblx = crate::mod_selected_label::SelectableLabel::new(self.selected_channel == Some(channel.to_owned()), job);
+        //let clblx = egui::SelectableLabel::new(self.selected_channel == Some(channel.to_owned()), job);
         let mut clbl = ui.add(clblx);
         
         if clbl.secondary_clicked() {
@@ -824,12 +825,15 @@ impl TemplateApp {
         if clbl.drag_started_by(egui::PointerButton::Primary) && !matches!(&self.dragged_channel_tab, DragChannelTabState::DragStart(_, _)) {
           self.dragged_channel_tab = DragChannelTabState::DragStart(channel.to_owned(), self.channel_tab_list.to_owned());
         }
-        else if clbl.drag_released() 
+        else if clbl.drag_stopped() 
         && let DragChannelTabState::DragStart(_, drag_start_tab_order) = &self.dragged_channel_tab 
         && let Some(pos) = ctx.pointer_latest_pos() {
             let tab_order_changed = !&self.channel_tab_list.iter().eq(drag_start_tab_order);
             
             self.dragged_channel_tab = DragChannelTabState::DragRelease(channel.to_owned(), tab_order_changed, pos);
+        }
+        else if clbl.clicked_by(egui::PointerButton::Primary) {
+            self.selected_channel = Some(channel.to_owned());
         }
 
         //if t.status.is_some_and(|s| s.is_live) || channel.len() > 16 {
@@ -848,12 +852,12 @@ impl TemplateApp {
           
               if let Some(started_at) = status.started_at.as_ref() { 
                 if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
-                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.to_utc()).num_seconds();
                   let width = 2;
                   ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
                 }
                 else if let Ok(dt) = DateTime::parse_from_str(started_at, "%Y-%m-%dT%H:%M:%S%z") {
-                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.into()).num_seconds();
+                  let dur = chrono::Utc::now().signed_duration_since::<Utc>(dt.to_utc()).num_seconds();
                   let width = 2;
                   ui.label(format!("Live for {:0width$}:{:0width$}:{:0width$}:{:0width$}", dur / 60 / 60 / 24, dur / 60 / 60 % 60, dur / 60 % 60, dur % 60));
                 }
@@ -917,9 +921,10 @@ impl TemplateApp {
           };
           *draft_msg = msg;
           let cursor_pos = draft_msg[..*pos].len() + emote_text.len() + if finished { 1 } else { 0 };
-          state.set_ccursor_range(
-            Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(cursor_pos)))
-          );
+          state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cursor_pos))));
+        //   state.set_ccursor_range(
+        //     Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(cursor_pos)))
+        //   );
         }
       };
 
@@ -951,9 +956,10 @@ impl TemplateApp {
         };
         if let Some(msg) = msg {
           draft_message = msg.to_owned();
-          outgoing_msg.state.set_ccursor_range(
-            Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(draft_message.len())))
-          );
+          outgoing_msg.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(draft_message.len()))));
+        //   outgoing_msg.state.set_ccursor_range(
+        //     Some(egui::text_edit::CCursorRange::one(egui::text::CCursor::new(draft_message.len())))
+        //   );
         }
         sco.shared_mut().send_history_ix = Some(ix);
       }
@@ -979,7 +985,7 @@ impl TemplateApp {
           }
         } 
       }
-      else if (outgoing_msg.response.has_focus() || !self.last_frame_ui_events.is_empty()) && !draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.ccursor_range() {
+      else if (outgoing_msg.response.has_focus() || !self.last_frame_ui_events.is_empty()) && !draft_message.is_empty() && let Some(cursor_pos) = outgoing_msg.state.cursor.char_range() {
         let cursor = cursor_pos.primary.index;
         let msg = &draft_message.to_owned();
         let word : Option<(usize, &str)> = msg.split_whitespace()
@@ -1129,7 +1135,7 @@ impl TemplateApp {
               let mut rect = galley.rect.to_owned();
               rect.set_center((enlarged_rect.center_top() - Pos2::new(0., galley.rect.height() / 2.)).to_pos2());
               painter.rect_filled(rect.to_owned(), Rounding::ZERO, Color32::from_rgba_unmultiplied(20, 20, 20, 240));
-              painter.galley(rect.left_top(), galley);
+              painter.galley(rect.left_top(), galley, Color32::WHITE);
 
             }
       
@@ -1248,12 +1254,13 @@ impl TemplateApp {
         .fixed_rect(rect)
         .title_bar(false)
         .frame(egui::Frame { 
-          inner_margin: egui::style::Margin::same(0.), 
-          outer_margin: egui::style::Margin::same(0.),
+          // inner_margin: egui::style::TextStyle::Margin::same(0.), 
+          // outer_margin: egui::style::Margin::same(0.),
           rounding: Rounding::ZERO, 
           shadow: eframe::epaint::Shadow::default(),
           fill: Color32::TRANSPARENT,
-          stroke: Stroke::NONE
+          stroke: Stroke::NONE,
+          ..Default::default()
         })
         .show(ctx, |ui| {
           if ui.button(RichText::new("🡳").size(48.).monospace()).clicked() {

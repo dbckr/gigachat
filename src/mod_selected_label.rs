@@ -68,7 +68,8 @@ impl Widget for SelectableLabel {
                     .rect(rect, visuals.rounding, visuals.bg_fill, visuals.bg_stroke);
             }
 
-            text.paint_with_visuals(ui.painter(), text_pos, &visuals);
+            ui.painter().galley(text_pos, text, Color32::WHITE);
+            //text.paint_with_visuals(ui.painter(), text_pos, &visuals);
         }
 
         response

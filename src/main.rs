@@ -8,6 +8,7 @@
 
 use std::env;
 
+use egui::ViewportBuilder;
 use gigachat::TemplateApp;
 use tracing::error;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -25,13 +26,14 @@ fn main() {
 
   let _file_guard = init_logging(args);
 
-  let native_options = eframe::NativeOptions { 
-    transparent: true, 
-    decorated: true,
+  let mut native_options = eframe::NativeOptions { 
+    //transparent: true, 
+    //decorated: true,
     vsync: true,
-    renderer: Renderer::Wgpu,
-    ..Default::default() 
+    renderer: Renderer::Glow,
+    ..Default::default()
   };
+  native_options.viewport = native_options.viewport.with_transparent(true);
 
   match eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::load_font());

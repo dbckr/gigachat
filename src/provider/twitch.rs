@@ -8,7 +8,7 @@ use std::collections::{HashSet, HashMap};
 use async_channel::{Receiver, Sender};
 use backoff::backoff::Backoff;
 use tracing::{info, trace, error, debug};
-use chrono::{DateTime, Utc, NaiveDateTime};
+use chrono::{DateTime, Utc};
 use futures::prelude::*;
 use irc::client::prelude::*;
 use itertools::Itertools;
@@ -240,8 +240,8 @@ async fn spawn_irc(user_name : &String, token: &String, tx : &Sender<IncomingMes
                     //tmi-sent-ts
                     timestamp: get_tag_value(tags, "tmi-sent-ts")
                       .and_then(|x| x.parse::<usize>().ok())
-                      .and_then(|x| NaiveDateTime::from_timestamp_opt(x as i64 / 1000, (x % 1000 * 1000_usize.pow(2)) as u32 ))
-                      .map(|x| DateTime::from_utc(x, Utc))
+                      .and_then(|x| DateTime::from_timestamp(x as i64 / 1000, (x % 1000 * 1000_usize.pow(2)) as u32 ))
+                      //.map(|x| x.)
                       .unwrap_or_else(chrono::Utc::now),
                     message: msg.trim_end_matches(['\u{e0000}', '\u{1}']).to_owned(),
                     profile: get_user_profile(tags),

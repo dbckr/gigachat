@@ -7,7 +7,7 @@
 use std::{collections::HashMap, path::Path};
 use async_channel::{Sender, Receiver};
 use backoff::backoff::Backoff;
-use chrono::{Utc, NaiveDateTime, DateTime};
+use chrono::DateTime;
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error, debug};
@@ -146,7 +146,7 @@ impl ChatManager {
   }
 }
 
-#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
+//#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
 async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
   let request = dgg_status_url.into_client_request()?;
   let (mut socket, _) = connect_async_tls_with_config(request, None, false, None).await?;
@@ -237,8 +237,8 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         username: msg.nick.to_lowercase(), 
-                        timestamp: NaiveDateTime::from_timestamp_opt(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
-                          .map(|x| DateTime::from_utc(x, Utc))
+                        timestamp: DateTime::from_timestamp(msg.timestamp as i64 / 1000, (msg.timestamp % 1000 * 1000_usize.pow(2)) as u32 )
+                          //.map(|x| DateTime::from_utc(x, Utc))
                           .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
                         profile: UserProfile { 
@@ -260,8 +260,8 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                         provider: ProviderName::DGG,
                         channel: DGG_CHANNEL_NAME.to_owned(),
                         timestamp: msg.timestamp
-                          .and_then(|ts| NaiveDateTime::from_timestamp_opt(ts as i64 / 1000, (ts % 1000 * 1000_usize.pow(2)) as u32)
-                            .map(|x| DateTime::from_utc(x, Utc))
+                          .and_then(|ts| DateTime::from_timestamp(ts as i64 / 1000, (ts % 1000 * 1000_usize.pow(2)) as u32)
+                            //.map(|x| DateTime::from_utc(x, Utc))
                           )
                           .unwrap_or_else(chrono::Utc::now),
                         message: msg.data.unwrap_or_log(),
