@@ -41,6 +41,7 @@ mod test {
     // closure("OOOO");
     closure("WEOW");
     closure("Chatting");
+    closure("KEIKAKU");
 
     let result = data.get("Chatting");
     assert!(result.is_some());

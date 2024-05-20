@@ -2114,8 +2114,8 @@ impl TemplateApp {
         }
       }
       
-      let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
-      let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      let mut starts_with = starts_with_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).sorted_by_key(|x| x.0.to_lowercase()).collect_vec();
+      let mut contains = contains_emotes.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).sorted_by_key(|x| x.0.to_lowercase()).collect_vec();
       starts_with.append(&mut contains);
       Some(starts_with)
     }
@@ -2146,8 +2146,8 @@ impl TemplateApp {
         }
       }
       
-      let mut starts_with = starts_with_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
-      let mut contains = contains_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_owned()).collect_vec();
+      let mut starts_with = starts_with_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_lowercase()).collect_vec();
+      let mut contains = contains_users.into_iter().map(|x| (x.0, x.1)).sorted_by_key(|x| x.0.to_lowercase()).collect_vec();
       starts_with.append(&mut contains);
       Some(starts_with)
     }
