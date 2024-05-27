@@ -887,8 +887,8 @@ impl TemplateApp {
       }
   
       let (goto_next_emote, goto_prev_emote, mut enter_emote) = if chat_panel.selected_emote_input.is_some() {
-        let next = ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowRight)) || ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
         let prev = ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowLeft)) || ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
+        let next = ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowRight)) || ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
         let enter_emote = chat_panel.selected_emote.as_ref().is_some_and(|x| !x.is_empty()) && (ui.input_mut(|i| i.consume_key(Modifiers::ALT, Key::ArrowDown)) /*|| input.consume_key(Modifiers::NONE, Key::Enter)*/);
         (next, prev, enter_emote)
       } 
