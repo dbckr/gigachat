@@ -8,6 +8,7 @@ use std::{collections::HashMap, path::Path};
 use async_channel::{Sender, Receiver};
 use backoff::backoff::Backoff;
 use chrono::DateTime;
+use egui::Context;
 use futures::{StreamExt, SinkExt};
 use itertools::Itertools;
 use tracing::{trace, info,warn,error, debug};
@@ -42,12 +43,14 @@ pub fn init_channel() -> Channel {
   }
 }
 
-pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channel: &mut ChannelShared, runtime: &Runtime, emote_loader: &EmoteLoader) -> ChatManager {
+pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channel: &mut ChannelShared, runtime: &Runtime, emote_loader: &EmoteLoader, ctx: &Context) -> ChatManager {
   let (out_tx, out_rx) = async_channel::bounded::<IncomingMessage>(10000);
   let (in_tx, in_rx) = async_channel::bounded::<OutgoingMessage>(10000);
 
   let status_url = dgg.dgg_status_url.to_owned();
   let chat_url = dgg.dgg_chat_url.to_owned();
+  let status_ctx = ctx.clone();
+  let ctx = ctx.clone();
 
   let out_tx_2 = out_tx.clone();
   let handle2 = runtime.spawn(async move { 
@@ -60,7 +63,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
     
     loop {
       let retry_wait = backoff.next_backoff();
-      match spawn_websocket_live_client(&status_url, &out_tx_2).await {
+      match spawn_websocket_live_client(&status_url, &out_tx_2, &status_ctx).await {
         Ok(x) => if x { break; } else { backoff.reset(); backoff.next_backoff(); warn!("Lost connection to DGG status websocket, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())); },
         Err(x) => error!("error connecting to DGG channel status websocket: {:?}", x)
       }
@@ -83,7 +86,7 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
 
     loop {
       let retry_wait = backoff.next_backoff();
-      match spawn_websocket_chat_client(&chat_url, &name1, &token1, &out_tx, &in_rx).await {
+      match spawn_websocket_chat_client(&chat_url, &name1, &token1, &out_tx, &in_rx, &ctx).await {
         Ok(x) => if x { break; } else { 
           backoff.reset();
           backoff.next_backoff();
@@ -92,7 +95,8 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
             DGG_CHANNEL_NAME.to_owned(), 
             ProviderName::DGG, 
             format!("Lost connection, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())),
-            MessageType::Error);
+            MessageType::Error,
+            &ctx);
         },
         Err(e) => { 
           error!("error connecting to DGG channel status websocket: {:?}", e);
@@ -102,7 +106,8 @@ pub fn open_channel(user_name: &String, token: &String, dgg: &DggChannel, channe
             DGG_CHANNEL_NAME.to_owned(), 
             ProviderName::DGG, 
             format!("Failed to connect, retrying in {:.3?} seconds...", retry_wait.map(|x| x.as_secs_f32())),
-            MessageType::Error);
+            MessageType::Error,
+            &ctx);
         }
       }
       if let Some(duration) = retry_wait {
@@ -147,7 +152,7 @@ impl ChatManager {
 }
 
 //#[cfg_attr(feature = "instrumentation", instrument(skip_all))]
-async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<IncomingMessage>) -> Result<bool, anyhow::Error> {
+async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<IncomingMessage>, ctx: &Context) -> Result<bool, anyhow::Error> {
   let request = dgg_status_url.into_client_request()?;
   let (mut socket, _) = connect_async_tls_with_config(request, None, false, None).await?;
 
@@ -173,6 +178,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
                     }) };
   
                     if let Err(e) = tx.try_send(status_msg) { warn!("error sending dgg stream status: {}", e) }
+                    ctx.request_repaint();
                 }
                 else if !message.is_empty() {
                   debug!("received dgg status message: {}", message);
@@ -193,7 +199,7 @@ async fn spawn_websocket_live_client(dgg_status_url: &String, tx : &Sender<Incom
   }
 }
 
-async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>) -> Result<bool, anyhow::Error> {
+async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, token: &String, tx : &Sender<IncomingMessage>, rx: &Receiver<OutgoingMessage>, ctx: &Context) -> Result<bool, anyhow::Error> {
   let mut quitted = false;
 
   let cookie = format!("authtoken={token}");
@@ -208,7 +214,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
   let (mut socket, _) = connect_async_tls_with_config(request, None, false, None).await?;
   //let (mut write, mut read) = socket.split();
 
-  super::display_system_message_in_chat(tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information);
+  super::display_system_message_in_chat(tx, DGG_CHANNEL_NAME.to_owned(), ProviderName::DGG, "Connected to chat.".to_owned(), MessageType::Information, ctx);
 
   while !quitted {
     tokio::select! {
@@ -339,6 +345,7 @@ async fn spawn_websocket_chat_client(dgg_chat_url: &String, _user_name : &str, t
                   },
                   _ => debug!("unknown dgg command: {:?}", message)
                 }
+                ctx.request_repaint();
             }
           },
           Err(e) => {

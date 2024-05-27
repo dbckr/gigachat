@@ -7,11 +7,11 @@
 use ahash::HashSet;
 use async_channel::Receiver;
 use chrono::Timelike;
-use tracing::{info, debug, warn, error};
-use egui::{ColorImage, TextureHandle};
+use tracing::{debug, info, warn, error};
+use egui::{ColorImage, Context, TextureHandle};
 
 use tokio::{runtime::Runtime, task::JoinHandle};
-use std::{collections::HashMap, path::{PathBuf, Path}};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 use std::str;
 use tracing_unwrap::OptionExt;
 
@@ -111,8 +111,8 @@ pub struct Emote {
 }
 
 impl Emote {
-  pub fn get_overlay_item(&self, emote_loader: &mut EmoteLoader) -> OverlayItem {
-    OverlayItem { name: &self.name, texture: self.get_texture3(emote_loader) }
+  pub fn get_overlay_item(&self, emote_loader: &mut EmoteLoader, ctx: &Context) -> OverlayItem {
+    OverlayItem { name: &self.name, texture: self.get_texture3(emote_loader, ctx) }
   }
 
   fn get_emote_request(&self) -> EmoteRequest {
@@ -161,7 +161,7 @@ impl Emote {
     }
   }
 
-  pub fn get_texture3<'a>(&'a self, emote_loader: &mut EmoteLoader) -> Option<&'a TextureHandle> {
+  pub fn get_texture3<'a>(&'a self, emote_loader: &mut EmoteLoader, ctx: &Context) -> Option<&'a TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
@@ -169,24 +169,24 @@ impl Emote {
         None
       },
       EmoteStatus::Loaded => {
-        get_texture(emote)
+        get_texture(emote, ctx)
       }
     }
   }
 
-  pub fn get_texture2(&self) -> Option<&TextureHandle> {
+  pub fn get_texture2(&self, ctx: &Context) -> Option<&TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
         None
       },
       EmoteStatus::Loaded => {
-        get_texture(emote)
+        get_texture(emote, ctx)
       }
     }
   }
 
-  pub fn get_texture<'a>(&'a self, emote_loader: &'a mut EmoteLoader) -> Option<&'a TextureHandle> {
+  pub fn get_texture<'a>(&'a self, emote_loader: &'a mut EmoteLoader, ctx: &Context) -> Option<&'a TextureHandle> {
     let emote = self;
     match emote.loaded {
       EmoteStatus::NotLoaded => {
@@ -194,27 +194,43 @@ impl Emote {
         emote_loader.transparent_img.as_ref()
       },
       EmoteStatus::Loaded => {
-        get_texture(emote)
+        get_texture(emote, ctx)
       }
     }
   }
 }
 
-fn get_texture(emote: &Emote) -> Option<&TextureHandle> {
+fn get_texture<'a>(emote: &'a Emote, ctx: &Context) -> Option<&'a TextureHandle> {
     let frames_opt = emote.data.as_ref();
     match frames_opt {
       Some(frames) => {
         if emote.duration_msec > 0 {
           let time = chrono::Utc::now();
           let target_progress = (time.second() as u16 * 1000 + time.timestamp_subsec_millis() as u16) % emote.duration_msec;
+
           let mut progress_msec : u16 = 0;
+          let mut result_frame: Option<&TextureHandle> = None;
+          let mut next_frame_msec: Option<u16> = None;
+
           for (frame, msec) in frames {
-            progress_msec += msec; 
-            if progress_msec >= target_progress {
-              return Some(frame)
+            if result_frame.is_some() {
+                next_frame_msec = Some(msec.to_owned());
+                break;
             }
+
+            progress_msec += msec; 
+
+            if progress_msec >= target_progress {
+
+              result_frame = Some(frame);
+            }
+          };
+          
+          if let Some(msec_to_next_frame) = next_frame_msec.map(|x|  progress_msec + x - target_progress).or_else(|| Some(emote.duration_msec - target_progress)) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(msec_to_next_frame.into()));
           }
-          None
+          
+          return result_frame;
         }
         else if let Some((frame, _delay)) = frames.first() {
           Some(frame)
@@ -593,6 +609,7 @@ fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(Col
   }
   emote.loaded = EmoteStatus::Loaded;
   loading_emotes.remove(&emote.name);
+  ctx.request_repaint();
 }
 
 pub trait LoadEmote {

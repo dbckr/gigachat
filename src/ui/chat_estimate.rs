@@ -104,7 +104,7 @@ pub fn get_word_size(ui: &egui::Ui, ui_width: f32, ix: &mut usize, emotes: &Hash
   let mut row_start_char_ix = curr_row_range.start();
 
   if let Some(emote) = emotes.get(word) {
-    let row = match emote.get_texture2() {
+    let row = match emote.get_texture2(ui.ctx()) {
       _ if emote.zero_width => egui::vec2(0., 0.),
       Some(texture) => egui::vec2(texture.size_vec2().x * (emote_height / texture.size_vec2().y), emote_height),
       None => egui::vec2(emote_height, emote_height)

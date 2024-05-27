@@ -5,7 +5,7 @@
  */
 
 use async_channel::{Sender, Receiver};
-use egui::Color32;
+use egui::{Color32, Context};
 use reqwest::header::{HeaderValue, HeaderName, HeaderMap};
 //use rand::{distributions::{Alphanumeric, DistString}};
 use tracing::info;
@@ -194,7 +194,7 @@ pub async fn make_request(url: &str, headers: Option<Vec<(&str, String)>>, easy 
     Ok(resp.text().await?)
 }
 
-pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: String, provider: ProviderName, message: String, msg_type: MessageType) {
+pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: String, provider: ProviderName, message: String, msg_type: MessageType, ctx: &Context) {
   match tx.try_send(IncomingMessage::PrivMsg { message: ChatMessage {
     channel, 
     provider, 
@@ -205,4 +205,5 @@ pub fn display_system_message_in_chat(tx: &Sender<IncomingMessage>, channel: Str
     Ok(_) => (),
     Err(x) => info!("Send failure for ERR: {}", x)
   };
+  ctx.request_repaint();
 }

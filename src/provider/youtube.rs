@@ -5,7 +5,7 @@
  */
 
 use std::{time::Duration};
- 
+use egui::Context;
 use chrono::{Utc, TimeZone};
 use curl::easy::{Easy};
 use itertools::Itertools;
@@ -15,11 +15,12 @@ use tokio::{runtime::Runtime, sync::mpsc};
 use super::make_request;
 use super::{Channel, OutgoingMessage, InternalMessage, ProviderName, ChatMessage, UserProfile, ChannelTransient};
 
-pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime) -> Channel {
+pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime: &Runtime, ctx: &Context) -> Channel {
   let (out_tx, out_rx) = mpsc::channel::<InternalMessage>(32);
   let (in_tx, mut in_rx) = mpsc::channel::<OutgoingMessage>(32);
   let name_copy = name.to_owned();
   let channel_id_copy = channel_id.to_owned();
+  let ctx = ctx.clone();
 
   let task = runtime.spawn(async move { 
     // periodically poll youtube API for new chat messages
@@ -46,10 +47,11 @@ pub fn init_channel<'a>(name: String, channel_id: String, token: String, runtime
             if let Err(e) = out_tx.try_send(InternalMessage::PrivMsg { message: message }) {
               info!("Error sending PrivMsg: {}", e);
             }
+            ctx.request_repaint();
           }
         }
         else { 
-          info!("no new messages");
+          // no new messages
           tokio::time::sleep(Duration::from_millis(10000)).await;
         }
         tokio::time::sleep(Duration::from_millis(20000)).await;

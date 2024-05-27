@@ -41,7 +41,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
             ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
 
             //let mut used_width : f32 = 0.;
-            if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader) {
+            if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader, ui.ctx()) {
                 add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 9., interactable);
                 //used_width += r.map(|f| f.rect.width()).unwrap_or(0.);
             }
@@ -128,7 +128,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
           if let Some(user_badges) = &chat_msg.badges {
             for emote in user_badges {
               //let emote = chat_msg.badges.as_ref().and_then(|f| f.get(badge));
-              if let Some(tex) = emote.get_texture(emote_loader) {
+              if let Some(tex) = emote.get_texture(emote_loader, ui.ctx()) {
                 let resp = ui.image(ImageSource::Texture(SizedTexture::new(tex.id(), egui::vec2(tex.size_vec2().x * (BADGE_HEIGHT / tex.size_vec2().y), BADGE_HEIGHT))));
                 if interactable {
                   resp.on_hover_ui(|ui| {
@@ -205,7 +205,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             let (x, y) = (tx.size_vec2().x * (EMOTE_HEIGHT / tx.size_vec2().y), EMOTE_HEIGHT);
             ui.image(&tx, egui::vec2(x, y));
           } else */ if let Some(emote) = emote {
-            if let Some(tex) = emote.get_texture(emote_loader) {
+            if let Some(tex) = emote.get_texture(emote_loader, ui.ctx()) {
               add_ui_emote_image(word, &emote.path, tex, &emote.zero_width, &mut last_emote_width, ui, emote_height, interactable);
             }
           }

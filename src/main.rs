@@ -7,8 +7,6 @@
 #![windows_subsystem = "windows"]
 
 use std::env;
-
-use egui::ViewportBuilder;
 use gigachat::TemplateApp;
 use tracing::error;
 use tracing_appender::non_blocking::WorkerGuard;
