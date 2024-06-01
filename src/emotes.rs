@@ -609,7 +609,7 @@ fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(Col
   }
   emote.loaded = EmoteStatus::Loaded;
   loading_emotes.remove(&emote.name);
-  ctx.request_repaint();
+  //ctx.request_repaint();
 }
 
 pub trait LoadEmote {

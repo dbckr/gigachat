@@ -51,7 +51,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
 
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
-            ui.set_row_height(COMBO_LINE_HEIGHT / 2.5);
+            ui.set_row_height(COMBO_LINE_HEIGHT / 3.);
 
             let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
             let size = COMBO_LINE_HEIGHT * 0.25;
