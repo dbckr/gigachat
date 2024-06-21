@@ -1022,7 +1022,8 @@ impl TemplateApp {
               SelectorFormat::EmoteAndText
             };
 
-            let enlarge_by_on_hover = 0.5;
+            let enlarge_by_on_hover = if is_user_list { 0. } else { 0.5 };
+            let emote_height = if is_user_list { get_body_text_style(ctx).size + 4. } else { emote_height };
             let mut emote_options = get_emote_rects(ui, ctx, emote_height, &painter_rect.shrink(emote_height * enlarge_by_on_hover / 2. + 10.), &emotes, &format);
             if emotes.len() > emote_options.len() && format == SelectorFormat::EmoteAndText {
               let alt_format = if !is_user_list { SelectorFormat::EmoteOnly } else { SelectorFormat::TextOnly };
@@ -1045,11 +1046,11 @@ impl TemplateApp {
             .frame(egui::Frame {
               rounding: Rounding::ZERO, 
               shadow: eframe::epaint::Shadow::NONE,
-              fill: Color32::from_rgba_unmultiplied(20, 20, 20, 180),
+              fill: Color32::from_rgba_unmultiplied(20, 20, 20, 200),
               stroke: egui::Stroke::new(1., Color32::DARK_GRAY),
               ..Default::default()
             }.outer_margin(0.))
-            .show(ctx, |ui| {
+            .show(ctx, |ui| { ui.horizontal(|ui| {
               ui.expand_to_include_rect(painter_rect);
               let painter = ui.painter_at(painter_rect);
               //painter.set_layer_id(egui::LayerId::new(egui::Order::Debug, egui::Id::new(format!("emoteselector {id}"))));
@@ -1095,7 +1096,14 @@ impl TemplateApp {
                 }
         
                 if format != SelectorFormat::EmoteOnly {
-                  ui.put(emote_img_rect, egui::Label::new(disp_text));
+                  //ui.put(emote_img_rect, egui::Label::new(disp_text));
+                  painter.text(
+                    emote_img_rect.left_center(),
+                    egui::Align2::LEFT_CENTER,
+                    disp_text,
+                    get_body_text_style(ctx),
+                    if emote_is_selected { Color32::LIGHT_GRAY } else { Color32::GRAY }
+                  );
                 }
                 
                 if !hovered && emotes.len() > 1 && !emote_is_selected {
@@ -1169,7 +1177,7 @@ impl TemplateApp {
                   Color32::GRAY
                 );
               }
-            });
+            })});
       
             if goto_next_emote {
               if let Some(ix) = emotes.iter().position(|x| Some(&x.0) == chat_panel.selected_emote.as_ref()) && ix + 1 < emotes.len() {

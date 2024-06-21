@@ -446,7 +446,8 @@ pub async fn load_dgg_flairs(channel_name: &String, cdn_base_url: &str, cache_pa
       priority: emote.priority,
       hidden: emote.hidden,
       source: EmoteSource::ChannelBadge,
-      channel_name: channel_name.to_owned() });
+      channel_name: channel_name.to_owned(),
+      last_used: None });
   }
   Ok(result)
 }
@@ -484,7 +485,8 @@ pub async fn load_dgg_emotes(channel_name: &String, cdn_base_url: &str, cache_pa
       priority: 0,
       hidden: false,
       source: EmoteSource::Channel,
-      channel_name: channel_name.to_owned() });
+      channel_name: channel_name.to_owned(),
+      last_used: None });
   }
   Ok(result)
 }

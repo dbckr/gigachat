@@ -6,7 +6,7 @@
 
 use ahash::HashSet;
 use async_channel::Receiver;
-use chrono::Timelike;
+use chrono::{DateTime, Timelike, Utc};
 use tracing::{debug, info, warn, error};
 use egui::{ColorImage, Context, TextureHandle};
 
@@ -107,7 +107,8 @@ pub struct Emote {
   pub priority: isize,
   pub hidden: bool,
   pub source: EmoteSource,
-  pub channel_name: String
+  pub channel_name: String,
+  pub last_used: Option<DateTime<Utc>>
 }
 
 impl Emote {
@@ -608,6 +609,8 @@ fn load_emote_data(emote: &mut Emote, ctx: &egui::Context, data: Option<Vec<(Col
     };
   }
   emote.loaded = EmoteStatus::Loaded;
+  emote.last_used = Some(Utc::now());
+  
   loading_emotes.remove(&emote.name);
   //ctx.request_repaint();
 }
