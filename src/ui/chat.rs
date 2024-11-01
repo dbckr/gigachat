@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
-use egui::{emath, Rounding, TextStyle, ImageSource, TextureHandle};
+use egui::{emath, ImageSource, InnerResponse, Rect, Response, Rounding, TextStyle, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 use tracing::error;
@@ -14,7 +14,7 @@ use tracing::error;
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
-use super::EMOTE_SCALING;
+use super::{UiChatMessageRow, EMOTE_SCALING};
 use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
 use super::chat_estimate;
 use super::super::ui;
@@ -25,17 +25,17 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
   
   let ui_row = ui.horizontal(|ui| {
     ui.spacing_mut().interact_size.y = COMBO_LINE_HEIGHT;
-    ui.set_height(COMBO_LINE_HEIGHT);
+    ui.set_min_height(COMBO_LINE_HEIGHT);
     
     //if let Some(combo) = row.combo.as_ref().and_then(|c| if c.is_final { Some(c) } else { None }) &&
     if let Some(combo) = row.message.combo_data.as_ref() {
         let emote = row.emotes.get(&combo.word);
 
         ui.horizontal(|ui| {
-            if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-                ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT - 9.}))); // egui >= 0.23
-                //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
-            }
+            // if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
+            //     ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT - 9.}))); // egui >= 0.23
+            //     //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
+            // }
 
             let job = get_chat_msg_header_layoutjob(false, ui, row.channel_display_info(), None, row.timestamp());
             ui.add(egui::Label::new(job).sense(egui::Sense { click: true, drag: false, focusable: false }));
@@ -98,24 +98,27 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
       ui.spacing_mut().item_spacing.y = 0.;
     }*/
 
-    let chat_msg_rows = chat_msg.row_data.iter().map(|row| {
-      match &row.msg_char_range {
-        TextRange::Range { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).take(range.end - range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art),
-        TextRange::EndRange { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art)
-      }
-    });
+    // let chat_msg_rows = chat_msg.row_data.iter().map(|row| {
+    //   match &row.msg_char_range {
+    //     TextRange::Range { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).take(range.end - range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art),
+    //     TextRange::EndRange { range } => (chat_msg.message.message.char_indices().map(|(_i, x)| x).skip(range.start).collect::<String>(), row.is_visible, row.row_height, row.is_ascii_art)
+    //   }
+    // });
+    let chat_msg_rows : Vec<(&String, bool, f32, bool)> = vec![(&chat_msg.message.message, true, 0., false)];
 
-    for (row_text, is_visible, row_height, is_ascii_art) in chat_msg_rows {
+    let mut resp : Option<InnerResponse<()>> = None;
+
+    for (row_text, is_visible, _row_height, is_ascii_art) in chat_msg_rows {
 
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
-        ui.horizontal(|ui| {
+        resp = Some(ui.horizontal_wrapped(|ui| {
 
-        if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-          ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
-          //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }); // egui <= 0.21
-        }
-        ui.set_row_height(row_height);
+        // if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
+        //   ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
+        //   //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: row_height }); // egui <= 0.21
+        // }
+        //ui.set_row_height(emote_height);
 
         if let Some(highlight) = highlight {
           highlight_ui_row(ui, highlight);
@@ -264,11 +267,12 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
         // if let Some(img) = emote_loader.red_img.as_ref() {
         //     ui.image(ImageSource::Texture(SizedTexture::new(img.id(), emath::Vec2 { x: 1.0, y: emote_height })));
         // }
-        ui.end_row(); 
-      });
+        //ui.end_row(); 
+        }));
+      }
+      row_ix += 1;
     }
-    row_ix += 1;
-    }
+
   //});
   //let actual = format!("{:.2}", ui_row.response.rect.size().y + ui.spacing().item_spacing.y);
   //let expected = format!("{:.2}", chat_msg.row_data.iter().filter_map(|f| if f.is_visible { Some(f.row_height + ui.spacing().item_spacing.y) } else { None }).sum::<f32>());
@@ -276,7 +280,8 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     //info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   //}
   //(ui_row.response.rect, user_selected, msg_right_clicked)
-  (egui::Rect::ZERO, user_selected, msg_right_clicked)
+  (resp.map(|x| x.response.rect).unwrap_or(Rect::ZERO), user_selected, msg_right_clicked)
+  //(egui::Rect::ZERO, user_selected, msg_right_clicked)
 }
 
 pub fn determine_name_to_display(chat_msg: &ChatMessage) -> Option<&String> {

@@ -1229,8 +1229,7 @@ impl TemplateApp {
         .auto_shrink([false; 2])
         .stick_to_bottom(true)
         .drag_to_scroll(chat_panel.selected_emote.is_none() && self.last_frame_ui_events.is_empty())
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible) // egui >= 0.22
-        //.always_show_scroll(true) // egui <= 0.21
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
         .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));    
   
       let mut overlay_viewport : Rect = Rect::NOTHING;
@@ -1727,7 +1726,10 @@ impl TemplateApp {
     let mut y_pos = 0.0;
     let mut set_selected_msg : Option<ChatMessage> = None;
 
-    ui.with_layout(egui::Layout::top_down_justified(Align::LEFT), |ui| {
+    ui.horizontal_wrapped(|ui| {
+        ui.set_row_height(MIN_LINE_HEIGHT);
+
+    //ui.with_layout(egui::Layout::top_down_justified(Align::LEFT), |ui| {
       ui.spacing_mut().item_spacing.x = 4.0;
       ui.spacing_mut().item_spacing.y = 1.;
 
@@ -1766,6 +1768,8 @@ impl TemplateApp {
           }
         }
       }
+
+      let mut rows_drawn = 0;
       
       while let Some((row, cached_y)) = history_iters.get_next() {
         if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
@@ -1775,6 +1779,7 @@ impl TemplateApp {
         let combo = &row.combo_data;
 
         // Skip processing if row size is accurately cached and not in view
+        //TODO: also check if the font size or any other relevant setting has changed
         if !*show_timestamps_changed && let Some(last_viewport) = chat_frame && last_viewport.size() == viewport.size() && let Some(size_y) = cached_y.as_ref()
           && (y_pos < viewport.min.y - 1000. || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + 1000.) {
             if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
@@ -1790,110 +1795,168 @@ impl TemplateApp {
             continue;
         }
 
-        let mut msg_visible_rows : usize = 0;
-        let mut msg_visible_y : f32 = 0.;
+        // let mut msg_visible_rows : usize = 0;
+        // let mut msg_visible_y : f32 = 0.;
 
-        let mut uimsg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
-        let mut row_y = 0.;
-        let mut has_visible = false;
-        for line in uimsg.row_data.iter_mut() {
-          let size_y = if combo.as_ref().is_some_and(|f| f.count > 1) { COMBO_LINE_HEIGHT } else { line.row_height };
-          //info!("{} {}", viewport.min.y, viewport.max.y);
-          if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
-            if excess_top_space.is_none() {
-              excess_top_space = Some(y_pos + row_y - viewport.min.y);
-            }
-            line.is_visible = true;
-            has_visible = true;
+        // let mut uimsg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
+        // let mut row_y = 0.;
+        // let mut has_visible = false;
+        // for line in uimsg.row_data.iter_mut() {
+        //   let size_y = if combo.as_ref().is_some_and(|f| f.count > 1) { COMBO_LINE_HEIGHT } else { line.row_height };
+        //   //info!("{} {}", viewport.min.y, viewport.max.y);
+        //   if y_pos + row_y >= viewport.min.y && y_pos + row_y + size_y <= viewport.max.y + excess_top_space.unwrap_or(0.) {
+        //     if excess_top_space.is_none() {
+        //       excess_top_space = Some(y_pos + row_y - viewport.min.y);
+        //     }
+        //     line.is_visible = true;
+        //     has_visible = true;
 
-            msg_visible_rows += 1;
-            msg_visible_y += size_y + ui.spacing().item_spacing.y;
-          }
-          else {
-            line.is_visible = false;
-          }
-          row_y += size_y + ui.spacing().item_spacing.y;
-        }
+        //     msg_visible_rows += 1;
+        //     msg_visible_y += size_y + ui.spacing().item_spacing.y;
+        //   }
+        //   else {
+        //     line.is_visible = false;
+        //   }
+        //   row_y += size_y + ui.spacing().item_spacing.y;
+        // }
 
-        // if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
+        // // if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
+        // //   y_pos += row_y;
+
+        // //   if has_visible {
+        // //     _visible_rows += 1;
+        // //     visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+        // //   }
+        // // }
+        // if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
+        //     // add nothing to y_pos
+        // } else {
         //   y_pos += row_y;
 
-        //   if has_visible {
-        //     _visible_rows += 1;
-        //     visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-        //   }
+        //   _visible_rows += msg_visible_rows;
+        //   visible_height += msg_visible_y;
         // }
+        // *cached_y = Some(row_y);
+
+        // if has_visible {
+        //   in_view.push(uimsg);
+        // }
+
+        if rows_drawn == 0 {
+            *chat_frame = Some(viewport.to_owned());
+            //ui.set_height(y_pos);
+            ui.skip_ahead_auto_ids(skipped_rows);
+        }
+
         if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
-            // add nothing to y_pos
-        } else {
-          y_pos += row_y;
-
-          _visible_rows += msg_visible_rows;
-          visible_height += msg_visible_y;
+            // do not render
+            *cached_y = Some(0.);
+            continue;
         }
-        *cached_y = Some(row_y);
 
-        if has_visible {
-          in_view.push(uimsg);
+        let chat_msg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
+
+        //ui.allocate_ui_at_rect(rect.translate(Vec2 { x: 0., y:0. }), |ui| {
+
+        let resp_rect = if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && (c.is_end /*|| ix == last_msg_ix*/)) {
+          let highlight_msg = match chat_msg.message.msg_type {
+            MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
+            MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
+            MessageType::Information => Some(Color32::TRANSPARENT),
+            MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
+              Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
+            } else {
+              None
+            }
+          };
+          let (rect, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
+
+          if user_selected.is_some() {
+            if *selected_user == user_selected {
+              *selected_user = None
+            } else {
+              *selected_user = user_selected
+            }
+          }
+          if msg_right_clicked {
+            set_selected_msg = Some(chat_msg.message.to_owned());
+          }
+
+          rect
         }
+        else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end /*|| ix == last_msg_ix*/) { 
+          chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader)
+        } 
+        else {
+          Rect::ZERO
+        };
+
+        *cached_y = Some(resp_rect.height());
+        y_pos += resp_rect.height();
+
+        //});
+        
+        ui.end_row();
+        ui.set_row_height(MIN_LINE_HEIGHT);
+        rows_drawn += 1;
       }
 
       // Correct for last line unfinished emote combo
-      if let Some(last_msg) = in_view.last() && last_msg.message.combo_data.as_ref().is_some_and(|c| !c.is_end && c.count > 1) {
-        visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-      }
+    //   if let Some(last_msg) = in_view.last() && last_msg.message.combo_data.as_ref().is_some_and(|c| !c.is_end && c.count > 1) {
+    //     visible_height += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
+    //   }
 
       // vertical justify the in_view rows
-      let gap : f32 = rect.height() - visible_height;
+      //let gap : f32 = rect.height() - visible_height;
 
       if *show_timestamps_changed {
         *show_timestamps_changed = false;
       }
 
       //let transparent_texture = emote_loader.transparent_img.as_ref().unwrap_or_log();
-      *chat_frame = Some(viewport.to_owned());
-      ui.set_height(y_pos);
-      ui.skip_ahead_auto_ids(skipped_rows);
+      //*chat_frame = Some(viewport.to_owned());
+      //ui.set_height(y_pos);
+      //ui.skip_ahead_auto_ids(skipped_rows);
       //if *is_swap {
       //  ui.scroll_to_rect(Rect::from_min_size(Pos2 { x: 0., y: 0. }, Vec2 { x: 1., y: 1. }), None);
       //}
       
-      ui.allocate_ui_at_rect(rect.translate(Vec2 { x: 0., y: gap / 2. }), |ui| {
+    //   ui.allocate_ui_at_rect(rect.translate(Vec2 { x: 0., y: gap / 2. }), |ui| {
         
-        //ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
+    //     //ui.spacing_mut().item_spacing.y = (gap / visible_rows as f32).max(1.0);
 
-        let last_msg_ix = in_view.len().saturating_sub(1);
+    //     let last_msg_ix = in_view.len().saturating_sub(1);
 
-        for (ix, chat_msg) in in_view.iter().enumerate() {
-          if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && (c.is_end || ix == last_msg_ix)) {
-            let highlight_msg = match chat_msg.message.msg_type {
-              MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
-              MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
-              MessageType::Information => Some(Color32::TRANSPARENT),
-              MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
-                Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
-              } else {
-                None
-              }
-            };
-            let (_rect, user_selected, msg_right_clicked) = chat::display_chat_message(ui, chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
+    //     for (ix, chat_msg) in in_view.iter().enumerate() {
+    //       if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && (c.is_end || ix == last_msg_ix)) {
+    //         let highlight_msg = match chat_msg.message.msg_type {
+    //           MessageType::Announcement => Some(chat::get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
+    //           MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
+    //           MessageType::Information => Some(Color32::TRANSPARENT),
+    //           MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
+    //             Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
+    //           } else {
+    //             None
+    //           }
+    //         };
+    //         let (_rect, user_selected, msg_right_clicked) = chat::display_chat_message(ui, chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
 
-            if user_selected.is_some() {
-              if *selected_user == user_selected {
-                *selected_user = None
-              } else {
-                *selected_user = user_selected
-              }
-            }
-            if msg_right_clicked {
-              set_selected_msg = Some(chat_msg.message.to_owned());
-            }
-          }
-          else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end || ix == last_msg_ix) { 
-            chat::display_combo_message(ui, chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
-          }
-        }
-      });
+    //         if user_selected.is_some() {
+    //           if *selected_user == user_selected {
+    //             *selected_user = None
+    //           } else {
+    //             *selected_user = user_selected
+    //           }
+    //         }
+    //         if msg_right_clicked {
+    //           set_selected_msg = Some(chat_msg.message.to_owned());
+    //         }
+    //       }
+    //       else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end || ix == last_msg_ix) { 
+    //         chat::display_combo_message(ui, chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
+    //       }
+    //     }
+    //   });
     });
 
     set_selected_message(set_selected_msg, ui, selected_msg);
@@ -2276,18 +2339,19 @@ fn create_uichatmessage<'a,'b>(
 
   let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes);
   let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges);
-  let ui_width = ui.available_width() - ui.spacing().item_spacing.x;
-  let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp, show_muted);
+  //let ui_width = ui.available_width() - ui.spacing().item_spacing.x;
+  //let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp, show_muted);
   let mentions = if let Some(channel) = channels.get(&row.channel) {
     get_mentions_in_message(row, &channel.shared().users)
   } else { None };
 
   let color = row.profile.color.or(user_color).map(|f| f.to_owned());
   let mut row_data : Vec<UiChatMessageRow> = Default::default();
-  for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
-    row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
-  }
-  let msg_height = row_data.iter().map(|f| f.row_height).sum();
+  //for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
+  //  row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
+  //}
+  //let msg_height = row_data.iter().map(|f| f.row_height).sum();
+  let msg_height = 0.;
 
   UiChatMessage {
     message: row,
