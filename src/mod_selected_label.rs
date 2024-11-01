@@ -50,7 +50,7 @@ impl Widget for SelectableLabel {
         desired_size.y = desired_size.y.at_least(ui.spacing().interact_size.y);
         let (rect, response) = ui.allocate_at_least(desired_size, Sense::click_and_drag());
         response.widget_info(|| {
-            WidgetInfo::selected(WidgetType::SelectableLabel, selected, text.text())
+            WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, text.text())
         });
 
         if ui.is_rect_visible(response.rect) {

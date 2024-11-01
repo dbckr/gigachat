@@ -220,7 +220,11 @@ mod test {
     let id = Id::new(123);
     let layer = LayerId::new(Order::Debug, id);
     let rect = Rect { min: Pos2 { x: 0., y: 0. }, max: Pos2 { x: width, y: 400. } };
-    let mut ui = egui::Ui::new(context, layer, id, rect, rect);
+
+
+    let uibuilder = egui::UiBuilder::new().max_rect(rect);
+
+    let mut ui = egui::Ui::new(context, layer, id, uibuilder);
     let msg = ChatMessage { 
       provider: crate::provider::ProviderName::Twitch, 
       channel: "xqcow".to_owned(), 

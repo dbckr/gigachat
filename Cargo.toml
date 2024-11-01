@@ -14,8 +14,8 @@ debug-ui = []
 web-sys = "0.3.61"
 futures = "0.3.26"
 tokio = { version = "1.25.0", features = ["rt", "rt-multi-thread", "macros"] }
-egui = { version = "0.27.2" }
-eframe = { version = "0.27.2", features = ["wgpu"] }
+egui = { version = "0.29.1" }
+eframe = { version = "0.29.1", features = ["wgpu"] }
 irc = { version = "0.15.0", features = ["default"]}
 #irc = { path = "../irc" }
 anyhow = { version = "1.0.71" }
@@ -55,7 +55,7 @@ backoff = { version = "0.4.0", features = ["tokio"] }
 ahash = "0.8.3"
 num_cpus = "1.15.0"
 libwebp-sys2 = "0.1.8"
-egui_extras = { version = "0.27.2", features = ["all_loaders"] }
+egui_extras = { version = "0.29.1", features = ["all_loaders"] }
 tracing-log = "0.2.0"
 
 [profile.release]

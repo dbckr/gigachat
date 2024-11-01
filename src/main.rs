@@ -42,7 +42,7 @@ fn main() {
       Ok(_) => {},
       Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
     };
-    Box::new(app)
+    Ok(Box::new(app))
   })) {
     Ok(_) => (),
     Err(e) => { error!("Error: {:?}", e); }
