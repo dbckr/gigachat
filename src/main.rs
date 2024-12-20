@@ -34,7 +34,7 @@ fn main() {
   native_options.viewport = native_options.viewport.with_transparent(true);
 
   match eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
-    cc.egui_ctx.set_fonts(gigachat::ui::load_font());
+    cc.egui_ctx.set_fonts(gigachat::ui::addtl_functions::load_font());
     let runtime = tokio::runtime::Runtime::new().expect_or_log("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
     let loader = &mut app.emote_loader;

@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
-use egui::{emath, ImageSource, InnerResponse, Rect, Response, Rounding, TextStyle, TextureHandle};
+use egui::{emath, ImageSource, InnerResponse, Rect, Rounding, TextStyle, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 use tracing::error;
@@ -14,12 +14,10 @@ use tracing::error;
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
-use super::{UiChatMessageRow, EMOTE_SCALING};
-use super::{BADGE_HEIGHT, MIN_LINE_HEIGHT, UiChatMessage, COMBO_LINE_HEIGHT, chat_estimate::TextRange};
-use super::chat_estimate;
-use super::super::ui;
+use super::addtl_functions::{convert_color, get_body_text_style, get_text_style};
+use super::{chat_estimate, UiChatMessage};
 
-pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
+use super::consts::*;
 
 pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
   
@@ -55,7 +53,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
 
             let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
             let size = COMBO_LINE_HEIGHT * 0.25;
-            let mut font = ui::get_body_text_style(ui.ctx());
+            let mut font = get_body_text_style(ui.ctx());
             font.size = size;
             let job = chat_estimate::get_text_rect_job(ui.available_width() - 10., users.as_str(), &0., font, false);
             
@@ -170,7 +168,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     
           if let Some(uname_text) = username {
             let uname_rich_text = RichText::new(format!("{uname_text}:"))
-              .font(crate::ui::get_body_text_style(ui.ctx()))
+              .font(get_body_text_style(ui.ctx()))
               .color(convert_color(chat_msg.user_color.as_ref().unwrap_or(&DEFAULT_USER_COLOR)));
             let uname = ui.add(egui::Label::new(uname_rich_text).sense(egui::Sense::click()));
             if interactable && uname.clicked() {
@@ -216,7 +214,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
             last_emote_width = None;
             match link_url {
               Some(url) => {
-                let link = ui.add(egui::Label::new(RichText::new(word).font(crate::ui::get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()).truncate());
+                let link = ui.add(egui::Label::new(RichText::new(word).font(get_body_text_style(ui.ctx())).color(ui.visuals().hyperlink_color)).sense(egui::Sense::click()).truncate());
                 if link.hovered() {
                   ui.ctx().output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                 }
@@ -243,7 +241,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
                 let mut text = match is_ascii_art {
                   true => RichText::new(word).family(FontFamily::Monospace),
                   false => RichText::new(word).color(convert_color(&message_color))
-                }.font(crate::ui::get_body_text_style(ui.ctx()));
+                }.font(get_body_text_style(ui.ctx()));
 
                 if italicize {
                   text = text.italics()
@@ -368,7 +366,7 @@ pub fn get_chat_msg_header_layoutjob(
   };
   if let Some((channel_name, channel_color)) = channel_name {
     job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
-        font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()), 
+        font_id: get_text_style(TextStyle::Small, ui.ctx()), 
         color: channel_color.linear_multiply(0.6), 
         valign: Align::Center,
         ..Default::default()
@@ -376,7 +374,7 @@ pub fn get_chat_msg_header_layoutjob(
   }
   if let Some(timestamp) = timestamp {
     job.append(&format!("{} ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
-      font_id: crate::ui::get_text_style(TextStyle::Small, ui.ctx()),
+      font_id: get_text_style(TextStyle::Small, ui.ctx()),
       color: Color32::DARK_GRAY, 
       valign: Align::Center,
       ..Default::default()
@@ -386,60 +384,11 @@ pub fn get_chat_msg_header_layoutjob(
 
   if let Some((username, color)) = user_name {
     job.append(&format!("{}:", &username), ui.spacing().item_spacing.x, egui::TextFormat {
-      font_id: crate::ui::get_body_text_style(ui.ctx()),
+      font_id: get_body_text_style(ui.ctx()),
       color,
       valign: Align::Center,
       ..Default::default()
     });
   }
   job
-}
-
-pub fn convert_color(input : &(u8, u8, u8)) -> Color32 {
-  // return white
-  if input == &(255u8, 255u8, 255u8) {
-    return Color32::WHITE;
-  }
-
-  // normalize brightness
-  let target = 150;
- 
-  let min = |x, y| -> u8 {
-    let z = x < y;
-    match z {
-      true => x,
-      _ => y
-    }
-  };
-
-  let tf = |x| -> (u8, u8) {
-    if x < target {
-      (target - x, 255 - x)
-    }
-    else {
-      (0, 255 - x)
-    }
-  };
-
-  let (r, g, b) = (input.0, input.1, input.2);
-
-  let (r_diff, r_max_adj) = tf(r);
-  let (g_diff, g_max_adj) = tf(g);
-  let (b_diff, b_max_adj) = tf(b);
-
-  let adj = ((r_diff as u16 + g_diff as u16 + b_diff as u16) / 3) as u8;
-
-  let (rx, gx, bx) = (r + min(adj, r_max_adj), g + min(adj, g_max_adj), b + min(adj, b_max_adj));
-
-  //info!("{} {} {}", rx, gx, bx);
-  Color32::from_rgb(rx, gx, bx)
-}
-
-pub fn get_provider_color(provider : &ProviderName) -> Color32 {
-  match provider {
-    //ProviderName::Twitch => Color32::from_rgba_unmultiplied(145, 71, 255, 255),
-    ProviderName::Twitch => Color32::from_rgba_unmultiplied(169, 112, 255, 255),
-    ProviderName::YouTube => Color32::from_rgba_unmultiplied(255, 78, 69, 255),
-    ProviderName::DGG => Color32::from_rgba_unmultiplied(83, 140, 198, 255),
-  }
 }

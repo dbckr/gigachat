@@ -7,27 +7,18 @@
 use std::{collections::HashMap, ops::{Range, RangeFrom}};
 use egui::{Color32, text::LayoutJob, FontId, TextStyle};
 use itertools::Itertools;
-use crate::{ui::BADGE_HEIGHT, emotes::Emote};
+use crate::emotes::Emote;
 use tracing_unwrap::OptionExt;
 
 use crate::provider::*;
 
-use super::{MIN_LINE_HEIGHT, WORD_LENGTH_MAX, chat::{self}, EMOTE_SCALING};
+use super::{
+    addtl_functions::get_body_text_style,
+    consts::{BADGE_HEIGHT, EMOTE_SCALING, MIN_LINE_HEIGHT, WORD_LENGTH_MAX},
+    TextRange,
+};
 
-#[derive(Debug)]
-pub enum TextRange {
-  Range { range: Range<usize> },
-  EndRange { range: RangeFrom<usize> }
-}
-
-impl TextRange {
-  pub fn start(&self) -> usize {
-    match self {
-      TextRange::Range { range } => range.start,
-      TextRange::EndRange { range } => range.start
-    }
-  }
-}
+use super::chat;
 
 pub fn get_chat_msg_size(
   ui: &egui::Ui, 
@@ -164,7 +155,7 @@ fn process_word_result(
 }
 
 fn get_text_rect(ui: &egui::Ui, ui_width: f32, word: &str, curr_row_width: &f32, is_ascii_art: Option<usize>) -> Vec<(usize, egui::Vec2)> {
-  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, crate::ui::get_body_text_style(ui.ctx()), word.len() > WORD_LENGTH_MAX || is_ascii_art.is_some());
+  let job = get_text_rect_job(ui_width - ui.spacing().item_spacing.x - 1., word, curr_row_width, get_body_text_style(ui.ctx()), word.len() > WORD_LENGTH_MAX || is_ascii_art.is_some());
   let galley = ui.fonts(|f| f.layout_job(job));
   galley.rows.iter().map(|row| (row.char_count_including_newline(), row.rect.size())).collect_vec()
 }

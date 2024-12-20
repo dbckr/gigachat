@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use tracing_unwrap::ResultExt;
 
-use crate::{emotes::Emote, ui::chat};
+use crate::{emotes::Emote, ui::{addtl_functions::convert_color, chat, consts::DEFAULT_USER_COLOR}};
 
 use self::channel::ChannelStatus;
 
@@ -22,6 +22,8 @@ pub mod twitch;
 pub mod youtube_server;
 pub mod dgg;
 pub mod channel;
+
+
 
 #[derive(Clone)]
 pub enum IncomingMessage {
@@ -150,7 +152,7 @@ impl Default for ChatMessage {
 impl ChatMessage {
     pub fn get_username_with_color(&self) -> Option<(&String, Color32)> {
         chat::determine_name_to_display(self)
-            .map(|username| (username, chat::convert_color(self.profile.color.as_ref().unwrap_or(&chat::DEFAULT_USER_COLOR))))
+            .map(|username| (username, convert_color(self.profile.color.as_ref().unwrap_or(&DEFAULT_USER_COLOR))))
     }
 }
 

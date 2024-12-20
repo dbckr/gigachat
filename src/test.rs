@@ -212,7 +212,7 @@ mod test {
     use std::collections::HashMap;
     use chrono::Utc;
     use egui::{LayerId, Order, Pos2, Rect, Id};
-    use crate::{provider::{UserProfile, ChatMessage, MessageType}, ui::{chat_estimate::{TextRange, get_chat_msg_size}, load_font}, emotes::Emote};
+    use crate::{emotes::Emote, provider::{ChatMessage, MessageType, UserProfile}, ui::{addtl_functions::load_font, chat_estimate::get_chat_msg_size, models::TextRange}};
 
     let context : egui::Context = Default::default();
     context.set_fonts(load_font());
