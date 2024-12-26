@@ -269,10 +269,11 @@ impl TemplateApp {
         ui.set_height(height);
         
         let rhs_active = self.rhs_selected_channel.is_some();
+
         let lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, rhs_active, popped_height);
         self.lhs_chat_state = lhs_response.state;
 
-        let rhs_response = if self.rhs_selected_channel.is_some() {
+        let rhs_response = if rhs_active {
             let rhs_chat_state = ChatPanelOptions {
                 selected_channel: self.rhs_selected_channel.to_owned(),
                 draft_message: self.rhs_chat_state.draft_message.to_owned(),

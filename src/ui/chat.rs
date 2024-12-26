@@ -10,6 +10,7 @@ use egui::{emath, ImageSource, InnerResponse, Rect, Rounding, TextStyle, Texture
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 use tracing::error;
+use tracing_unwrap::OptionExt;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
@@ -19,7 +20,7 @@ use super::{chat_estimate, UiChatMessage};
 
 use super::consts::*;
 
-pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> emath::Rect {
+pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactable: bool, emote_loader: &mut EmoteLoader) -> f32 {
   
   let ui_row = ui.horizontal(|ui| {
     ui.spacing_mut().interact_size.y = COMBO_LINE_HEIGHT;
@@ -75,10 +76,11 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
     error!("{} {}", ui_row.response.rect.height(), COMBO_LINE_HEIGHT);
   }
 
-  ui_row.response.rect
+  ui_row.response.rect.height()
 }
 
-pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlight: Option<Color32>, interactable: bool, emote_loader: &mut EmoteLoader) -> (emath::Rect, Option<String>, bool) {
+pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlight: Option<Color32>, interactable: bool, emote_loader: &mut EmoteLoader) -> (f32, Option<String>, bool) {
+
   let emote_height = ui.text_style_height(&TextStyle::Body) * EMOTE_SCALING;
   let mut user_selected : Option<String> = None;
   let mut message_color : (u8,u8,u8) = (210,210,210);
@@ -104,13 +106,13 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     // });
     let chat_msg_rows : Vec<(&String, bool, f32, bool)> = vec![(&chat_msg.message.message, true, 0., false)];
 
-    let mut resp : Option<InnerResponse<()>> = None;
+    let mut height = 0.;
 
     for (row_text, is_visible, _row_height, is_ascii_art) in chat_msg_rows {
 
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
-        resp = Some(ui.horizontal_wrapped(|ui| {
+        let resp = ui.horizontal_wrapped(|ui| {
 
         // if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
         //   ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
@@ -266,7 +268,8 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
         //     ui.image(ImageSource::Texture(SizedTexture::new(img.id(), emath::Vec2 { x: 1.0, y: emote_height })));
         // }
         //ui.end_row(); 
-        }));
+        });
+        height += resp.response.rect.height();
       }
       row_ix += 1;
     }
@@ -278,7 +281,10 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
     //info!("expected {} actual {} for {}", expected, actual, &chat_msg.message.username);
   //}
   //(ui_row.response.rect, user_selected, msg_right_clicked)
-  (resp.map(|x| x.response.rect).unwrap_or(Rect::ZERO), user_selected, msg_right_clicked)
+
+  if height == 0. { error!("unexpected zero height result on chat message rendering"); }
+
+  (height, user_selected, msg_right_clicked)
   //(egui::Rect::ZERO, user_selected, msg_right_clicked)
 }
 
