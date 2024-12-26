@@ -15,6 +15,7 @@ use egui::Stroke;
 use egui::TextStyle;
 use egui::TextureHandle;
 use egui::Vec2;
+use tracing::error;
 use tracing::info;
 use tracing::warn;
 use tracing_unwrap::OptionExt;
@@ -68,7 +69,9 @@ impl TemplateApp {
             // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
             chat_panel.chat_scroll = Some(area.state.offset);
             
-            let jump_rect = if (area.state.offset.y - (y_size - area.inner_rect.height())).abs() > 100. && y_size > area.inner_rect.height() {
+            let jump_rect = if (area.content_size.y - (area.state.offset.y + area.inner_rect.height())).abs() > 1. {
+            //if (area.state.offset.y - (y_size - area.inner_rect.height())).abs() > 1. && y_size > area.inner_rect.height() {
+            //if (area.content_size.y - overlay_viewport.max.y).abs() > 1. {
                 let rect = Rect {
                     min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 70. },
                     max: area.inner_rect.max
@@ -145,7 +148,8 @@ impl TemplateApp {
             yt_chat_manager: _,
             enable_yt_integration: _,
             last_frame_ui_events: _,
-            force_compact_emote_selector: _
+            force_compact_emote_selector: _,
+            discarded_last_frame
         } = self;
         
         let ChatPanelOptions {
@@ -207,7 +211,12 @@ impl TemplateApp {
             
             let mut rows_drawn = 0;
 
-            let area_size_unchanged = chat_frame.is_some() && chat_frame.map_or(Vec2::ZERO, |f| f.size()) == viewport.size();
+            let area_size_unchanged = chat_frame.is_some() && (chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size()).length() < 1.;
+            if !area_size_unchanged {
+                error!("viewport change: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
+                ui.ctx().request_discard("ui resized");
+            }
+
             *chat_frame = Some(viewport.to_owned());
 
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -218,23 +227,22 @@ impl TemplateApp {
                     continue;
                 }
                 
-                let combo = &row.combo_data;
-                
                 // Skip processing if row size is accurately cached and not in view
                 //TODO: also check if the font size or any other relevant setting has changed
                 let overdraw_height = 0.;
-                if !*show_timestamps_changed && area_size_unchanged && let Some(size_y) = cached_y.as_ref()
-                && (y_pos < viewport.min.y - overdraw_height || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + overdraw_height) {
-                    if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
-                        // add nothing to y_pos
-                    } else if *enable_combos && combo.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
-                        y_pos += COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y;
-                    } else {
-                        y_pos += size_y;
-                    }
-                    
+                if !*show_timestamps_changed && area_size_unchanged 
+                && let Some(size_y) = cached_y.as_ref().map(|y| match row.combo_data.as_ref() {
+                    None => y + ui.spacing().item_spacing.y,
+                    Some(combo_data) => 
+                        if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + ui.spacing().item_spacing.y }
+                        else if combo_data.is_end { 
+                            COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y 
+                        } 
+                        else { 0. }
+                })
+                && (size_y == 0. || y_pos < viewport.min.y - overdraw_height || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + overdraw_height) {
+                    y_pos += size_y;
                     skipped_rows += 1;
-
                     continue;
                 }
 
@@ -251,17 +259,17 @@ impl TemplateApp {
                     skipped_rows = 0;
                 }
                 
-                if *enable_combos && combo.as_ref().is_some_and(|c| !c.is_end) {
-                    // do not render
-                    *cached_y = Some(0.);
-                    continue;
-                }
-                
                 let chat_msg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
                 
                 ui.set_row_height(MIN_LINE_HEIGHT);
+
+                //TODO: remove this once viewport overflow check is added
+                if cached_y.is_none() && (chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|f| f.is_new)) && !self.discarded_last_frame {
+                    ui.ctx().request_discard("new chat msg");
+                    self.discarded_last_frame = true;
+                }
                 
-                let rendered_height = if !*enable_combos || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && (c.is_end /*|| ix == last_msg_ix*/)) {
+                let rendered_height = if !*enable_combos || cached_y.is_none() || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && c.is_end) {
                     let highlight_msg = match chat_msg.message.msg_type {
                         MessageType::Announcement => Some(get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
                         MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
@@ -272,7 +280,7 @@ impl TemplateApp {
                             None
                         }
                     };
-                    let (rect, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
+                    let (height, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
                     
                     if user_selected.is_some() {
                         if *selected_user == user_selected {
@@ -285,24 +293,21 @@ impl TemplateApp {
                         set_selected_msg = Some(chat_msg.message.to_owned());
                     }
                     
-                    rect
+                    *cached_y = Some(height);
+
+                    height
                 }
-                else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end /*|| ix == last_msg_ix*/) { 
+                else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
                     chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader)
+
+                    // do NOT update the message's cached_y when rendering combo message
                 } 
                 else {
-                    warn!("unexpected branch");
-                    0.
+                    panic!("should be unreachable");
                 };
 
-                //TODO: remove this once viewport overflow check is added
-                if cached_y.is_none() {
-                    ui.ctx().request_discard("new chat msg");
-                }
-
-                *cached_y = Some(rendered_height);
-                y_pos += rendered_height;
-                y_pos_visible += rendered_height;
+                y_pos += rendered_height + ui.spacing().item_spacing.y;
+                y_pos_visible += rendered_height + ui.spacing().item_spacing.y;
                 
                 ui.end_row();
                 rows_drawn += 1;

@@ -72,7 +72,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
     }
   });
 
-  if ui_row.response.rect.height() >= COMBO_LINE_HEIGHT {
+  if ui_row.response.rect.height() > COMBO_LINE_HEIGHT {
     error!("{} {}", ui_row.response.rect.height(), COMBO_LINE_HEIGHT);
   }
 

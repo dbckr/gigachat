@@ -77,4 +77,6 @@ pub struct TemplateApp {
   rhs_tab_width: Option<f32>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub yt_chat_manager: Option<ChatManager>,
+  #[cfg_attr(feature = "persistence", serde(skip))]
+  pub discarded_last_frame: bool
 }
