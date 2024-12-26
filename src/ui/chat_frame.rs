@@ -1,30 +1,19 @@
 use std::collections::HashMap;
-use std::ops::Add;
 
-use egui::text::LayoutJob;
-use egui::text_edit::TextEditState;
 use egui::Align;
 use egui::Color32;
-use egui::Key;
-use egui::Modifiers;
 use egui::Pos2;
 use egui::Rect;
 use egui::RichText;
 use egui::Rounding;
 use egui::Stroke;
-use egui::TextStyle;
-use egui::TextureHandle;
 use egui::Vec2;
 use tracing::error;
-use tracing::info;
-use tracing::warn;
 use tracing_unwrap::OptionExt;
 
 use crate::provider::channel::Channel;
-use crate::provider::ChatManagerRx;
 use crate::provider::ChatMessage;
 use crate::provider::MessageType;
-use crate::provider::OutgoingMessage;
 use crate::provider::ProviderName;
 
 use super::addtl_functions::*;
@@ -37,7 +26,7 @@ use super::models::*;
 impl TemplateApp {
     pub fn show_chat_frame(&mut self, id: &str, ui: &mut egui::Ui, mut chat_panel: ChatPanelOptions, ctx: &egui::Context, half_width: bool, popped_height: f32) -> ChatFrameResponse {
         
-        let mut msg_box_id : Option<egui::Id> = None;
+        //let mut msg_box_id : Option<egui::Id> = None;
 
         let mut response : ChatFrameResponse = Default::default();
         ui.with_layout(egui::Layout::bottom_up(Align::LEFT), |ui| {
@@ -50,7 +39,7 @@ impl TemplateApp {
             //ui.painter().rect_filled(ui.available_rect_before_wrap(), Rounding::ZERO, Color32::LIGHT_RED);
             
             let chat_area = egui::ScrollArea::vertical()
-            .id_source(format!("chatscrollarea {id}"))
+            .id_salt(format!("chatscrollarea {id}"))
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .drag_to_scroll(chat_panel.selected_emote.is_none() && self.last_frame_ui_events.is_empty())
@@ -59,7 +48,7 @@ impl TemplateApp {
             
             let mut overlay_viewport : Rect = Rect::NOTHING;
             let mut y_size = 0.;
-            let mut area = chat_area.show_viewport(ui, |ui, viewport| {  
+            let area = chat_area.show_viewport(ui, |ui, viewport| {  
                 ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                     overlay_viewport = viewport;
                     y_size = self.show_variable_height_rows(&mut chat_panel, ui, viewport);
@@ -149,7 +138,7 @@ impl TemplateApp {
             enable_yt_integration: _,
             last_frame_ui_events: _,
             force_compact_emote_selector: _,
-            discarded_last_frame
+            discarded_last_frame: _
         } = self;
         
         let ChatPanelOptions {
@@ -173,15 +162,13 @@ impl TemplateApp {
             
             //ui.with_layout(egui::Layout::top_down_justified(Align::LEFT), |ui| {
             
-            let y_min = ui.max_rect().top() + viewport.min.y;
-            let y_max = ui.max_rect().top() + viewport.max.y;
-            let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-            let mut in_view : Vec<UiChatMessage> = Default::default();
-            let mut excess_top_space : Option<f32> = Some(0.);
+            //let y_min = ui.max_rect().top() + viewport.min.y;
+            //let y_max = ui.max_rect().top() + viewport.max.y;
+            //let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+            //let mut in_view : Vec<UiChatMessage> = Default::default();
             let mut skipped_rows = 0;
             
             let mut _visible_rows: usize = 0;
-            let mut visible_height: f32 = 0.;
             
             let mut history_iters = Vec::new();
             for (cname, hist) in chat_histories.iter_mut() {
@@ -240,7 +227,7 @@ impl TemplateApp {
                         } 
                         else { 0. }
                 })
-                && (size_y == 0. || y_pos < viewport.min.y - overdraw_height || y_pos + size_y > viewport.max.y + excess_top_space.unwrap_or(0.) + overdraw_height) {
+                && (size_y == 0. || y_pos < viewport.min.y - overdraw_height || y_pos + size_y > viewport.max.y + overdraw_height) {
                     y_pos += size_y;
                     skipped_rows += 1;
                     continue;
@@ -259,7 +246,7 @@ impl TemplateApp {
                     skipped_rows = 0;
                 }
                 
-                let chat_msg = create_uichatmessage(row, ui, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
+                let chat_msg = create_uichatmessage(row, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
                 
                 ui.set_row_height(MIN_LINE_HEIGHT);
 

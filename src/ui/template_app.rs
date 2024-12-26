@@ -4,20 +4,19 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use tracing::{info, error, warn, debug};
+use tracing::{info, error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
-use std::{collections::HashMap, ops::Add};
-use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, text_edit::TextEditState, Context, Key, Modifiers, OpenUrl, Pos2, Response, RichText, Rounding, Stroke, TextStyle, TextureHandle};
-use egui::{Vec2, text::LayoutJob, Color32};
+use std::collections::HashMap;
+use egui::{Context, Rounding};
+use egui::{Vec2, Color32};
 use image::DynamicImage;
 use itertools::Itertools;
-use crate::{provider::{dgg, twitch::{self, TwitchChatManager}, youtube_server, ChatManagerRx, ChatMessage, IncomingMessage, MessageType, OutgoingMessage, Provider, ProviderName}, ui::addtl_functions::update_font_sizes};
+use crate::{provider::{twitch::TwitchChatManager, youtube_server, IncomingMessage, MessageType, ProviderName}, ui::addtl_functions::update_font_sizes};
 use crate::provider::channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared};
 use crate::emotes::{LoadEmote, AddEmote, OverlayItem, EmoteSource};
 use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::load_image_into_texture_handle}};
 
-use super::{addtl_functions::*, chat, consts::*, ChatPanelOptions, SelectorFormat, TemplateApp, UiEvent};
+use super::{addtl_functions::*, consts::*, ChatPanelOptions, TemplateApp, UiEvent};
 
 use super::models::*;
 

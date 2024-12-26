@@ -5,8 +5,7 @@
  */
 
 use tracing_unwrap::OptionExt;
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, iter::Peekable};
-use chrono::Utc;
+use std::collections::{HashMap, VecDeque};
 use egui::{emath::Rect, epaint::FontId, TextStyle, TextureHandle};
 use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
 use itertools::Itertools;
@@ -162,10 +161,9 @@ pub fn get_text_style(text_style: TextStyle, ctx: &egui::Context) -> FontId {
 
 pub fn create_uichatmessage<'a,'b>(
   row: &'a ChatMessage,
-  ui: &egui::Ui, 
   show_channel_name: bool,
   show_timestamp: bool,
-  show_muted: bool,
+  _show_muted: bool,
   providers: &'b HashMap<ProviderName, Provider>,
   channels: &'b HashMap<String, Channel>,
   global_emotes: &'b HashMap<String, Emote>
@@ -185,7 +183,7 @@ pub fn create_uichatmessage<'a,'b>(
   } else { None };
 
   let color = row.profile.color.or(user_color).map(|f| f.to_owned());
-  let mut row_data : Vec<UiChatMessageRow> = Default::default();
+  let row_data : Vec<UiChatMessageRow> = Default::default();
   //for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
   //  row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
   //}

@@ -1,6 +1,5 @@
-use irc::proto::{chan, response};
 use itertools::Itertools;
-use tracing::{info, error, warn, debug};
+use tracing::debug;
 use chrono::{DateTime, Utc};
 use egui::text::LayoutJob;
 use egui::{Align, Color32, Response, RichText, TextStyle, Ui};
@@ -15,7 +14,7 @@ use super::models::*;
 
 impl TemplateApp {
 
-pub fn render_channel_tab_component(self: &mut Self, ui: &mut Ui, ctx: &egui::Context) -> Option<UiEvent> {
+pub fn render_channel_tab_component(&mut self, ui: &mut Ui, ctx: &egui::Context) -> Option<UiEvent> {
     let mut removed_channel : Option<UiEvent> = None;
 
     ui.horizontal(|ui| {

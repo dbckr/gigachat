@@ -1,4 +1,4 @@
-use tracing::{info, error, warn, debug};
+use tracing::{error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::collections::HashMap;
 use egui::{Color32, Key, OpenUrl, RichText, TextStyle};

@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{collections::HashMap, ops::{Range, RangeFrom}};
+use std::collections::HashMap;
 use egui::{Color32, text::LayoutJob, FontId, TextStyle};
 use itertools::Itertools;
 use crate::emotes::Emote;

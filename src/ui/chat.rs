@@ -6,11 +6,10 @@
 
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
-use egui::{emath, ImageSource, InnerResponse, Rect, Rounding, TextStyle, TextureHandle};
+use egui::{ImageSource, Rounding, TextStyle, TextureHandle};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 use tracing::error;
-use tracing_unwrap::OptionExt;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};

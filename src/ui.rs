@@ -1,14 +1,8 @@
-use tracing::{info, error, warn, debug};
-use tracing_unwrap::{OptionExt, ResultExt};
-use std::{collections::{HashMap, VecDeque, vec_deque::IterMut}, ops::Add, iter::Peekable};
-use chrono::{DateTime, Utc};
-use egui::{emath::{Align, Rect}, epaint::FontId, text_edit::TextEditState, Context, Key, Modifiers, OpenUrl, Pos2, Response, RichText, Rounding, Stroke, TextStyle, TextureHandle};
-use egui::{Vec2, FontDefinitions, FontData, text::LayoutJob, FontFamily, Color32};
-use image::DynamicImage;
-use itertools::Itertools;
-use crate::{provider::{twitch::{self, TwitchChatManager}, ChatMessage, IncomingMessage, OutgoingMessage, Provider, ProviderName, ComboCounter, ChatManager, MessageType, youtube_server, ChatManagerRx, channel::{Channel, ChannelTransient, ChannelUser, YoutubeChannel, ChannelShared}, dgg}, emotes::{LoadEmote, AddEmote, OverlayItem, EmoteSource}};
-use crate::emotes::imaging::load_file_into_buffer;
-use crate::{emotes, emotes::{Emote, EmoteLoader, EmoteRequest, EmoteResponse, imaging::load_image_into_texture_handle}};
+use std::collections::{HashMap, VecDeque};
+use egui::Vec2;
+use crate::provider::{twitch::TwitchChatManager, ChatMessage, Provider, ProviderName, ChatManager, channel::Channel};
+
+use crate::emotes::{Emote, EmoteLoader};
 use self::models::TextRange;
 
 mod template_app;

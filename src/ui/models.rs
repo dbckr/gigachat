@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
 use egui::{Color32, Pos2, Rect, Vec2};
-use itertools::Itertools;
 
 use crate::{emotes::Emote, provider::{ChatMessage, ProviderName}};
 
 use super::addtl_functions::get_provider_color;
 
-use std::{collections::{vec_deque::IterMut, HashMap, VecDeque}, iter::Peekable, ops::{Add, Range, RangeFrom}};
+use std::{collections::{vec_deque::IterMut, HashMap}, iter::Peekable, ops::{Range, RangeFrom}};
 
 pub enum ChatPanel {
     Left,

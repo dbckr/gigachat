@@ -47,7 +47,7 @@ impl TemplateApp {
             let mut set_selected_msg : Option<ChatMessage> = None;
             for msg in &msgs {
               //let transparent_texture = &mut self.emote_loader.transparent_img.as_ref().unwrap_or_log().to_owned();
-              let est = create_uichatmessage(msg, ui, false, self.show_timestamps, self.show_muted, &self.providers, &self.channels, &self.global_emotes);
+              let est = create_uichatmessage(msg, false, self.show_timestamps, self.show_muted, &self.providers, &self.channels, &self.global_emotes);
               let (_, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &est, None, chat_panel.selected_emote.is_none(), &mut self.emote_loader);
   
               if let Some(user) = user_selected.as_ref() {

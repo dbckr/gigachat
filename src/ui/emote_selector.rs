@@ -6,7 +6,6 @@ use egui::Color32;
 use egui::Id;
 use egui::Key;
 use egui::Modifiers;
-use egui::Rect;
 use egui::Rounding;
 use egui::TextStyle;
 use egui::TextureHandle;
