@@ -105,7 +105,8 @@ pub struct ComboCounter {
   pub count: usize,
   pub is_new: bool,
   pub is_end: bool,
-  pub users: Vec<(String, Color32)>
+  pub users: Vec<(String, Color32)>,
+  pub cached_height: Option<f32>
 }
 
 #[derive(Clone)]

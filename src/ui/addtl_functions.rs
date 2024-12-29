@@ -245,6 +245,7 @@ pub fn push_history(chat_history: &mut VecDeque<(ChatMessage, Option<f32>)>, mut
     let combo = combo_calculator(&message, last.0.combo_data.as_ref());
     if combo.as_ref().is_some_and(|c| !c.is_new && c.count > 1) && let Some(last_combo) = last.0.combo_data.as_mut() {
       last_combo.is_end = false; // update last item to reflect the continuing combo
+      last_combo.cached_height = Some(0.);
     }
     else if last.0.combo_data.as_ref().is_some_and(|c| c.count <= 1) {
       last.0.combo_data = None;
@@ -268,7 +269,8 @@ pub fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) ->
         count: last_combo.count + 1,
         is_new: false,
         is_end: true,
-        users
+        users,
+        cached_height: None
     })
   }
   else if row.message.trim().contains(' ') {
@@ -280,7 +282,8 @@ pub fn combo_calculator(row: &ChatMessage, last_combo: Option<&ComboCounter>) ->
       count: 1,
       is_new: true,
       is_end: true,
-      users: [ row.get_username_with_color().map(|(a,b)| (a.to_owned(), b)).unwrap_or((String::default(), Color32::GRAY)).to_owned() ].to_vec()
+      users: [ row.get_username_with_color().map(|(a,b)| (a.to_owned(), b)).unwrap_or((String::default(), Color32::GRAY)).to_owned() ].to_vec(),
+      cached_height: None
     })
   }
 }

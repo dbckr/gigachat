@@ -172,18 +172,18 @@ impl TemplateApp {
 
         let mut msgs = 0;
         while let Some(chat_mgr) = self.twitch_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
-        self.handle_incoming_message(x);
-        msgs += 1;
-        if msgs > 20 { break; } // Limit to prevent bad UI lag
+            self.handle_incoming_message(x);
+            msgs += 1;
+            if msgs > NEW_MESSAGES_PER_FRAME { break; } // Limit to prevent bad UI lag
         }
         msgs = 0;
         let mut msglist : Vec<IncomingMessage> = Vec::new();
         for (_, channel) in self.channels.iter_mut() {
         if let Channel::DGG { dgg, shared: _ } = channel {
             while let Some(chat_mgr) = dgg.dgg_chat_manager.as_mut() && let Ok(x) = chat_mgr.out_rx.try_recv() {
-            msglist.push(x);
-            msgs += 1;
-            if msgs > 20 { break; } // Limit to prevent bad UI lag
+                msglist.push(x);
+                msgs += 1;
+                if msgs > NEW_MESSAGES_PER_FRAME { break; } // Limit to prevent bad UI lag
             }
             msgs = 0;
         }
@@ -193,9 +193,9 @@ impl TemplateApp {
         }
         
         while let Some(chat_mgr) = self.yt_chat_manager.as_mut()  && let Ok(x) = chat_mgr.out_rx.try_recv() {
-        self.handle_incoming_message(x);
-        msgs += 1;
-        if msgs > 20 { break; } // Limit to prevent bad UI lag
+            self.handle_incoming_message(x);
+            msgs += 1;
+            if msgs > NEW_MESSAGES_PER_FRAME { break; } // Limit to prevent bad UI lag
         }
     }
 

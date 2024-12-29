@@ -9,6 +9,7 @@ use egui::Rounding;
 use egui::Stroke;
 use egui::Vec2;
 use tracing::error;
+use tracing::warn;
 use tracing_unwrap::OptionExt;
 
 use crate::provider::channel::Channel;
@@ -198,7 +199,13 @@ impl TemplateApp {
             
             let mut rows_drawn = 0;
 
-            let area_size_unchanged = chat_frame.is_some() && (chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size()).length() < 1.;
+            let viewport_size_drift = (chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size()).length();
+
+            if viewport_size_drift > 0. {
+                warn!("viewport drift: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
+            }
+
+            let area_size_unchanged = chat_frame.is_some() && viewport_size_drift < 1.;
             if !area_size_unchanged {
                 error!("viewport change: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
                 ui.ctx().request_discard("ui resized");
@@ -208,6 +215,8 @@ impl TemplateApp {
 
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.spacing_mut().item_spacing.y = 1.;
+
+            //let mut last_row;
             
             while let Some((row, cached_y)) = history_iters.get_next() {
                 if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
@@ -223,11 +232,18 @@ impl TemplateApp {
                     Some(combo_data) => 
                         if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + ui.spacing().item_spacing.y }
                         else if combo_data.is_end { 
-                            COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y 
+                            //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
+                            combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y)
                         } 
                         else { 0. }
                 })
-                && (size_y == 0. || y_pos < viewport.min.y - overdraw_height || y_pos + size_y > viewport.max.y + overdraw_height) {
+                &&  (size_y == 0. 
+                        || y_pos < viewport.min.y - overdraw_height 
+                        || y_pos + size_y > viewport.max.y + overdraw_height)
+                &&  !row.combo_data.as_ref().is_some_and(|f| f.count > 1 && f.cached_height.is_none()) {
+
+                    //last_row = (row.to_owned(), cached_y.to_owned());
+
                     y_pos += size_y;
                     skipped_rows += 1;
                     continue;
@@ -252,6 +268,7 @@ impl TemplateApp {
 
                 //TODO: remove this once viewport overflow check is added
                 if cached_y.is_none() && (chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|f| f.is_new)) && !self.discarded_last_frame {
+                    //error!("new message -- frame discard");
                     ui.ctx().request_discard("new chat msg");
                     self.discarded_last_frame = true;
                 }
@@ -280,17 +297,24 @@ impl TemplateApp {
                         set_selected_msg = Some(chat_msg.message.to_owned());
                     }
                     
-                    *cached_y = Some(height);
+                    *cached_y = Some(height.ceil());
 
-                    height
+                    height.ceil()
                 }
                 else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-                    chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader)
+                    let height = chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader).ceil();
 
-                    // do NOT update the message's cached_y when rendering combo message
+                    if let Some(combo) = row.combo_data.as_mut() {
+                        combo.cached_height = Some(height);
+                    }
+
+                    height
                 } 
                 else {
-                    panic!("should be unreachable");
+                    // uncached, !is_end, >1 count emote combo message
+                    // do nothing
+
+                    continue;
                 };
 
                 y_pos += rendered_height + ui.spacing().item_spacing.y;

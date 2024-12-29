@@ -6,16 +6,16 @@
 
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
-use egui::{ImageSource, Rounding, TextStyle, TextureHandle};
+use egui::{Align2, ImageSource, Rounding, TextStyle, TextureHandle, Vec2};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
-use tracing::error;
+use tracing::warn;
 
 use crate::provider::ChatMessage;
 use crate::{emotes::*, provider::{ProviderName, MessageType}};
 
 use super::addtl_functions::{convert_color, get_body_text_style, get_text_style};
-use super::{chat_estimate, UiChatMessage};
+use super::UiChatMessage;
 
 use super::consts::*;
 
@@ -31,7 +31,7 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
 
         ui.horizontal(|ui| {
             // if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
-            //     ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT - 9.}))); // egui >= 0.23
+            //     ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT * 0.9 }))); // egui >= 0.23
             //     //ui.image(transparent_img.texture_id(ui.ctx()), emath::Vec2 { x: 1.0, y: COMBO_LINE_HEIGHT }); // egui <=0.21
             // }
 
@@ -40,39 +40,42 @@ pub fn display_combo_message(ui: &mut egui::Ui, row: &UiChatMessage, interactabl
 
             //let mut used_width : f32 = 0.;
             if let Some(emote) = emote && let Some(texture) = emote.get_texture(emote_loader, ui.ctx()) {
-                add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT - 9., interactable);
+                add_ui_emote_image(&combo.word, &emote.path, texture, &emote.zero_width, &mut None, ui, COMBO_LINE_HEIGHT * 0.9, interactable);
                 //used_width += r.map(|f| f.rect.width()).unwrap_or(0.);
             }
-            ui.add(egui::Label::new(RichText::new(format!("{}x combo", combo.count)).size(COMBO_LINE_HEIGHT * 0.5)).sense(egui::Sense { click: true, drag: false, focusable: false }));
-            //used_width += r.rect.width();
+
+            let lbl = ui.add(egui::Label::new(RichText::new(format!(" x{} ", combo.count)).size(COMBO_LINE_HEIGHT * 0.75).italics()).sense(egui::Sense { click: true, drag: false, focusable: false }));
+            let mut font = get_body_text_style(ui.ctx());
+            font.size = COMBO_LINE_HEIGHT * 0.25;
+            ui.painter().text(lbl.rect.center_top() + Vec2::new(0., -3.), Align2::CENTER_TOP, "COMBO", font, Color32::GRAY);
         });
 
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.y = 0.;
             ui.set_row_height(COMBO_LINE_HEIGHT / 3.);
 
-            let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
+            //let users = combo.users.iter().map(|x| &x.0).unique().join(" ");
             let size = COMBO_LINE_HEIGHT * 0.25;
-            let mut font = get_body_text_style(ui.ctx());
-            font.size = size;
-            let job = chat_estimate::get_text_rect_job(ui.available_width() - 10., users.as_str(), &0., font, false);
+            //let mut font = get_body_text_style(ui.ctx());
+            //font.size = size;
+            //let job = chat_estimate::get_text_rect_job(ui.available_width() - 10., users.as_str(), &0., font, false);
             
-            let rows = &ui.fonts(|f| f.layout_job(job)).rows;
-            if !rows.is_empty() {
-                let user_count = rows.iter().take(2).map(|x| x.text().split(' ').count()).sum();
-                for (user, color) in combo.users.iter().unique().take(user_count) {
+            //let rows = &ui.fonts(|f| f.layout_job(job)).rows;
+            //if !rows.is_empty() {
+                //let user_count = rows.iter().take(2).map(|x| x.text().split(' ').count()).sum();
+                for (user, color) in combo.users.iter().unique()/*.take(user_count)*/ {
                     ui.add(egui::Label::new(RichText::new(user).size(size).color(*color)));
                 }
     
                 //ui.add(egui::Label::new(RichText::new(rows[0]..text()).size(COMBO_LINE_HEIGHT * 0.3).color(Color32::DARK_GRAY)));
-            }
+            //}
         });
         
     }
   });
 
   if ui_row.response.rect.height() > COMBO_LINE_HEIGHT {
-    error!("{} {}", ui_row.response.rect.height(), COMBO_LINE_HEIGHT);
+    warn!("{} {}", ui_row.response.rect.height(), COMBO_LINE_HEIGHT);
   }
 
   ui_row.response.rect.height()
@@ -281,7 +284,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   //}
   //(ui_row.response.rect, user_selected, msg_right_clicked)
 
-  if height == 0. { error!("unexpected zero height result on chat message rendering"); }
+  if height == 0. { warn!("unexpected zero height result on chat message rendering"); }
 
   (height, user_selected, msg_right_clicked)
   //(egui::Rect::ZERO, user_selected, msg_right_clicked)
