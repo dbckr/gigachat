@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
-use egui::{Align2, ImageSource, Rounding, TextStyle, TextureHandle, Vec2};
+use egui::{Align2, ImageSource, Layout, Rounding, TextStyle, TextureHandle, Vec2};
 use egui::{Color32, FontFamily, Align, RichText, text::LayoutJob, Pos2};
 use itertools::Itertools;
 use tracing::warn;
@@ -114,7 +114,17 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
-        let resp = ui.horizontal_wrapped(|ui| {
+        let resp = ui.with_layout(Layout::left_to_right(Align::Min).with_main_wrap(true), |ui| {
+
+        ui.style_mut().override_text_valign = Some(Align::Min);
+
+        // let row_height = if chat_msg.emotes.is_empty() {
+        //     MIN_LINE_HEIGHT
+        // } else {
+        //     emote_height
+        // };
+    
+        ui.set_row_height(MIN_LINE_HEIGHT);
 
         // if let Some(transparent_img) = emote_loader.transparent_img.as_ref() {
         //   ui.image(ImageSource::Texture(SizedTexture::new(transparent_img.id(), emath::Vec2 { x: 1.0, y: row_height }))); // egui >= 0.23
@@ -376,7 +386,7 @@ pub fn get_chat_msg_header_layoutjob(
     job.append(&format!("#{channel_name} "), 0., egui::TextFormat { 
         font_id: get_text_style(TextStyle::Small, ui.ctx()), 
         color: channel_color.linear_multiply(0.6), 
-        valign: Align::Center,
+        valign: Align::Min,
         ..Default::default()
       });
   }
@@ -384,7 +394,7 @@ pub fn get_chat_msg_header_layoutjob(
     job.append(&format!("{} ", timestamp.with_timezone(&chrono::Local).format("%H:%M")), 0., egui::TextFormat { 
       font_id: get_text_style(TextStyle::Small, ui.ctx()),
       color: Color32::DARK_GRAY, 
-      valign: Align::Center,
+      valign: Align::Min,
       ..Default::default()
     });
   }
@@ -394,7 +404,7 @@ pub fn get_chat_msg_header_layoutjob(
     job.append(&format!("{}:", &username), ui.spacing().item_spacing.x, egui::TextFormat {
       font_id: get_body_text_style(ui.ctx()),
       color,
-      valign: Align::Center,
+      valign: Align::Min,
       ..Default::default()
     });
   }

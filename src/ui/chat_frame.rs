@@ -180,198 +180,186 @@ impl TemplateApp {
         let mut y_pos_visible = 0.0;
         let mut y_size_from_new_messages = 0.0;
         let mut set_selected_msg : Option<ChatMessage> = None;
+            
+        //let y_min = ui.max_rect().top() + viewport.min.y;
+        //let y_max = ui.max_rect().top() + viewport.max.y;
+        //let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
+        //let mut in_view : Vec<UiChatMessage> = Default::default();
+        let mut skipped_rows = 0;
         
-        ui.horizontal_wrapped(|ui| {
-            ui.set_row_height(MIN_LINE_HEIGHT);
-            
-            //ui.with_layout(egui::Layout::top_down_justified(Align::LEFT), |ui| {
-            
-            //let y_min = ui.max_rect().top() + viewport.min.y;
-            //let y_max = ui.max_rect().top() + viewport.max.y;
-            //let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-            //let mut in_view : Vec<UiChatMessage> = Default::default();
-            let mut skipped_rows = 0;
-            
-            let mut _visible_rows: usize = 0;
-            
-            let mut history_iters = Vec::new();
-            for (cname, hist) in chat_histories.iter_mut() {
-                if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.shared().show_in_mentions_tab) {
-                    history_iters.push(hist.iter_mut().peekable());
+        let mut _visible_rows: usize = 0;
+        
+        let mut history_iters = Vec::new();
+        for (cname, hist) in chat_histories.iter_mut() {
+            if selected_channel.as_ref().is_some_and(|channel| channel == cname) || selected_channel.is_none() && channels.get(cname).is_some_and(|f| f.shared().show_in_mentions_tab) {
+                history_iters.push(hist.iter_mut().peekable());
+            }
+        }
+        
+        let mut history_iters = HistoryIterator {
+            iterators: history_iters,
+            //mentions_only: selected_channel.is_none(),
+            //usernames: HashMap::default()// HashMap::from_iter(providers.iter().map(|(k, v)| (k.to_owned(), v.username.to_lowercase())))
+        };
+        let show_channel_names = history_iters.iterators.len() > 1;
+        
+        let mut usernames : HashMap<ProviderName, String> = HashMap::default();
+        if selected_channel.is_none() {
+            if let Some(twitch_chat_manager) = self.twitch_chat_manager.as_ref() {
+                usernames.insert(ProviderName::Twitch, twitch_chat_manager.username.to_lowercase());
+            }
+            for (_, channel) in channels.iter_mut() {
+                if let Channel::DGG { ref mut dgg, shared: _ } = channel && let Some(chat_mgr) = dgg.dgg_chat_manager.as_ref() {
+                    usernames.insert(ProviderName::DGG, chat_mgr.username.to_lowercase()); 
                 }
             }
-            
-            let mut history_iters = HistoryIterator {
-                iterators: history_iters,
-                //mentions_only: selected_channel.is_none(),
-                //usernames: HashMap::default()// HashMap::from_iter(providers.iter().map(|(k, v)| (k.to_owned(), v.username.to_lowercase())))
-            };
-            let show_channel_names = history_iters.iterators.len() > 1;
-            
-            let mut usernames : HashMap<ProviderName, String> = HashMap::default();
-            if selected_channel.is_none() {
-                if let Some(twitch_chat_manager) = self.twitch_chat_manager.as_ref() {
-                    usernames.insert(ProviderName::Twitch, twitch_chat_manager.username.to_lowercase());
-                }
-                for (_, channel) in channels.iter_mut() {
-                    if let Channel::DGG { ref mut dgg, shared: _ } = channel && let Some(chat_mgr) = dgg.dgg_chat_manager.as_ref() {
-                        usernames.insert(ProviderName::DGG, chat_mgr.username.to_lowercase()); 
-                    }
-                }
+        }
+        
+        let mut rows_drawn = 0;
+
+        let viewport_size_drift = (chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size()).length();
+
+        if viewport_size_drift > 0. {
+            warn!("viewport drift: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
+        }
+
+        let area_size_unchanged = chat_frame.is_some() && viewport_size_drift < 1.;
+        if !area_size_unchanged {
+            error!("viewport change: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
+            ui.ctx().request_discard("ui resized");
+        }
+
+        *chat_frame = Some(viewport.to_owned());
+
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.y = CHAT_ITEM_SPACING_Y;
+
+        //let mut last_row;
+        
+        while let Some((row, cached_y)) = history_iters.get_next() {
+            if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
+                continue;
             }
             
-            let mut rows_drawn = 0;
+            // amount to render above and below the viewport area
+            let overdraw_height = viewport.height() / 2.;
 
-            let viewport_size_drift = (chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size()).length();
+            // Skip processing if row size is accurately cached and not in view
+            //TODO: also check if the font size or any other relevant setting has changed
+            if !*show_timestamps_changed && area_size_unchanged 
+            && let Some(size_y) = cached_y.as_ref().map(|y| match row.combo_data.as_ref() {
+                None => y + CHAT_ITEM_SPACING_Y,
+                Some(combo_data) => 
+                    if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + CHAT_ITEM_SPACING_Y }
+                    else if combo_data.is_end { 
+                        //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
+                        combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + CHAT_ITEM_SPACING_Y)
+                    } 
+                    else { 0. }
+            })
+            &&  (size_y == 0. 
+                    || y_pos < viewport.min.y - overdraw_height 
+                    || y_pos + size_y > viewport.max.y + overdraw_height)
+            &&  !row.combo_data.as_ref().is_some_and(|f| f.count > 1 && f.cached_height.is_none()) {
 
-            if viewport_size_drift > 0. {
-                warn!("viewport drift: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
+                //last_row = (row.to_owned(), cached_y.to_owned());
+
+                y_pos += size_y;
+                skipped_rows += 1;
+                continue;
             }
 
-            let area_size_unchanged = chat_frame.is_some() && viewport_size_drift < 1.;
-            if !area_size_unchanged {
-                error!("viewport change: {} {} {}", chat_frame.map_or(Vec2::ZERO, |f| f.size()), viewport.size(), chat_frame.map_or(Vec2::ZERO, |f| f.size()) - viewport.size());
-                ui.ctx().request_discard("ui resized");
+            if rows_drawn == 0 {
+                y_pos_before_visible = y_pos;
+
+                // "draw" the empty space up to the start of the viewport area
+                ui.add_space(y_pos_before_visible - CHAT_ITEM_SPACING_Y);
+
+                // needed to maintain focus on any widget inside chat frame when scrolling (due to virtual/viewport rendering)
+                ui.skip_ahead_auto_ids(skipped_rows);
+                skipped_rows = 0;
             }
-
-            *chat_frame = Some(viewport.to_owned());
-
-            ui.spacing_mut().item_spacing.x = 4.0;
-            ui.spacing_mut().item_spacing.y = CHAT_ITEM_SPACING_Y;
-
-            //let mut last_row;
             
-            while let Some((row, cached_y)) = history_iters.get_next() {
-                if selected_channel.is_none() && !mentioned_in_message(&usernames, &row.provider, &row.message) {
-                    continue;
-                }
-                
-                // amount to render above and below the viewport area
-                let overdraw_height = viewport.height() / 2.;
+            let chat_msg = create_uichatmessage(row, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
 
-                // Skip processing if row size is accurately cached and not in view
-                //TODO: also check if the font size or any other relevant setting has changed
-                if !*show_timestamps_changed && area_size_unchanged 
-                && let Some(size_y) = cached_y.as_ref().map(|y| match row.combo_data.as_ref() {
-                    None => y + CHAT_ITEM_SPACING_Y,
-                    Some(combo_data) => 
-                        if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + CHAT_ITEM_SPACING_Y }
-                        else if combo_data.is_end { 
-                            //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
-                            combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + CHAT_ITEM_SPACING_Y)
-                        } 
-                        else { 0. }
-                })
-                &&  (size_y == 0. 
-                        || y_pos < viewport.min.y - overdraw_height 
-                        || y_pos + size_y > viewport.max.y + overdraw_height)
-                &&  !row.combo_data.as_ref().is_some_and(|f| f.count > 1 && f.cached_height.is_none()) {
-
-                    //last_row = (row.to_owned(), cached_y.to_owned());
-
-                    y_pos += size_y;
-                    skipped_rows += 1;
-                    continue;
-                }
-
-                if rows_drawn == 0 {
-                    y_pos_before_visible = y_pos;
-
-                    // "draw" the empty space up to the start of the viewport area
-                    ui.set_row_height(y_pos_before_visible - CHAT_ITEM_SPACING_Y);
-                    ui.label(" ");
-                    ui.end_row();
-
-                    // needed to maintain focus on any widget inside chat frame when scrolling (due to virtual/viewport rendering)
-                    ui.skip_ahead_auto_ids(skipped_rows);
-                    skipped_rows = 0;
-                }
-                
-                let chat_msg = create_uichatmessage(row, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
-                
-                ui.set_row_height(MIN_LINE_HEIGHT);
-
-                //TODO: remove this once viewport overflow check is added
-                if cached_y.is_none() && (chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|f| f.is_new)) && !self.discarded_last_frame {
-                    //error!("new message -- frame discard");
-                    ui.ctx().request_discard("new chat msg");
-                    self.discarded_last_frame = true;
-                }
-                
-                let rendered_height = if !*enable_combos || cached_y.is_none() || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && c.is_end) {
-                    let highlight_msg = match chat_msg.message.msg_type {
-                        MessageType::Announcement => Some(get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
-                        MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
-                        MessageType::Information => Some(Color32::TRANSPARENT),
-                        MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
-                            Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
-                        } else {
-                            None
-                        }
-                    };
-                    let (height, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
-                    
-                    if user_selected.is_some() {
-                        if *selected_user == user_selected {
-                            *selected_user = None
-                        } else {
-                            *selected_user = user_selected
-                        }
+            //TODO: remove this once viewport overflow check is added
+            if cached_y.is_none() && (chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|f| f.is_new)) && !self.discarded_last_frame {
+                //error!("new message -- frame discard");
+                ui.ctx().request_discard("new chat msg");
+                self.discarded_last_frame = true;
+            }
+            
+            let rendered_height = if !*enable_combos || cached_y.is_none() || chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|c| c.count == 1 && c.is_end) {
+                let highlight_msg = match chat_msg.message.msg_type {
+                    MessageType::Announcement => Some(get_provider_color(&chat_msg.message.provider).linear_multiply(0.25)),
+                    MessageType::Error => Some(Color32::from_rgba_unmultiplied(90, 0, 0, 90)),
+                    MessageType::Information => Some(Color32::TRANSPARENT),
+                    MessageType::Chat => if selected_user.as_ref() == Some(&chat_msg.message.profile.display_name.as_ref().unwrap_or(&chat_msg.message.username).to_lowercase()) {
+                        Some(Color32::from_rgba_unmultiplied(90, 90, 90, 90))
+                    } else {
+                        None
                     }
-                    if msg_right_clicked {
-                        set_selected_msg = Some(chat_msg.message.to_owned());
-                    }
-
-                    if cached_y.is_none() {
-                        y_size_from_new_messages += height + CHAT_ITEM_SPACING_Y;
-                    }
-                    
-                    *cached_y = Some(height);
-
-                    height
-                }
-                else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-                    let height = chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
-
-                    if let Some(combo) = row.combo_data.as_mut() {
-                        // handle combo message height increasing as usernames are added
-                        y_size_from_new_messages += match combo.cached_height {
-                            Some(h) => height - h,
-                            None => height + CHAT_ITEM_SPACING_Y
-                        };
-
-                        combo.cached_height = Some(height);
-                    }
-
-                    height
-                } 
-                else {
-                    // uncached, !is_end, >1 count emote combo message
-                    // do nothing
-
-                    continue;
                 };
-
-                y_pos += rendered_height + CHAT_ITEM_SPACING_Y;
-                y_pos_visible += rendered_height + CHAT_ITEM_SPACING_Y;
+                let (height, user_selected, msg_right_clicked) = chat::display_chat_message(ui, &chat_msg, highlight_msg, chat_panel.selected_emote.is_none(), emote_loader);
                 
-                ui.end_row();
-                rows_drawn += 1;
+                if user_selected.is_some() {
+                    if *selected_user == user_selected {
+                        *selected_user = None
+                    } else {
+                        *selected_user = user_selected
+                    }
+                }
+                if msg_right_clicked {
+                    set_selected_msg = Some(chat_msg.message.to_owned());
+                }
+
+                if cached_y.is_none() {
+                    y_size_from_new_messages += height + CHAT_ITEM_SPACING_Y;
+                }
+                
+                *cached_y = Some(height);
+
+                height
             }
+            else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
+                let height = chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
 
-            //TODO: determine if viewport area overflowed -- if so, do not paint this frame
+                if let Some(combo) = row.combo_data.as_mut() {
+                    // handle combo message height increasing as usernames are added
+                    y_size_from_new_messages += match combo.cached_height {
+                        Some(h) => height - h,
+                        None => height + CHAT_ITEM_SPACING_Y
+                    };
 
-            // "draw" the empty space after the viewport area
-            ui.set_row_height(y_pos - y_pos_before_visible - y_pos_visible - CHAT_ITEM_SPACING_Y);
-            ui.label(" ");
-            ui.end_row();
+                    combo.cached_height = Some(height);
+                }
 
-            ui.skip_ahead_auto_ids(skipped_rows);
+                height
+            } 
+            else {
+                // uncached, !is_end, >1 count emote combo message
+                // do nothing
+
+                continue;
+            };
+
+            y_pos += rendered_height + CHAT_ITEM_SPACING_Y;
+            y_pos_visible += rendered_height + CHAT_ITEM_SPACING_Y;
             
-            if *show_timestamps_changed {
-                *show_timestamps_changed = false;
-            }
-        });
+            //ui.end_row();
+            rows_drawn += 1;
+        }
+
+        //TODO: determine if viewport area overflowed -- if so, do not paint this frame
+
+        // "draw" the empty space after the viewport area
+        ui.add_space(y_pos - y_pos_before_visible - y_pos_visible - CHAT_ITEM_SPACING_Y);
+
+        ui.skip_ahead_auto_ids(skipped_rows);
+        
+        if *show_timestamps_changed {
+            *show_timestamps_changed = false;
+        }
         
         set_selected_message(set_selected_msg, ui, selected_msg);
         
