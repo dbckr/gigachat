@@ -306,11 +306,11 @@ impl TemplateApp {
           match self.last_frame_ui_events.pop_front() {
             Some(UiEvent::ChannelChangeLHS) => { 
                 self.lhs_chat_state.chat_scroll_lock_to_bottom = true;
-                self.lhs_chat_state.chat_scroll = Some(Vec2::ZERO);
+                self.lhs_chat_state.chat_scroll = None;
             },
             Some(UiEvent::ChannelChangeRHS) => { 
                 self.rhs_chat_state.chat_scroll_lock_to_bottom = true;
-                self.rhs_chat_state.chat_scroll = Some(Vec2::ZERO);
+                self.rhs_chat_state.chat_scroll = None;
             },
             Some(event) => self.last_frame_ui_events.push_back(event),
             _ => warn!("unexpected failure to pop last_frame_ui_events")

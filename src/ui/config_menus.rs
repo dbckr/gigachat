@@ -377,6 +377,7 @@ impl TemplateApp {
                     } else { None };
                 }
                 self.rhs_selected_channel = Some(channel.to_owned());
+                self.last_frame_ui_events.push_back(UiEvent::ChannelChangeRHS);
                 self.show_channel_options = None;
               }
             } else {

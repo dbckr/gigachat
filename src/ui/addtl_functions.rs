@@ -176,19 +176,13 @@ pub fn create_uichatmessage<'a,'b>(
 
   let emotes = get_emotes_for_message(row, provider_emotes, channel_emotes, global_emotes);
   let (badges, user_color) = get_badges_for_message(row.profile.badges.as_ref(), &row.channel, provider_badges, channel_badges);
-  //let ui_width = ui.available_width() - ui.spacing().item_spacing.x;
-  //let msg_sizing = chat_estimate::get_chat_msg_size(ui, ui_width, row, &emotes, badges.as_ref(), show_channel_name, show_timestamp, show_muted);
+
   let mentions = if let Some(channel) = channels.get(&row.channel) {
     get_mentions_in_message(row, &channel.shared().users)
   } else { None };
 
   let color = row.profile.color.or(user_color).map(|f| f.to_owned());
   let row_data : Vec<UiChatMessageRow> = Default::default();
-  //for (row_height, msg_char_range, is_ascii_art) in msg_sizing {
-  //  row_data.push(UiChatMessageRow { row_height, msg_char_range, is_visible: true, is_ascii_art });
-  //}
-  //let msg_height = row_data.iter().map(|f| f.row_height).sum();
-  let msg_height = 0.;
 
   UiChatMessage {
     message: row,
@@ -196,7 +190,7 @@ pub fn create_uichatmessage<'a,'b>(
     badges,
     mentions,
     row_data,
-    msg_height,
+    msg_height: 0.,
     user_color: color,
     show_channel_name,
     show_timestamp

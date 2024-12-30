@@ -284,7 +284,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
   //}
   //(ui_row.response.rect, user_selected, msg_right_clicked)
 
-  if height == 0. { warn!("unexpected zero height result on chat message rendering"); }
+  if height <= 0. { warn!("unexpected zero height result on chat message rendering"); }
 
   (height, user_selected, msg_right_clicked)
   //(egui::Rect::ZERO, user_selected, msg_right_clicked)
