@@ -17,6 +17,7 @@ impl TemplateApp {
       draft_message: _,
       chat_frame: _,
       chat_scroll: _,
+      chat_scroll_lock_to_bottom: _,
       selected_user,
       selected_msg,
       selected_emote: _,

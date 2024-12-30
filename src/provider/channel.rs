@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use async_channel::Sender;
 
@@ -19,7 +19,7 @@ pub struct ChannelShared {
   pub show_in_mentions_tab: bool,
   pub show_tab_when_offline: bool,
   #[cfg_attr(feature = "persistence", serde(skip))]
-  pub send_history: VecDeque<String>,
+  pub send_history: Vec<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub send_history_ix: Option<usize>,
   #[cfg_attr(feature = "persistence", serde(skip))]

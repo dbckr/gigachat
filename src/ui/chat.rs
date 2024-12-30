@@ -347,7 +347,7 @@ fn highlight_ui_row(ui: &egui::Ui, color: Color32) {
       y: cursor.top()}, 
     max:  Pos2 {
       x: cursor.left() + ui.available_width(), 
-      y: cursor.bottom() + ui.spacing().item_spacing.y} };
+      y: cursor.bottom() + CHAT_ITEM_SPACING_Y }};
   ui.painter().rect_filled(
     rect, 
     Rounding::ZERO, 

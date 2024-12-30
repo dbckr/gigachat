@@ -96,7 +96,7 @@ pub struct ChatFrameResponse {
   pub y_size: f32
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[cfg_attr(feature = "persistence", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "persistence", serde(default))]
 pub struct ChatPanelOptions {
@@ -109,6 +109,8 @@ pub struct ChatPanelOptions {
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub chat_scroll: Option<Vec2>,
   #[cfg_attr(feature = "persistence", serde(skip))]
+  pub chat_scroll_lock_to_bottom: bool,
+  #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_user: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_msg: Option<(Vec2, ChatMessage)>,
@@ -116,6 +118,23 @@ pub struct ChatPanelOptions {
   pub selected_emote: Option<String>,
   #[cfg_attr(feature = "persistence", serde(skip))]
   pub selected_emote_input: Option<(usize, String)>,
+}
+
+impl Default for ChatPanelOptions {
+    fn default() -> Self {
+        ChatPanelOptions {
+            chat_scroll_lock_to_bottom: true,
+            
+            selected_channel: None,
+            draft_message: "".to_owned(),
+            chat_frame: None,
+            chat_scroll: None,
+            selected_emote: None,
+            selected_emote_input: None,
+            selected_msg: None,
+            selected_user: None
+        }
+    }
 }
 
 #[derive(Default)]

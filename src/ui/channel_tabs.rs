@@ -166,7 +166,7 @@ fn ui_channel_tab(&mut self, channel: &String, ui: &mut egui::Ui, ctx: &egui::Co
             
             self.dragged_channel_tab = DragChannelTabState::DragRelease(channel.to_owned(), tab_order_changed, pos);
         }
-        else if clbl.clicked_by(egui::PointerButton::Primary) {
+        else if clbl.clicked_by(egui::PointerButton::Primary) && !self.rhs_selected_channel.as_ref().is_some_and(|rc| rc == channel) {
             self.selected_channel = Some(channel.to_owned());
         }
 

@@ -12,3 +12,5 @@ pub const COMBO_LINE_HEIGHT : f32 = 42.0;
 pub const DEFAULT_USER_COLOR : (u8,u8,u8) = (255,255,255);
 
 pub const NEW_MESSAGES_PER_FRAME : usize = 50;
+
+pub const CHAT_ITEM_SPACING_Y : f32 = 1.;

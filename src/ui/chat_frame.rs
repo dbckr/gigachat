@@ -39,27 +39,43 @@ impl TemplateApp {
 
             //ui.painter().rect_filled(ui.available_rect_before_wrap(), Rounding::ZERO, Color32::LIGHT_RED);
             
-            let chat_area = egui::ScrollArea::vertical()
+            let mut chat_area = egui::ScrollArea::vertical()
             .id_salt(format!("chatscrollarea {id}"))
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .drag_to_scroll(chat_panel.selected_emote.is_none() && self.last_frame_ui_events.is_empty())
-            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-            .scroll_offset(chat_panel.chat_scroll.map(|f| egui::Vec2 {x: 0., y: f.y - popped_height }).unwrap_or(egui::Vec2 {x: 0., y: 0.}));    
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+
+            if let Some(chat_scroll) = chat_panel.chat_scroll {
+                chat_area = chat_area.scroll_offset(egui::Vec2 {x: 0., y: chat_scroll.y - popped_height });
+            }
             
             let mut overlay_viewport : Rect = Rect::NOTHING;
             let mut y_size = 0.;
+            let mut y_size_new = 0.;
             let area = chat_area.show_viewport(ui, |ui, viewport| {  
                 ui.with_layout(egui::Layout::top_down(Align::LEFT), |ui| {
                     overlay_viewport = viewport;
-                    y_size = self.show_variable_height_rows(&mut chat_panel, ui, viewport);
+                    (y_size, y_size_new) = self.show_variable_height_rows(&mut chat_panel, ui, viewport);
                 });
             });
 
-            // if stuck to bottom, y offset at this point should be equal to scrollarea max_height - viewport height
-            chat_panel.chat_scroll = Some(area.state.offset);
+            //TODO: y_size is ~8-15 less than the resulting area.content_size
+
+            let max_scroll_offset = area.content_size.y - area.inner_rect.height();
             
-            let jump_rect = if (area.content_size.y - (area.state.offset.y + area.inner_rect.height())).abs() > 1. {
+            if chat_panel.chat_scroll_lock_to_bottom {
+                // only increase scroll, never decrease (workaround for scrolling stutter on new messages)
+                if chat_panel.chat_scroll.is_some_and(|f| max_scroll_offset > f.y) {
+                    chat_panel.chat_scroll = Some(Vec2::new(0., max_scroll_offset));
+                } else {
+                    // do nothing if locked to bottom and new offset is less than cached
+                }
+            } else {
+                chat_panel.chat_scroll = Some(area.state.offset);
+            }
+
+            let jump_rect = if area.content_size.y - (area.state.offset.y + y_size_new + area.inner_rect.height()) > 8. {
             //if (area.state.offset.y - (y_size - area.inner_rect.height())).abs() > 1. && y_size > area.inner_rect.height() {
             //if (area.content_size.y - overlay_viewport.max.y).abs() > 1. {
                 let rect = Rect {
@@ -80,11 +96,16 @@ impl TemplateApp {
                 })
                 .show(ctx, |ui| {
                     if ui.button(RichText::new("🡳").size(48.).monospace()).clicked() {
-                        chat_panel.chat_scroll = Some(Vec2 { x: 0., y: y_size });
+                        chat_panel.chat_scroll_lock_to_bottom = true;
+                        chat_panel.chat_scroll = Some(Vec2 { x: 0., y: max_scroll_offset });
+                    } else {
+                        chat_panel.chat_scroll_lock_to_bottom = false;
                     }
                 });
                 jumpwin.unwrap_or_log().response.rect
-            } else { Rect::NOTHING };
+            } else { 
+                Rect::NOTHING 
+            };
             
             response.y_size = y_size;
             
@@ -106,7 +127,7 @@ impl TemplateApp {
         response
     }
     
-    pub fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> f32 {
+    pub fn show_variable_height_rows(&mut self, chat_panel: &mut ChatPanelOptions, ui: &mut egui::Ui, viewport: Rect) -> (f32, f32) {
         let TemplateApp {
             chat_history_limit: _,
             body_text_size: _,
@@ -147,6 +168,7 @@ impl TemplateApp {
             draft_message: _,
             chat_frame,
             chat_scroll: _,
+            chat_scroll_lock_to_bottom: _,
             selected_user,
             selected_msg,
             selected_emote: _,
@@ -156,6 +178,7 @@ impl TemplateApp {
         let mut y_pos = 0.0;
         let mut y_pos_before_visible = 0.0;
         let mut y_pos_visible = 0.0;
+        let mut y_size_from_new_messages = 0.0;
         let mut set_selected_msg : Option<ChatMessage> = None;
         
         ui.horizontal_wrapped(|ui| {
@@ -214,7 +237,7 @@ impl TemplateApp {
             *chat_frame = Some(viewport.to_owned());
 
             ui.spacing_mut().item_spacing.x = 4.0;
-            ui.spacing_mut().item_spacing.y = 1.;
+            ui.spacing_mut().item_spacing.y = CHAT_ITEM_SPACING_Y;
 
             //let mut last_row;
             
@@ -223,17 +246,19 @@ impl TemplateApp {
                     continue;
                 }
                 
+                // amount to render above and below the viewport area
+                let overdraw_height = viewport.height() / 2.;
+
                 // Skip processing if row size is accurately cached and not in view
                 //TODO: also check if the font size or any other relevant setting has changed
-                let overdraw_height = 0.;
                 if !*show_timestamps_changed && area_size_unchanged 
                 && let Some(size_y) = cached_y.as_ref().map(|y| match row.combo_data.as_ref() {
-                    None => y + ui.spacing().item_spacing.y,
+                    None => y + CHAT_ITEM_SPACING_Y,
                     Some(combo_data) => 
-                        if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + ui.spacing().item_spacing.y }
+                        if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + CHAT_ITEM_SPACING_Y }
                         else if combo_data.is_end { 
                             //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
-                            combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + ui.spacing().item_spacing.y)
+                            combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + CHAT_ITEM_SPACING_Y)
                         } 
                         else { 0. }
                 })
@@ -253,7 +278,7 @@ impl TemplateApp {
                     y_pos_before_visible = y_pos;
 
                     // "draw" the empty space up to the start of the viewport area
-                    ui.set_row_height(y_pos_before_visible - ui.spacing().item_spacing.y);
+                    ui.set_row_height(y_pos_before_visible - CHAT_ITEM_SPACING_Y);
                     ui.label(" ");
                     ui.end_row();
 
@@ -296,15 +321,25 @@ impl TemplateApp {
                     if msg_right_clicked {
                         set_selected_msg = Some(chat_msg.message.to_owned());
                     }
-                    
-                    *cached_y = Some(height.ceil());
 
-                    height.ceil()
+                    if cached_y.is_none() {
+                        y_size_from_new_messages += height + CHAT_ITEM_SPACING_Y;
+                    }
+                    
+                    *cached_y = Some(height);
+
+                    height
                 }
                 else if chat_msg.message.combo_data.as_ref().is_some_and(|combo| combo.is_end) { 
-                    let height = chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader).ceil();
+                    let height = chat::display_combo_message(ui, &chat_msg, chat_panel.selected_emote.is_none(), emote_loader);
 
                     if let Some(combo) = row.combo_data.as_mut() {
+                        // handle combo message height increasing as usernames are added
+                        y_size_from_new_messages += match combo.cached_height {
+                            Some(h) => height - h,
+                            None => height + CHAT_ITEM_SPACING_Y
+                        };
+
                         combo.cached_height = Some(height);
                     }
 
@@ -317,8 +352,8 @@ impl TemplateApp {
                     continue;
                 };
 
-                y_pos += rendered_height + ui.spacing().item_spacing.y;
-                y_pos_visible += rendered_height + ui.spacing().item_spacing.y;
+                y_pos += rendered_height + CHAT_ITEM_SPACING_Y;
+                y_pos_visible += rendered_height + CHAT_ITEM_SPACING_Y;
                 
                 ui.end_row();
                 rows_drawn += 1;
@@ -327,7 +362,7 @@ impl TemplateApp {
             //TODO: determine if viewport area overflowed -- if so, do not paint this frame
 
             // "draw" the empty space after the viewport area
-            ui.set_row_height(y_pos - y_pos_before_visible - y_pos_visible - ui.spacing().item_spacing.y);
+            ui.set_row_height(y_pos - y_pos_before_visible - y_pos_visible - CHAT_ITEM_SPACING_Y);
             ui.label(" ");
             ui.end_row();
 
@@ -340,6 +375,6 @@ impl TemplateApp {
         
         set_selected_message(set_selected_msg, ui, selected_msg);
         
-        y_pos
+        (y_pos, y_size_from_new_messages)
     }
 }

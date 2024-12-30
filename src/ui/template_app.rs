@@ -51,6 +51,7 @@ impl TemplateApp {
           Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
         };
       }
+
       r
     }
 
@@ -230,6 +231,7 @@ impl TemplateApp {
         draft_message: self.lhs_chat_state.draft_message.to_owned(),
         chat_frame: self.lhs_chat_state.chat_frame.to_owned(),
         chat_scroll: self.lhs_chat_state.chat_scroll.to_owned(),
+        chat_scroll_lock_to_bottom: self.lhs_chat_state.chat_scroll_lock_to_bottom.to_owned(),
         selected_user: self.lhs_chat_state.selected_user.to_owned(),
         selected_msg: self.lhs_chat_state.selected_msg.to_owned(),
         selected_emote: self.lhs_chat_state.selected_emote.to_owned(),
@@ -238,23 +240,28 @@ impl TemplateApp {
 
     let mut popped_height = 0.;
     let mut rhs_popped_height = 0.;
-    for (_channel, history) in self.chat_histories.iter_mut() {
-      if history.len() > self.chat_history_limit && let Some(popped) = history.pop_front() 
-        && let Some(mut height) = popped.1 {
-        if self.enable_combos && popped.0.combo_data.as_ref().is_some_and(|c| !c.is_end) {
-          // add nothing to y_pos
-        } else {
-          if self.enable_combos && popped.0.combo_data.as_ref().is_some_and(|c| c.is_end && c.count > 1) {
-            height = COMBO_LINE_HEIGHT + ctx.style().spacing.item_spacing.y;
-          } 
+    for (channel, history) in self.chat_histories.iter_mut() {
+      if history.len() > self.chat_history_limit && let Some(popped) = history.pop_front()
+      && let Some(size_y) = popped.1.as_ref().map(|y| match popped.0.combo_data.as_ref() {
+            None => y + CHAT_ITEM_SPACING_Y,
+            Some(combo_data) => 
+                if !self.enable_combos || combo_data.is_end && combo_data.count == 1 { y + CHAT_ITEM_SPACING_Y }
+                else if combo_data.is_end { 
+                    //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
+                    combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + CHAT_ITEM_SPACING_Y)
+                } 
+                else { 0. }
+        }) {
+            if size_y == 0. {
 
-          if self.selected_channel.is_none() || self.selected_channel.as_ref() == Some(&popped.0.channel) {
-            popped_height += height;
-          } else if self.rhs_selected_channel.is_none() || self.rhs_selected_channel.as_ref() == Some(&popped.0.channel) {
-            rhs_popped_height += height;
-          }
-        }
-      }
+            }
+            else if self.selected_channel.as_ref().is_some_and(|c| c == channel) {
+                popped_height += size_y;
+            }
+            else if self.rhs_selected_channel.as_ref().is_some_and(|c| c == channel) {
+                rhs_popped_height += size_y;
+            }
+        }    
     }
 
     let cframe = egui::Frame { 
@@ -276,12 +283,13 @@ impl TemplateApp {
         let lhs_response = self.show_chat_frame("lhs", ui, lhs_chat_state, ctx, rhs_active, popped_height);
         self.lhs_chat_state = lhs_response.state;
 
-        let rhs_response = if rhs_active {
+        if rhs_active {
             let rhs_chat_state = ChatPanelOptions {
                 selected_channel: self.rhs_selected_channel.to_owned(),
                 draft_message: self.rhs_chat_state.draft_message.to_owned(),
                 chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
                 chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
+                chat_scroll_lock_to_bottom: self.rhs_chat_state.chat_scroll_lock_to_bottom.to_owned(),
                 selected_user: self.rhs_chat_state.selected_user.to_owned(),
                 selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
                 selected_emote: self.rhs_chat_state.selected_emote.to_owned(),
@@ -292,16 +300,17 @@ impl TemplateApp {
             //let mut rhs_chat_state = self.rhs_chat_state.to_owned();
             let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
             self.rhs_chat_state = rhs_response.state;
-            Some(ChatFrameResponse { y_size: rhs_response.y_size, ..Default::default() })
-        } else { None };
+        }
 
         for _ in 0..self.last_frame_ui_events.len() {
           match self.last_frame_ui_events.pop_front() {
             Some(UiEvent::ChannelChangeLHS) => { 
-                self.lhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y: lhs_response.y_size }); 
+                self.lhs_chat_state.chat_scroll_lock_to_bottom = true;
+                self.lhs_chat_state.chat_scroll = Some(Vec2::ZERO);
             },
             Some(UiEvent::ChannelChangeRHS) => { 
-                self.rhs_chat_state.chat_scroll = Some(Vec2 { x: 0., y: rhs_response.as_ref().map(|f| f.y_size).unwrap_or(0.) }); 
+                self.rhs_chat_state.chat_scroll_lock_to_bottom = true;
+                self.rhs_chat_state.chat_scroll = Some(Vec2::ZERO);
             },
             Some(event) => self.last_frame_ui_events.push_back(event),
             _ => warn!("unexpected failure to pop last_frame_ui_events")

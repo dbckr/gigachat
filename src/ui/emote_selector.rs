@@ -92,18 +92,26 @@ impl TemplateApp {
         let next_history = outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::ArrowDown));
         
         if (prev_history || next_history) && let Some(sc) = chat_panel.selected_channel.as_ref() && let Some(sco) = self.channels.get_mut(sc) {
-            let mut ix = sco.shared().send_history_ix.unwrap_or(0);
-            let msg = sco.shared().send_history.get(ix);
+            let len = sco.shared().send_history.len();
+
+            let mut ix = sco.shared().send_history_ix.unwrap_or(len);
             if prev_history {
-                ix = ix.add(1).min(sco.shared().send_history.len() - 1);
-            } else {
                 ix = ix.saturating_sub(1);
+            } else {
+                ix = ix.add(1);
             };
+
+            let msg = sco.shared().send_history.get(ix);
             if let Some(msg) = msg {
-                draft_message = msg.to_owned();
+                draft_message.clone_from(msg);
                 outgoing_msg.state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(draft_message.len()))));
+
+                sco.shared_mut().send_history_ix = Some(ix);
+            } else {
+                draft_message = String::new();
+
+                sco.shared_mut().send_history_ix = None;
             }
-            sco.shared_mut().send_history_ix = Some(ix);
         }
         
         if outgoing_msg.response.has_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) && !draft_message.is_empty() {
@@ -117,7 +125,7 @@ impl TemplateApp {
                     match chat_tx.try_send(OutgoingMessage::Chat { channel: shared.channel_name.to_owned(), message: draft_message.replace('\n', " ") }) {
                         Err(e) => info!("Failed to send message: {}", e), //TODO: emit this into UI
                         _ => {
-                            shared.send_history.push_front(draft_message.trim_end().to_owned());
+                            shared.send_history.push(draft_message.trim_end().to_owned());
                             draft_message = String::new();
                             shared.send_history_ix = None;
                             chat_panel.selected_emote = None;
@@ -219,7 +227,7 @@ impl TemplateApp {
                                 hovered_emote = Some(emote_item);
                             }
                             
-                            if chat_panel.selected_emote.is_none() && word == disp_text{
+                            if chat_panel.selected_emote.is_none() && word == disp_text {
                                 chat_panel.selected_emote = Some(disp_text.to_owned());
                             } 
                             
