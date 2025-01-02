@@ -4,6 +4,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+use std::collections::HashMap;
+use std::hash::RandomState;
+
 use chrono::{DateTime, Utc};
 use egui::load::SizedTexture;
 use egui::{Align2, ImageSource, Layout, Rounding, TextStyle, TextureHandle, Vec2};
@@ -110,7 +113,7 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
 
     let mut height = 0.;
 
-    for (row_text, is_visible, _row_height, is_ascii_art) in chat_msg_rows {
+    for (row_text, is_visible, _row_height, _is_ascii_art) in chat_msg_rows {
 
       let mut last_emote_width : Option<(f32, f32)> = None;
       if is_visible {
@@ -197,8 +200,24 @@ pub fn display_chat_message(ui: &mut egui::Ui, chat_msg: &UiChatMessage, highlig
           }
         }
 
+        let words = row_text.split(' ').collect_vec();
+        let mut has_ascii_art = None;
+
         let mut italicize = false;
-        for word in row_text.split(' ') {
+        for (ix, word) in words.iter().enumerate() {
+            let word = *word;
+
+            has_ascii_art = match has_ascii_art {
+                None => is_start_of_ascii_art(&words, ix, &chat_msg.emotes),
+                Some(len) if word.len() == len => Some(len), // continuing ascii art
+                _ => None // end of ascii art
+            };
+            let is_ascii_art = has_ascii_art.is_some();
+
+            if is_ascii_art {
+                ui.end_row();
+            }
+
           if word == "ACTION" {
             italicize = true;
             continue;
@@ -409,4 +428,16 @@ pub fn get_chat_msg_header_layoutjob(
     });
   }
   job
+}
+
+const ASCII_ART_MIN_LINES : usize = 5;
+const ASCII_ART_MIN_LINE_WIDTH: usize = 15;
+
+fn is_start_of_ascii_art(words: &[&str], ix: usize, emotes: &HashMap<String, &Emote, RandomState>) -> Option<usize> {
+  if words.len() - ix >= ASCII_ART_MIN_LINES && words[ix].len() > ASCII_ART_MIN_LINE_WIDTH && !emotes.contains_key(words[ix]) && words[ix..ix + ASCII_ART_MIN_LINES].iter().map(|w| w.len()).all_equal() {
+    Some(words[ix].len())
+  }
+  else {
+    None
+  }
 }

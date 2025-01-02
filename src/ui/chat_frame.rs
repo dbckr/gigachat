@@ -46,8 +46,12 @@ impl TemplateApp {
             .drag_to_scroll(chat_panel.selected_emote.is_none() && self.last_frame_ui_events.is_empty())
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
 
-            if let Some(chat_scroll) = chat_panel.chat_scroll {
-                chat_area = chat_area.scroll_offset(egui::Vec2 {x: 0., y: chat_scroll.y - popped_height });
+            if let Some(chat_scroll) = chat_panel.chat_scroll.as_mut() {
+                if popped_height > 0. {
+                    chat_scroll.y -= popped_height;
+                }
+
+                chat_area = chat_area.scroll_offset(chat_scroll.to_owned());
             }
             
             let mut overlay_viewport : Rect = Rect::NOTHING;
