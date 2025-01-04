@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use tracing::{error, warn};
 use tracing_unwrap::{OptionExt, ResultExt};
 use std::collections::HashMap;
@@ -6,13 +12,12 @@ use crate::provider::{dgg, twitch::{self, TwitchChatManager}, Provider, Provider
 use crate::provider::channel::{Channel, YoutubeChannel, ChannelShared};
 use crate::emotes::EmoteRequest;
 
-
 use super::models::*;
 
 use super::TemplateApp;
 
 impl TemplateApp {
-    pub fn render_menubar(self: &mut Self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    pub fn render_menubar(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             egui::menu::bar(ui, |ui| {
                 if ui.menu_button(RichText::new("Add a channel").text_style(TextStyle::Small), |ui| { ui.close_menu(); }).response.clicked() {
@@ -108,7 +113,7 @@ impl TemplateApp {
                             ui.label("Not logged in");
                         }
                         if ui.button("Log In").clicked() {
-                            self.auth_tokens.twitch_auth_token = "".to_owned();
+                            self.auth_tokens.twitch_auth_token = String::new();
                             self.auth_tokens.show_twitch_auth_token = true;
                             ctx.open_url(OpenUrl::new_tab(twitch::authenticate()));
                         }
@@ -130,7 +135,7 @@ impl TemplateApp {
                             ui.label("Not logged in");
                         }
                         if ui.button("Log In").clicked() {
-                            self.auth_tokens.dgg_auth_token = "".to_owned();
+                            self.auth_tokens.dgg_auth_token = String::new();
                             self.auth_tokens.show_dgg_auth_token = true;
                             ctx.open_url(OpenUrl::new_tab("https://www.destiny.gg/profile/developer"));
                             //self.auth_tokens.dgg_verifier = dgg::begin_authenticate(ctx);
@@ -153,7 +158,7 @@ impl TemplateApp {
                         if twitch_token.starts_with('#') || twitch_token.starts_with("access") {
                             let rgx = regex::Regex::new("access_token=(.*?)&").unwrap_or_log();
                             let cleaned = rgx.captures(twitch_token.as_str()).unwrap_or_log().get(1).map_or("", |x| x.as_str());
-                            self.auth_tokens.twitch_auth_token = cleaned.to_owned();
+                            self.auth_tokens.twitch_auth_token.clone_from(&cleaned.to_owned());
                             if !cleaned.is_empty() {
                                 self.auth_tokens.show_twitch_auth_token = false;
                             }

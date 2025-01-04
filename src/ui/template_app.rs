@@ -68,12 +68,6 @@ impl TemplateApp {
       self.yt_chat_manager = Some(youtube_server::start_listening(self.runtime.as_ref().unwrap()));
     }
 
-    // workaround for odd rounding issues at certain DPI(s?)
-    /*if ctx.pixels_per_point() == 1.75 {
-      ctx.set_pixels_per_point(1.50);
-    }*/
-
-    //let mut i = 0;
     while let Ok(event) = self.emote_loader.rx.try_recv() {
       let loading_emotes = &mut self.emote_loader.loading_emotes;
       match event {
@@ -295,7 +289,7 @@ impl TemplateApp {
                 selected_emote: self.rhs_chat_state.selected_emote.to_owned(),
                 selected_emote_input: self.rhs_chat_state.selected_emote_input.to_owned()
             };
-            self.rhs_chat_state.selected_channel = self.rhs_selected_channel.to_owned();
+            self.rhs_chat_state.selected_channel.clone_from(&self.rhs_selected_channel);
 
             //let mut rhs_chat_state = self.rhs_chat_state.to_owned();
             let rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
@@ -323,7 +317,7 @@ impl TemplateApp {
             DragChannelTabState::DragStart(_channel, drag_start_tab_list) => {
                 if let Some(pos) = ctx.pointer_latest_pos() && rhs_rect.contains(pos) {
                     // revert any change to tab order while dragging
-                    self.channel_tab_list = drag_start_tab_list.to_owned();
+                    self.channel_tab_list.clone_from(drag_start_tab_list);
 
                     //paint rectangle to indicate drop will shift to other chat panel
                     ui.painter().rect_filled(rhs_rect, Rounding::ZERO, Color32::from_rgba_unmultiplied(40,40,40,150));
@@ -358,41 +352,6 @@ impl TemplateApp {
       });
     });
 
-    
-
-    /*let rect = cpanel_resp.response.rect;
-    if self.rhs_selected_channel.is_some() {
-      let mut rhs_response : ChatFrameResponse = Default::default();
-      let rhs_chat_state = ChatPanelOptions {
-        selected_channel: self.rhs_selected_channel.to_owned(),
-        draft_message: self.rhs_chat_state.draft_message.to_owned(),
-        chat_frame: self.rhs_chat_state.chat_frame.to_owned(),
-        chat_scroll: self.rhs_chat_state.chat_scroll.to_owned(),
-        selected_user: self.rhs_chat_state.selected_user.to_owned(),
-        selected_msg: self.rhs_chat_state.selected_msg.to_owned(),
-        selected_emote: self.rhs_chat_state.selected_emote.to_owned()
-      };
-
-      egui::Window::new("RHS Chat")
-      .frame(egui::Frame { 
-        inner_margin: egui::style::Margin::same(0.), 
-        outer_margin: egui::style::Margin { left: -3., right: 1., top: 0., bottom: 0. },
-        fill: egui::Color32::TRANSPARENT,
-        ..Default::default() 
-      })
-      .fixed_rect(Rect::from_two_pos(rect.center_top(), rect.right_bottom())
-        .shrink2(Vec2::new(3., 0.))
-        .translate(Vec2::new(5., 0.))
-      )
-      .title_bar(false)
-      .collapsible(false)
-      .show(ctx, |ui| {
-        rhs_response = self.show_chat_frame("rhs", ui, rhs_chat_state, ctx, false, rhs_popped_height);
-      });
-
-      self.rhs_chat_state = rhs_response.state;
-    }*/
-
     if let Some(channel) = channel_removed {
       if let Some(chat_mgr) = self.twitch_chat_manager.as_mut() {
         chat_mgr.leave_channel(&channel);
@@ -402,8 +361,6 @@ impl TemplateApp {
     }
 
     self.discarded_last_frame = ctx.will_discard();
-
-    //ctx.request_repaint();
   }
 
   fn handle_incoming_message(&mut self, x: IncomingMessage) {

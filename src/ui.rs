@@ -1,9 +1,14 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::collections::{HashMap, VecDeque};
 use egui::Vec2;
 use crate::provider::{twitch::TwitchChatManager, ChatMessage, Provider, ProviderName, ChatManager, channel::Channel};
 
 use crate::emotes::{Emote, EmoteLoader};
-use self::models::TextRange;
 
 mod template_app;
 
@@ -11,7 +16,6 @@ pub mod addtl_functions;
 pub mod consts;
 pub mod models;
 pub mod chat;
-pub mod chat_estimate;
 
 mod channel_tabs;
 mod chat_frame;

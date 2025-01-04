@@ -224,7 +224,7 @@ pub fn msg_context_menu(ui: &egui::Ui, point: &Vec2, msg: &ChatMessage) -> (Rect
       .stick_to_bottom(true);
     chat_area.show_viewport(ui, |ui, _viewport| {  
       if ui.button("Copy Message").clicked() {
-        ui.output_mut(|o| o.copied_text = msg.message.to_owned());
+        ui.output_mut(|o| o.copied_text.clone_from(&msg.message));
         clicked = true;
       }
     });
@@ -291,7 +291,7 @@ pub fn get_mentions_in_message(row: &ChatMessage, users: &HashMap<String, Channe
 
 pub fn get_emotes_for_message<'a>(row: &ChatMessage, provider_emotes: Option<&'a HashMap<String, Emote>>, channel_emotes: Option<&'a HashMap<String, Emote>>, global_emotes: &'a HashMap<String, Emote>) -> HashMap<String, &'a Emote> {
   let mut result : HashMap<String, &Emote> = Default::default();
-  let results = row.message.to_owned().split(' ').filter_map(|word| {
+  let results = row.message.split(' ').filter_map(|word| {
     if let Some(channel_emotes) = channel_emotes && let Some(emote) = channel_emotes.get(word) {
       Some(emote)
     }

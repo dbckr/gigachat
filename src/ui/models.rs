@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use chrono::{DateTime, Utc};
 use egui::{Color32, Pos2, Rect, Vec2};
 
@@ -184,7 +190,7 @@ pub struct HistoryIterator<'a> {
       let filtered_iters = self.iterators.iter_mut();
       for (i, iter) in filtered_iters.enumerate() {
         if let Some((msg, _y)) = iter.peek() && msg.timestamp < ts {
-          ts = msg.timestamp.to_owned();
+          ts.clone_from(&msg.timestamp);
           min_i = i;
         }
       }

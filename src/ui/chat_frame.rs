@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::collections::HashMap;
 
 use egui::Align;
@@ -80,8 +86,6 @@ impl TemplateApp {
             }
 
             let jump_rect = if area.content_size.y - (area.state.offset.y + y_size_new + area.inner_rect.height()) > 8. {
-            //if (area.state.offset.y - (y_size - area.inner_rect.height())).abs() > 1. && y_size > area.inner_rect.height() {
-            //if (area.content_size.y - overlay_viewport.max.y).abs() > 1. {
                 let rect = Rect {
                     min: Pos2 { x: area.inner_rect.max.x - 60., y: area.inner_rect.max.y - 70. },
                     max: area.inner_rect.max
@@ -184,11 +188,6 @@ impl TemplateApp {
         let mut y_pos_visible = 0.0;
         let mut y_size_from_new_messages = 0.0;
         let mut set_selected_msg : Option<ChatMessage> = None;
-            
-        //let y_min = ui.max_rect().top() + viewport.min.y;
-        //let y_max = ui.max_rect().top() + viewport.max.y;
-        //let rect = Rect::from_x_y_ranges(ui.max_rect().x_range(), y_min..=y_max);
-        //let mut in_view : Vec<UiChatMessage> = Default::default();
         let mut skipped_rows = 0;
         
         let mut _visible_rows: usize = 0;
@@ -256,7 +255,6 @@ impl TemplateApp {
                 Some(combo_data) => 
                     if !*enable_combos || combo_data.is_end && combo_data.count == 1 { y + CHAT_ITEM_SPACING_Y }
                     else if combo_data.is_end { 
-                        //TODO: don't need this? since it will not be skipped if a cached_height has not been calc'd yet
                         combo_data.cached_height.unwrap_or(COMBO_LINE_HEIGHT + CHAT_ITEM_SPACING_Y)
                     } 
                     else { 0. }
@@ -286,9 +284,7 @@ impl TemplateApp {
             
             let chat_msg = create_uichatmessage(row, show_channel_names, *show_timestamps, *show_muted, providers, channels, global_emotes);
 
-            //TODO: remove this once viewport overflow check is added
             if cached_y.is_none() && (chat_msg.message.combo_data.is_none() || chat_msg.message.combo_data.as_ref().is_some_and(|f| f.is_new)) && !self.discarded_last_frame {
-                //error!("new message -- frame discard");
                 ui.ctx().request_discard("new chat msg");
                 self.discarded_last_frame = true;
             }
@@ -353,8 +349,6 @@ impl TemplateApp {
             //ui.end_row();
             rows_drawn += 1;
         }
-
-        //TODO: determine if viewport area overflowed -- if so, do not paint this frame
 
         // "draw" the empty space after the viewport area
         ui.add_space(y_pos - y_pos_before_visible - y_pos_visible - CHAT_ITEM_SPACING_Y);

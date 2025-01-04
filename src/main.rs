@@ -33,7 +33,7 @@ fn main() {
   };
   native_options.viewport = native_options.viewport.with_transparent(true);
 
-  match eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
+  if let Err(e) = eframe::run_native("Gigachat", native_options, Box::new(|cc| { 
     cc.egui_ctx.set_fonts(gigachat::ui::addtl_functions::load_font());
     let runtime = tokio::runtime::Runtime::new().expect_or_log("new tokio Runtime");
     let mut app = TemplateApp::new(cc, runtime);
@@ -43,10 +43,7 @@ fn main() {
       Err(e) => { error!("Failed to request global emote json due to error {:?}", e); }
     };
     Ok(Box::new(app))
-  })) {
-    Ok(_) => (),
-    Err(e) => { error!("Error: {:?}", e); }
-  };
+  })) { error!("Error: {:?}", e); };
 }
 
 fn init_logging(args: Vec<String>) -> WorkerGuard {

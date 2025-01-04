@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
 use std::ops::Add;
 
 use egui::text::LayoutJob;
@@ -25,7 +31,7 @@ use super::models::*;
 impl TemplateApp {
     
     pub fn render_textbox_and_emote_selector(
-        self: &mut Self, 
+        &mut self, 
         ui: &mut egui::Ui, 
         ctx: &egui::Context, 
         id: &str,
@@ -146,7 +152,7 @@ impl TemplateApp {
             let word_input = word.map(|x| (x.0.to_owned(), x.1.to_owned()));
             
             if chat_panel.selected_emote_input.is_none() || chat_panel.selected_emote.is_none() {
-                chat_panel.selected_emote_input = word_input.to_owned();
+                chat_panel.selected_emote_input.clone_from(&word_input);
             }
             
             if let Some((pos, word)) = chat_panel.selected_emote_input.as_ref().or(word_input.as_ref()) {

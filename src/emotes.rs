@@ -231,7 +231,7 @@ fn get_texture<'a>(emote: &'a Emote, ctx: &Context) -> Option<&'a TextureHandle>
             ctx.request_repaint_after(std::time::Duration::from_millis(msec_to_next_frame.into()));
           }
           
-          return result_frame;
+          result_frame
         }
         else if let Some((frame, _delay)) = frames.first() {
           Some(frame)
@@ -665,7 +665,7 @@ impl AddEmote for Channel {
       Ok(mut emotes) => {
         for (_, emote) in emotes.iter_mut() {
           emote.source = EmoteSource::Channel;
-          emote.channel_name = self.channel_name().to_owned();
+          emote.channel_name.clone_from(self.channel_name());
         }
         let shared = match self {
           Channel::DGG { dgg: _, ref mut shared } => shared,
@@ -684,7 +684,7 @@ impl AddEmote for Channel {
       Ok(mut badges) => {
         for (_, badge) in badges.iter_mut() {
           badge.source = EmoteSource::ChannelBadge;
-          badge.channel_name = self.channel_name().to_owned();
+          badge.channel_name.clone_from(self.channel_name());
         }
         let shared = match self {
           Channel::DGG { dgg: _, ref mut shared } => shared,
