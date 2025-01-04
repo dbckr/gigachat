@@ -257,7 +257,7 @@ impl TemplateApp {
                             if format != SelectorFormat::EmoteOnly {
                                 //ui.put(emote_img_rect, egui::Label::new(disp_text));
                                 painter.text(
-                                    emote_img_rect.left_center(),
+                                    emote_img_rect.right_center(),
                                     egui::Align2::LEFT_CENTER,
                                     disp_text,
                                     get_body_text_style(ctx),
